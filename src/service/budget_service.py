@@ -5,12 +5,14 @@ class BudgetService:
     def __init__(self):
         self._repository = BudgetRepository()
 
-    def get_budget_by_user(self, user_id: int):
-        # Implement the logic to retrieve budget data by user ID
-        # Example:
-        # budget_data = self._repository.get_budget_by_user_id(user_id)
-        # return budget_data
-        pass  # Replace with actual implementation
+    def get_all(self, session: Session):
+        return self._repository.get_all(session)
+
+    def get_budget_by_id(self, session: Session, budget_id: str):
+        return self._repository.get_budget_by_id(session, budget_id)
+
+    def get_budget_by_user(self, user_id: int, session: Session):
+        return self._repository.get_budget_by_user_id(session, user_id)
 
     def create_budget(self, session: Session, budget_data: dict):
         # Implement the logic to create a new budget for the specified user
@@ -19,6 +21,6 @@ class BudgetService:
         # return new_budget
         return self._repository.create_budget(session, budget_data)
     
-    def add_people_to_budget(self, session: Session, budget_id: str, people: list[dict]):
+    def add_people_to_budget(self, session: Session, budget_id: str, people: list[Person]):
         # Implement the logic to add people to a budget
         return self._repository.add_people_to_budget(session, budget_id, people)
