@@ -1,4 +1,0 @@
-fastapi[standard]==0.125.0
-pydantic-settings==2.12.0
-sqlmodel==0.0.31
-psycopg2==2.9.11

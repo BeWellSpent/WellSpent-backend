@@ -1,0 +1,10 @@
+version: v2
+inputs:
+  - module: buf.build/xpendsense/spendsense
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.35.1
+    out: gen
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/go:v1.17.0
+    out: gen
+    opt: paths=source_relative

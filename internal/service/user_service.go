@@ -1,0 +1,58 @@
+package service
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/google/uuid"
+	"github.com/mauro-afa91/spendsense/internal/apperr"
+	"github.com/mauro-afa91/spendsense/internal/repository"
+	db "github.com/mauro-afa91/spendsense/internal/sqlc"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type UserService struct {
+	users repository.UserRepository
+}
+
+func NewUserService(users repository.UserRepository) *UserService {
+	return &UserService{users: users}
+}
+
+func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (db.User, error) {
+	return s.users.GetByID(ctx, id)
+}
+
+func (s *UserService) Update(ctx context.Context, id uuid.UUID, firstName, lastName *string) (db.User, error) {
+	return s.users.Update(ctx, db.UpdateUserParams{
+		ID:        id,
+		FirstName: firstName,
+		LastName:  lastName,
+	})
+}
+
+func (s *UserService) ChangePassword(ctx context.Context, id uuid.UUID, currentPassword, newPassword string) error {
+	user, err := s.users.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if user.HashedPassword == nil {
+		return apperr.Invalid("account uses OAuth login only")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(*user.HashedPassword), []byte(currentPassword)); err != nil {
+		return apperr.Invalid("current password is incorrect")
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("user: hash password: %w", err)
+	}
+	hashedStr := string(hashed)
+	return s.users.UpdatePassword(ctx, db.UpdateUserPasswordParams{
+		ID:             id,
+		HashedPassword: &hashedStr,
+	})
+}
+
+func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {
+	return s.users.Delete(ctx, id)
+}

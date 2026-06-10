@@ -1,0 +1,326 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "E:\\SpendSense-backend\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\repository\\expensesrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\repository\\expensesrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\entity\\model\\expensemodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\entity\\model\\expensemodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\model\\expense.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\model\\expense.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\controllers\\expensescontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\controllers\\expensescontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\entity\\model\\usersmodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\entity\\model\\usersmodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\entity\\model\\expensetypemodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\entity\\model\\expensetypemodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\controllers\\usercontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\controllers\\usercontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\entity\\context\\spendsensedbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\entity\\context\\spendsensedbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\appsettings.development.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\appsettings.development.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\properties\\launchsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\properties\\launchsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\repository\\usersrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\repository\\usersrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{D5FE78FB-C132-476E-A881-DB8AFEFF8946}|tests\\SpendSense.Tests\\SpendSense.Tests.csproj|e:\\spendsense-backend\\tests\\spendsense.tests\\unittest1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{D5FE78FB-C132-476E-A881-DB8AFEFF8946}|tests\\SpendSense.Tests\\SpendSense.Tests.csproj|solutionrelative:tests\\spendsense.tests\\unittest1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\model\\paymentmethod.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\model\\paymentmethod.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\model\\enums\\paymenttype.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\model\\enums\\paymenttype.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\model\\saving.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\model\\saving.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\model\\income.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\model\\income.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\model\\budget.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\model\\budget.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|e:\\spendsense-backend\\src\\model\\users.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{19317912-AC4B-45A3-1276-85453B678B5B}|src\\SpendSense.csproj|solutionrelative:src\\model\\users.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 4,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "Program.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Program.cs",
+              "RelativeDocumentMoniker": "src\\Program.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Program.cs",
+              "RelativeToolTip": "src\\Program.cs",
+              "ViewState": "AgIAAAwAAAAAAAAAAAAAAB0AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T16:13:26.91Z",
+              "IsPinned": true
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 17,
+              "Title": "Budget.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Model\\Budget.cs",
+              "RelativeDocumentMoniker": "src\\Model\\Budget.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Model\\Budget.cs",
+              "RelativeToolTip": "src\\Model\\Budget.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABEAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T19:13:25.376Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 18,
+              "Title": "Users.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Model\\Users.cs",
+              "RelativeDocumentMoniker": "src\\Model\\Users.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Model\\Users.cs",
+              "RelativeToolTip": "src\\Model\\Users.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAqwAkAAAAsAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T19:08:42.326Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "ExpenseModel.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Entity\\Model\\ExpenseModel.cs",
+              "RelativeDocumentMoniker": "src\\Entity\\Model\\ExpenseModel.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Entity\\Model\\ExpenseModel.cs",
+              "RelativeToolTip": "src\\Entity\\Model\\ExpenseModel.cs",
+              "ViewState": "AgIAABAAAAAAAAAAAAAiwDAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T18:19:36.616Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "ExpensesRepository.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Repository\\ExpensesRepository.cs",
+              "RelativeDocumentMoniker": "src\\Repository\\ExpensesRepository.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Repository\\ExpensesRepository.cs",
+              "RelativeToolTip": "src\\Repository\\ExpensesRepository.cs",
+              "ViewState": "AgIAAAcAAAAAAAAAAIA5wCUAAAAWAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T18:15:05.547Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "UsersRepository.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Repository\\UsersRepository.cs",
+              "RelativeDocumentMoniker": "src\\Repository\\UsersRepository.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Repository\\UsersRepository.cs",
+              "RelativeToolTip": "src\\Repository\\UsersRepository.cs",
+              "ViewState": "AgIAAAYAAAAAAAAAAAAAABMAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T16:15:03.365Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "SpendSenseDbContext.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Entity\\Context\\SpendSenseDbContext.cs",
+              "RelativeDocumentMoniker": "src\\Entity\\Context\\SpendSenseDbContext.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Entity\\Context\\SpendSenseDbContext.cs",
+              "RelativeToolTip": "src\\Entity\\Context\\SpendSenseDbContext.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABQAAABFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T16:37:00.073Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "UserController.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Controllers\\UserController.cs",
+              "RelativeDocumentMoniker": "src\\Controllers\\UserController.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Controllers\\UserController.cs",
+              "RelativeToolTip": "src\\Controllers\\UserController.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABMAAAAqAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T17:46:49Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "ExpensesController.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Controllers\\ExpensesController.cs",
+              "RelativeDocumentMoniker": "src\\Controllers\\ExpensesController.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Controllers\\ExpensesController.cs",
+              "RelativeToolTip": "src\\Controllers\\ExpensesController.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABUAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T18:12:47.476Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "appsettings.Development.json",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\appsettings.Development.json",
+              "RelativeDocumentMoniker": "src\\appsettings.Development.json",
+              "ToolTip": "E:\\SpendSense-backend\\src\\appsettings.Development.json",
+              "RelativeToolTip": "src\\appsettings.Development.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAQAAAAiAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2025-10-06T16:29:37.543Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "ExpenseTypeModel.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Entity\\Model\\ExpenseTypeModel.cs",
+              "RelativeDocumentMoniker": "src\\Entity\\Model\\ExpenseTypeModel.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Entity\\Model\\ExpenseTypeModel.cs",
+              "RelativeToolTip": "src\\Entity\\Model\\ExpenseTypeModel.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAqwAcAAAAYAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T19:27:38.758Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "UsersModel.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Entity\\Model\\UsersModel.cs",
+              "RelativeDocumentMoniker": "src\\Entity\\Model\\UsersModel.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Entity\\Model\\UsersModel.cs",
+              "RelativeToolTip": "src\\Entity\\Model\\UsersModel.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAqwAcAAAARAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T19:08:33.826Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "Expense.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Model\\Expense.cs",
+              "RelativeDocumentMoniker": "src\\Model\\Expense.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Model\\Expense.cs",
+              "RelativeToolTip": "src\\Model\\Expense.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAsAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T19:26:42.023Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 16,
+              "Title": "Income.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Model\\Income.cs",
+              "RelativeDocumentMoniker": "src\\Model\\Income.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Model\\Income.cs",
+              "RelativeToolTip": "src\\Model\\Income.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAqwAYAAAAdAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T19:22:20.306Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 15,
+              "Title": "Saving.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Model\\Saving.cs",
+              "RelativeDocumentMoniker": "src\\Model\\Saving.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Model\\Saving.cs",
+              "RelativeToolTip": "src\\Model\\Saving.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAqwAsAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T19:22:46.884Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "launchSettings.json",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Properties\\launchSettings.json",
+              "RelativeDocumentMoniker": "src\\Properties\\launchSettings.json",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Properties\\launchSettings.json",
+              "RelativeToolTip": "src\\Properties\\launchSettings.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABAAAABGAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2025-10-06T21:31:24.559Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "UnitTest1.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\tests\\SpendSense.Tests\\UnitTest1.cs",
+              "RelativeDocumentMoniker": "tests\\SpendSense.Tests\\UnitTest1.cs",
+              "ToolTip": "E:\\SpendSense-backend\\tests\\SpendSense.Tests\\UnitTest1.cs",
+              "RelativeToolTip": "tests\\SpendSense.Tests\\UnitTest1.cs",
+              "ViewState": "AgIAADMAAAAAAAAAAAAowEoAAAAbAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T19:33:16.474Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "PaymentMethod.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Model\\PaymentMethod.cs",
+              "RelativeDocumentMoniker": "src\\Model\\PaymentMethod.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Model\\PaymentMethod.cs",
+              "RelativeToolTip": "src\\Model\\PaymentMethod.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAqwAYAAAAeAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T19:37:51.183Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "PaymentType.cs",
+              "DocumentMoniker": "E:\\SpendSense-backend\\src\\Model\\Enums\\PaymentType.cs",
+              "RelativeDocumentMoniker": "src\\Model\\Enums\\PaymentType.cs",
+              "ToolTip": "E:\\SpendSense-backend\\src\\Model\\Enums\\PaymentType.cs",
+              "RelativeToolTip": "src\\Model\\Enums\\PaymentType.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA4AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T20:09:57.679Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
