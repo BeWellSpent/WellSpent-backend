@@ -18,13 +18,15 @@ jobs:
           go-version: '1.23'
           cache: true
 
-      - uses: bufbuild/buf-action@v1
-        with:
-          token: ${{ secrets.BUF_TOKEN }}
-          lint: false
-          format: false
-          breaking: false
-          push: false
+      - name: Install buf
+        run: |
+          curl -sSL \
+            "https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64" \
+            -o /usr/local/bin/buf
+          chmod +x /usr/local/bin/buf
+
+      - name: Authenticate buf
+        run: echo "${{ secrets.BUF_TOKEN }}" | buf registry login buf.build --token-stdin
 
       - name: Generate proto code
         run: buf generate
