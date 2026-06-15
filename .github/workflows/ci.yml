@@ -51,8 +51,11 @@ jobs:
 
       - name: Run migrations
         run: |
-          DATABASE_URL=$(grep '^DATABASE_URL=' .env.dev | cut -d= -f2- | tr -d '\r')
-          goose -dir ./internal/db/migrations postgres "$DATABASE_URL" up
+          export GOOSE_DBSTRING=$(grep '^DATABASE_URL=' .env.dev | cut -d= -f2- | tr -d '\r')
+          echo "GOOSE_DBSTRING length: ${#GOOSE_DBSTRING}"
+          echo "Keys in .env.dev: $(grep -o '^[^=]*' .env.dev | tr '\n' ' ')"
+          export GOOSE_DRIVER=postgres
+          goose -dir ./internal/db/migrations up
 
       - name: Download dependencies
         run: go mod download
