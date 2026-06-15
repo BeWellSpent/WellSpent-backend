@@ -54,7 +54,7 @@ jobs:
 
       - name: Run migrations
         run: |
-          DATABASE_URL=$(grep '^DATABASE_URL=' .env.dev | cut -d= -f2-)
+          DATABASE_URL=$(grep '^DATABASE_URL=' .env.dev | cut -d= -f2- | sed 's|postgresql://|postgres://|')
           migrate -path internal/db/migrations -database "$DATABASE_URL" up
 
       - name: Download dependencies
