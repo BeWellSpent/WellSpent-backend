@@ -74,3 +74,7 @@ func (s *TransactionService) ListPaymentMethods(ctx context.Context, userID uuid
 func (s *TransactionService) CreatePaymentMethod(ctx context.Context, arg db.CreatePaymentMethodParams) (db.PaymentMethod, error) {
 	return s.transactions.CreatePaymentMethod(ctx, arg)
 }
+
+func (s *TransactionService) UpdatePaymentMethod(ctx context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error) {
+	return s.transactions.UpdatePaymentMethod(ctx, arg)
+}

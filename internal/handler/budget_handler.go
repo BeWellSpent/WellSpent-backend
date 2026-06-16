@@ -6,6 +6,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	v1 "github.com/mauro-afa91/spendsense/gen/spendsense/v1"
+	"github.com/mauro-afa91/spendsense/internal/apperr"
 	"github.com/mauro-afa91/spendsense/internal/middleware"
 	"github.com/mauro-afa91/spendsense/internal/service"
 	db "github.com/mauro-afa91/spendsense/internal/sqlc"
@@ -481,6 +482,36 @@ func (h *BudgetHandler) CreatePaymentMethod(ctx context.Context, req *connect.Re
 			Id:   method.ID.String(),
 			Name: method.Name,
 			Type: req.Msg.Type,
+		},
+	}), nil
+}
+
+func (h *BudgetHandler) UpdatePaymentMethod(ctx context.Context, req *connect.Request[v1.UpdatePaymentMethodRequest]) (*connect.Response[v1.UpdatePaymentMethodResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(req.Msg.Id)
+	if err != nil {
+		return nil, toConnectError(apperr.Invalid("invalid payment method id"))
+	}
+	method, svcErr := h.transactions.UpdatePaymentMethod(ctx, db.UpdatePaymentMethodParams{
+		ID:     id,
+		Name:   req.Msg.Name,
+		UserID: userID,
+	})
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	var typeVal v1.PaymentType
+	if method.PaymentTypeID != nil {
+		typeVal = v1.PaymentType(*method.PaymentTypeID)
+	}
+	return connect.NewResponse(&v1.UpdatePaymentMethodResponse{
+		Method: &v1.PaymentMethod{
+			Id:   method.ID.String(),
+			Name: method.Name,
+			Type: typeVal,
 		},
 	}), nil
 }

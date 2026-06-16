@@ -329,6 +329,31 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 	return items, nil
 }
 
+const updatePaymentMethod = `-- name: UpdatePaymentMethod :one
+UPDATE payment_methods
+SET name = $1
+WHERE id = $2 AND user_id = $3::uuid
+RETURNING id, name, payment_type_id, user_id
+`
+
+type UpdatePaymentMethodParams struct {
+	Name   string    `json:"name"`
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMethodParams) (PaymentMethod, error) {
+	row := q.db.QueryRow(ctx, updatePaymentMethod, arg.Name, arg.ID, arg.UserID)
+	var i PaymentMethod
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.PaymentTypeID,
+		&i.UserID,
+	)
+	return i, err
+}
+
 const updateTransaction = `-- name: UpdateTransaction :one
 UPDATE transaction
 SET name = $2, amount = $3, planned_amount = $4, date = $5, recurring = $6,

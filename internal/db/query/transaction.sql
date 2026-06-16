@@ -57,6 +57,12 @@ INSERT INTO payment_methods (name, payment_type_id, user_id)
 VALUES ($1, $2, $3)
 RETURNING id, name, payment_type_id, user_id;
 
+-- name: UpdatePaymentMethod :one
+UPDATE payment_methods
+SET name = sqlc.arg('name')
+WHERE id = sqlc.arg('id') AND user_id = sqlc.arg('user_id')::uuid
+RETURNING id, name, payment_type_id, user_id;
+
 -- name: ListTransactionTypes :many
 SELECT id, name FROM transaction_type ORDER BY id;
 

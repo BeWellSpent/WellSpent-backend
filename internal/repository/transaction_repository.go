@@ -22,6 +22,7 @@ type TransactionRepository interface {
 
 	ListPaymentMethods(ctx context.Context, userID uuid.UUID) ([]db.ListPaymentMethodsRow, error)
 	CreatePaymentMethod(ctx context.Context, arg db.CreatePaymentMethodParams) (db.PaymentMethod, error)
+	UpdatePaymentMethod(ctx context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
 }
 
 type transactionRepository struct {
@@ -74,4 +75,12 @@ func (r *transactionRepository) ListPaymentMethods(ctx context.Context, userID u
 
 func (r *transactionRepository) CreatePaymentMethod(ctx context.Context, arg db.CreatePaymentMethodParams) (db.PaymentMethod, error) {
 	return r.q.CreatePaymentMethod(ctx, arg)
+}
+
+func (r *transactionRepository) UpdatePaymentMethod(ctx context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error) {
+	m, err := r.q.UpdatePaymentMethod(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.PaymentMethod{}, apperr.NotFound("payment_method", arg.ID.String())
+	}
+	return m, err
 }
