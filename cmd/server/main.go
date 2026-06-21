@@ -80,7 +80,7 @@ func main() {
 	mux.Handle(spendsensev1connect.NewBudgetServiceHandler(handler.NewBudgetHandler(budgetSvc, transactionSvc), interceptors))
 
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"},
+		AllowedOrigins:   cfg.CORSAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type", "Connect-Protocol-Version", "Connect-Timeout-Ms"},
 		AllowCredentials: true,

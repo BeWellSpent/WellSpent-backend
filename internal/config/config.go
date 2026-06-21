@@ -9,14 +9,15 @@ import (
 )
 
 type Config struct {
-	DatabaseURL         string `envconfig:"DATABASE_URL" required:"true"`
-	JWTSecret           string `envconfig:"JWT_SECRET" required:"true"`
-	JWTLifetimeSeconds  int    `envconfig:"JWT_LIFETIME_SECONDS" default:"3600"`
-	GoogleClientID      string `envconfig:"GOOGLE_CLIENT_ID"`
-	GoogleClientSecret  string `envconfig:"GOOGLE_CLIENT_SECRET"`
-	Debug               bool   `envconfig:"DEBUG" default:"false"`
-	Env                 string `envconfig:"ENV" default:"dev"`
-	ServerPort          string `envconfig:"SERVER_PORT" default:"8080"`
+	DatabaseURL         string   `envconfig:"DATABASE_URL" required:"true"`
+	JWTSecret           string   `envconfig:"JWT_SECRET" required:"true"`
+	JWTLifetimeSeconds  int      `envconfig:"JWT_LIFETIME_SECONDS" default:"3600"`
+	GoogleClientID      string   `envconfig:"GOOGLE_CLIENT_ID"`
+	GoogleClientSecret  string   `envconfig:"GOOGLE_CLIENT_SECRET"`
+	CORSAllowedOrigins  []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"http://localhost:5173,http://localhost:3000"`
+	Debug               bool     `envconfig:"DEBUG" default:"false"`
+	Env                 string   `envconfig:"ENV" default:"dev"`
+	ServerPort          string   `envconfig:"SERVER_PORT" default:"8080"`
 }
 
 func Load() (*Config, error) {
