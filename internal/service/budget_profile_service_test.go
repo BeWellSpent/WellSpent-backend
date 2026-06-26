@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -39,6 +40,10 @@ type mockBudgetProfileRepo struct {
 	listIncomeEntries            func(context.Context, uuid.UUID) ([]db.IncomeEntry, error)
 	createIncomeEntry            func(context.Context, db.CreateIncomeEntryParams) (db.IncomeEntry, error)
 	updateIncomeEntry            func(context.Context, db.UpdateIncomeEntryParams) (db.IncomeEntry, error)
+	addSavingsSource             func(context.Context, db.AddSavingsSourceParams) (db.SavingsSource, error)
+	listSavingsSources           func(context.Context, uuid.UUID) ([]db.SavingsSource, error)
+	updateSavingsSource          func(context.Context, db.UpdateSavingsSourceParams) (db.SavingsSource, error)
+	deleteSavingsSource          func(context.Context, db.DeleteSavingsSourceParams) error
 }
 
 func (m *mockBudgetProfileRepo) ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
@@ -193,6 +198,31 @@ func (m *mockBudgetProfileRepo) UpdateIncomeEntry(ctx context.Context, arg db.Up
 	return db.IncomeEntry{ID: arg.ID, BudgetPeriodID: arg.BudgetPeriodID, Amount: arg.Amount}, nil
 }
 
+func (m *mockBudgetProfileRepo) AddSavingsSource(ctx context.Context, arg db.AddSavingsSourceParams) (db.SavingsSource, error) {
+	if m.addSavingsSource != nil {
+		return m.addSavingsSource(ctx, arg)
+	}
+	return db.SavingsSource{BudgetProfileID: arg.BudgetProfileID, Name: arg.Name, Frequency: arg.Frequency, Recurring: arg.Recurring}, nil
+}
+func (m *mockBudgetProfileRepo) ListSavingsSources(ctx context.Context, profileID uuid.UUID) ([]db.SavingsSource, error) {
+	if m.listSavingsSources != nil {
+		return m.listSavingsSources(ctx, profileID)
+	}
+	return nil, nil
+}
+func (m *mockBudgetProfileRepo) UpdateSavingsSource(ctx context.Context, arg db.UpdateSavingsSourceParams) (db.SavingsSource, error) {
+	if m.updateSavingsSource != nil {
+		return m.updateSavingsSource(ctx, arg)
+	}
+	return db.SavingsSource{ID: arg.ID, BudgetProfileID: arg.BudgetProfileID, Name: arg.Name}, nil
+}
+func (m *mockBudgetProfileRepo) DeleteSavingsSource(ctx context.Context, arg db.DeleteSavingsSourceParams) error {
+	if m.deleteSavingsSource != nil {
+		return m.deleteSavingsSource(ctx, arg)
+	}
+	return nil
+}
+
 // ── BudgetProfileService tests ────────────────────────────────────────────────
 
 func TestCreateBudgetProfile_Success(t *testing.T) {
@@ -314,6 +344,163 @@ func TestAddIncomeSource_Success(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Salary", src.Name)
+}
+
+// ── Savings source tests ──────────────────────────────────────────────────────
+
+func TestAddSavingsSource_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	personID := int32(1)
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			addSavingsSource: func(_ context.Context, arg db.AddSavingsSourceParams) (db.SavingsSource, error) {
+				assert.Equal(t, "Emergency Fund", arg.Name)
+				assert.Equal(t, "bi_weekly", arg.Frequency)
+				assert.True(t, arg.Recurring)
+				require.NotNil(t, arg.BudgetPersonID)
+				assert.Equal(t, personID, *arg.BudgetPersonID)
+				return db.SavingsSource{ID: 1, BudgetProfileID: profileID, Name: arg.Name, Frequency: arg.Frequency}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockUserRepo{},
+	)
+
+	src, err := svc.AddSavingsSource(context.Background(), profileID, userID, SavingsSourceInput{
+		Name:           "Emergency Fund",
+		Frequency:      "bi_weekly",
+		Recurring:      true,
+		BudgetPersonID: &personID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Emergency Fund", src.Name)
+	assert.Equal(t, "bi_weekly", src.Frequency)
+}
+
+func TestAddSavingsSource_Forbidden(t *testing.T) {
+	ownerID := uuid.New()
+	otherID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.AddSavingsSource(context.Background(), profileID, otherID, SavingsSourceInput{Name: "Fund"})
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	assert.True(t, errors.As(err, &forbidden))
+}
+
+func TestListSavingsSources_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			listSavingsSources: func(_ context.Context, _ uuid.UUID) ([]db.SavingsSource, error) {
+				return []db.SavingsSource{
+					{ID: 1, Name: "Emergency Fund", Frequency: "bi_weekly"},
+					{ID: 2, Name: "Vacation", Frequency: "monthly"},
+				}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockUserRepo{},
+	)
+
+	sources, err := svc.ListSavingsSources(context.Background(), profileID, userID)
+	require.NoError(t, err)
+	assert.Len(t, sources, 2)
+	assert.Equal(t, "Emergency Fund", sources[0].Name)
+}
+
+func TestUpdateSavingsSource_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			updateSavingsSource: func(_ context.Context, arg db.UpdateSavingsSourceParams) (db.SavingsSource, error) {
+				assert.Equal(t, int32(1), arg.ID)
+				assert.Equal(t, "Renamed Fund", arg.Name)
+				return db.SavingsSource{ID: arg.ID, Name: arg.Name}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockUserRepo{},
+	)
+
+	src, err := svc.UpdateSavingsSource(context.Background(), 1, profileID, userID, SavingsSourceInput{
+		Name:      "Renamed Fund",
+		Frequency: "monthly",
+		Recurring: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Renamed Fund", src.Name)
+}
+
+func TestDeleteSavingsSource_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	deleted := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			deleteSavingsSource: func(_ context.Context, arg db.DeleteSavingsSourceParams) error {
+				assert.Equal(t, int32(5), arg.ID)
+				deleted = true
+				return nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockUserRepo{},
+	)
+
+	err := svc.DeleteSavingsSource(context.Background(), 5, profileID, userID)
+	require.NoError(t, err)
+	assert.True(t, deleted)
+}
+
+func TestDeleteSavingsSource_Forbidden(t *testing.T) {
+	ownerID := uuid.New()
+	otherID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockUserRepo{},
+	)
+
+	err := svc.DeleteSavingsSource(context.Background(), 1, profileID, otherID)
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	assert.True(t, errors.As(err, &forbidden))
 }
 
 // mockUserRepo is defined in auth_service_test.go (same package).

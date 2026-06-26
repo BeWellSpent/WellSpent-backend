@@ -59,14 +59,15 @@ type IncomeEntry struct {
 }
 
 type IncomeSource struct {
-	ID              int32              `json:"id"`
-	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
-	BudgetPersonID  *int32             `json:"budget_person_id"`
-	Name            string             `json:"name"`
-	IncomeType      string             `json:"income_type"`
-	DefaultAmount   pgtype.Numeric     `json:"default_amount"`
-	Recurring       bool               `json:"recurring"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ID               int32              `json:"id"`
+	BudgetProfileID  uuid.UUID          `json:"budget_profile_id"`
+	BudgetPersonID   *int32             `json:"budget_person_id"`
+	Name             string             `json:"name"`
+	IncomeType       string             `json:"income_type"`
+	DefaultAmount    pgtype.Numeric     `json:"default_amount"`
+	Recurring        bool               `json:"recurring"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	PaymentFrequency string             `json:"payment_frequency"`
 }
 
 type OauthAccount struct {
@@ -89,6 +90,17 @@ type PaymentMethod struct {
 type PaymentType struct {
 	ID   int32  `json:"id"`
 	Name string `json:"name"`
+}
+
+type SavingsSource struct {
+	ID              int32              `json:"id"`
+	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
+	BudgetPersonID  *int32             `json:"budget_person_id"`
+	Name            string             `json:"name"`
+	Amount          pgtype.Numeric     `json:"amount"`
+	Frequency       string             `json:"frequency"`
+	Recurring       bool               `json:"recurring"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
 type Transaction struct {

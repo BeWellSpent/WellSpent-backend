@@ -136,24 +136,46 @@ WHERE budget_to_profile_mapping.id = sqlc.arg('person_id')
 -- ── Income Sources ────────────────────────────────────────────────────────────
 
 -- name: AddIncomeSource :one
-INSERT INTO income_source (budget_profile_id, budget_person_id, name, income_type, default_amount, recurring)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at;
+INSERT INTO income_source (budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, payment_frequency)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at, payment_frequency;
 
 -- name: ListIncomeSources :many
-SELECT id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at
+SELECT id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at, payment_frequency
 FROM income_source
 WHERE budget_profile_id = $1
 ORDER BY id;
 
 -- name: UpdateIncomeSource :one
 UPDATE income_source
-SET name = $3, income_type = $4, default_amount = $5, recurring = $6, budget_person_id = $7
+SET name = $3, income_type = $4, default_amount = $5, recurring = $6, budget_person_id = $7, payment_frequency = $8
 WHERE id = $1 AND budget_profile_id = $2
-RETURNING id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at;
+RETURNING id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at, payment_frequency;
 
 -- name: DeleteIncomeSource :exec
 DELETE FROM income_source WHERE id = $1 AND budget_profile_id = $2;
+
+-- ── Savings Sources ───────────────────────────────────────────────────────────
+
+-- name: AddSavingsSource :one
+INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency, recurring)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, recurring, created_at;
+
+-- name: ListSavingsSources :many
+SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, recurring, created_at
+FROM savings_source
+WHERE budget_profile_id = $1
+ORDER BY id;
+
+-- name: UpdateSavingsSource :one
+UPDATE savings_source
+SET name = $3, amount = $4, frequency = $5, recurring = $6, budget_person_id = $7
+WHERE id = $1 AND budget_profile_id = $2
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, recurring, created_at;
+
+-- name: DeleteSavingsSource :exec
+DELETE FROM savings_source WHERE id = $1 AND budget_profile_id = $2;
 
 -- ── Income Entries ────────────────────────────────────────────────────────────
 

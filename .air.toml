@@ -1,0 +1,17 @@
+# air — Go hot-reload config
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/server ./cmd/server"
+  bin = "./tmp/server"
+  include_ext = ["go"]
+  # generated dirs and vendor don't need to trigger rebuilds
+  exclude_dir = ["gen", "internal/sqlc", "tmp", "vendor", "bin"]
+  delay = 500 # ms debounce
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = true

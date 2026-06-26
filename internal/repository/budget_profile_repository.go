@@ -46,6 +46,12 @@ type BudgetProfileRepository interface {
 	ListIncomeEntries(ctx context.Context, periodID uuid.UUID) ([]db.IncomeEntry, error)
 	CreateIncomeEntry(ctx context.Context, arg db.CreateIncomeEntryParams) (db.IncomeEntry, error)
 	UpdateIncomeEntry(ctx context.Context, arg db.UpdateIncomeEntryParams) (db.IncomeEntry, error)
+
+	// Savings Sources
+	AddSavingsSource(ctx context.Context, arg db.AddSavingsSourceParams) (db.SavingsSource, error)
+	ListSavingsSources(ctx context.Context, profileID uuid.UUID) ([]db.SavingsSource, error)
+	UpdateSavingsSource(ctx context.Context, arg db.UpdateSavingsSourceParams) (db.SavingsSource, error)
+	DeleteSavingsSource(ctx context.Context, arg db.DeleteSavingsSourceParams) error
 }
 
 type budgetProfileRepository struct {
@@ -191,4 +197,26 @@ func (r *budgetProfileRepository) UpdateIncomeEntry(ctx context.Context, arg db.
 		return db.IncomeEntry{}, apperr.NotFound("income_entry", fmt.Sprintf("%d", arg.ID))
 	}
 	return e, err
+}
+
+// ── Savings Sources ───────────────────────────────────────────────────────────
+
+func (r *budgetProfileRepository) AddSavingsSource(ctx context.Context, arg db.AddSavingsSourceParams) (db.SavingsSource, error) {
+	return r.q.AddSavingsSource(ctx, arg)
+}
+
+func (r *budgetProfileRepository) ListSavingsSources(ctx context.Context, profileID uuid.UUID) ([]db.SavingsSource, error) {
+	return r.q.ListSavingsSources(ctx, profileID)
+}
+
+func (r *budgetProfileRepository) UpdateSavingsSource(ctx context.Context, arg db.UpdateSavingsSourceParams) (db.SavingsSource, error) {
+	s, err := r.q.UpdateSavingsSource(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.SavingsSource{}, apperr.NotFound("savings_source", fmt.Sprintf("%d", arg.ID))
+	}
+	return s, err
+}
+
+func (r *budgetProfileRepository) DeleteSavingsSource(ctx context.Context, arg db.DeleteSavingsSourceParams) error {
+	return r.q.DeleteSavingsSource(ctx, arg)
 }

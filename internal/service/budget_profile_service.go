@@ -288,11 +288,12 @@ func (s *BudgetProfileService) RemovePerson(ctx context.Context, profileID uuid.
 // ── Income Sources ────────────────────────────────────────────────────────────
 
 type IncomeSourceInput struct {
-	Name           string
-	IncomeType     string
-	DefaultAmount  pgtype.Numeric
-	Recurring      bool
-	BudgetPersonID *int32
+	Name             string
+	IncomeType       string
+	DefaultAmount    pgtype.Numeric
+	Recurring        bool
+	BudgetPersonID   *int32
+	PaymentFrequency string
 }
 
 func (s *BudgetProfileService) AddIncomeSource(ctx context.Context, profileID, userID uuid.UUID, inp IncomeSourceInput) (db.IncomeSource, error) {
@@ -306,6 +307,7 @@ func (s *BudgetProfileService) AddIncomeSource(ctx context.Context, profileID, u
 		IncomeType:      inp.IncomeType,
 		DefaultAmount:   inp.DefaultAmount,
 		Recurring:       inp.Recurring,
+		PaymentFrequency: inp.PaymentFrequency,
 	})
 }
 
@@ -321,13 +323,14 @@ func (s *BudgetProfileService) UpdateIncomeSource(ctx context.Context, id int32,
 		return db.IncomeSource{}, err
 	}
 	return s.profiles.UpdateIncomeSource(ctx, db.UpdateIncomeSourceParams{
-		ID:              id,
-		BudgetProfileID: profileID,
-		Name:            inp.Name,
-		IncomeType:      inp.IncomeType,
-		DefaultAmount:   inp.DefaultAmount,
-		Recurring:       inp.Recurring,
-		BudgetPersonID:  inp.BudgetPersonID,
+		ID:               id,
+		BudgetProfileID:  profileID,
+		Name:             inp.Name,
+		IncomeType:       inp.IncomeType,
+		DefaultAmount:    inp.DefaultAmount,
+		Recurring:        inp.Recurring,
+		BudgetPersonID:   inp.BudgetPersonID,
+		PaymentFrequency: inp.PaymentFrequency,
 	})
 }
 
@@ -358,6 +361,62 @@ func (s *BudgetProfileService) UpdateIncomeEntry(ctx context.Context, id int32, 
 		ID:             id,
 		BudgetPeriodID: periodID,
 		Amount:         amount,
+	})
+}
+
+// ── Savings Sources ───────────────────────────────────────────────────────────
+
+type SavingsSourceInput struct {
+	Name           string
+	Amount         pgtype.Numeric
+	Frequency      string
+	Recurring      bool
+	BudgetPersonID *int32
+}
+
+func (s *BudgetProfileService) AddSavingsSource(ctx context.Context, profileID, userID uuid.UUID, inp SavingsSourceInput) (db.SavingsSource, error) {
+	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+		return db.SavingsSource{}, err
+	}
+	return s.profiles.AddSavingsSource(ctx, db.AddSavingsSourceParams{
+		BudgetProfileID: profileID,
+		BudgetPersonID:  inp.BudgetPersonID,
+		Name:            inp.Name,
+		Amount:          inp.Amount,
+		Frequency:       inp.Frequency,
+		Recurring:       inp.Recurring,
+	})
+}
+
+func (s *BudgetProfileService) ListSavingsSources(ctx context.Context, profileID, userID uuid.UUID) ([]db.SavingsSource, error) {
+	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+		return nil, err
+	}
+	return s.profiles.ListSavingsSources(ctx, profileID)
+}
+
+func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32, profileID, userID uuid.UUID, inp SavingsSourceInput) (db.SavingsSource, error) {
+	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+		return db.SavingsSource{}, err
+	}
+	return s.profiles.UpdateSavingsSource(ctx, db.UpdateSavingsSourceParams{
+		ID:              id,
+		BudgetProfileID: profileID,
+		Name:            inp.Name,
+		Amount:          inp.Amount,
+		Frequency:       inp.Frequency,
+		Recurring:       inp.Recurring,
+		BudgetPersonID:  inp.BudgetPersonID,
+	})
+}
+
+func (s *BudgetProfileService) DeleteSavingsSource(ctx context.Context, id int32, profileID, userID uuid.UUID) error {
+	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+		return err
+	}
+	return s.profiles.DeleteSavingsSource(ctx, db.DeleteSavingsSourceParams{
+		ID:              id,
+		BudgetProfileID: profileID,
 	})
 }
 

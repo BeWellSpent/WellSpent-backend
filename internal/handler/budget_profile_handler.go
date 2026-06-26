@@ -238,11 +238,12 @@ func (h *BudgetHandler) AddIncomeSource(ctx context.Context, req *connect.Reques
 		personID = &v
 	}
 	src, svcErr := h.profiles.AddIncomeSource(ctx, profileID, userID, service.IncomeSourceInput{
-		Name:           req.Msg.Name,
-		IncomeType:     incomeTypeStringFromProto(req.Msg.IncomeType),
-		DefaultAmount:  numericFromMoney(req.Msg.DefaultAmount),
-		Recurring:      req.Msg.Recurring,
-		BudgetPersonID: personID,
+		Name:             req.Msg.Name,
+		IncomeType:       incomeTypeStringFromProto(req.Msg.IncomeType),
+		DefaultAmount:    numericFromMoney(req.Msg.DefaultAmount),
+		Recurring:        req.Msg.Recurring,
+		BudgetPersonID:   personID,
+		PaymentFrequency: recurringTypeStringFromProto(req.Msg.PaymentFrequency),
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -285,11 +286,12 @@ func (h *BudgetHandler) UpdateIncomeSource(ctx context.Context, req *connect.Req
 		personID = &v
 	}
 	src, svcErr := h.profiles.UpdateIncomeSource(ctx, int32(req.Msg.Id), profileID, userID, service.IncomeSourceInput{
-		Name:           req.Msg.Name,
-		IncomeType:     incomeTypeStringFromProto(req.Msg.IncomeType),
-		DefaultAmount:  numericFromMoney(req.Msg.DefaultAmount),
-		Recurring:      req.Msg.Recurring,
-		BudgetPersonID: personID,
+		Name:             req.Msg.Name,
+		IncomeType:       incomeTypeStringFromProto(req.Msg.IncomeType),
+		DefaultAmount:    numericFromMoney(req.Msg.DefaultAmount),
+		Recurring:        req.Msg.Recurring,
+		BudgetPersonID:   personID,
+		PaymentFrequency: recurringTypeStringFromProto(req.Msg.PaymentFrequency),
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -310,6 +312,97 @@ func (h *BudgetHandler) DeleteIncomeSource(ctx context.Context, req *connect.Req
 		return nil, toConnectError(svcErr)
 	}
 	return connect.NewResponse(&v1.DeleteIncomeSourceResponse{}), nil
+}
+
+// ── Savings Sources ───────────────────────────────────────────────────────────
+
+func (h *BudgetHandler) AddSavingsSource(ctx context.Context, req *connect.Request[v1.AddSavingsSourceRequest]) (*connect.Response[v1.AddSavingsSourceResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	var personID *int32
+	if req.Msg.BudgetPersonId != 0 {
+		v := int32(req.Msg.BudgetPersonId)
+		personID = &v
+	}
+	src, svcErr := h.profiles.AddSavingsSource(ctx, profileID, userID, service.SavingsSourceInput{
+		Name:           req.Msg.Name,
+		Amount:         numericFromMoney(req.Msg.Amount),
+		Frequency:      recurringTypeStringFromProto(req.Msg.Frequency),
+		Recurring:      req.Msg.Recurring,
+		BudgetPersonID: personID,
+	})
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.AddSavingsSourceResponse{Source: toProtoSavingsSource(src)}), nil
+}
+
+func (h *BudgetHandler) ListSavingsSources(ctx context.Context, req *connect.Request[v1.ListSavingsSourcesRequest]) (*connect.Response[v1.ListSavingsSourcesResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	sources, svcErr := h.profiles.ListSavingsSources(ctx, profileID, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	protos := make([]*v1.SavingsSource, len(sources))
+	for i, s := range sources {
+		protos[i] = toProtoSavingsSource(s)
+	}
+	return connect.NewResponse(&v1.ListSavingsSourcesResponse{Sources: protos}), nil
+}
+
+func (h *BudgetHandler) UpdateSavingsSource(ctx context.Context, req *connect.Request[v1.UpdateSavingsSourceRequest]) (*connect.Response[v1.UpdateSavingsSourceResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	var personID *int32
+	if req.Msg.BudgetPersonId != 0 {
+		v := int32(req.Msg.BudgetPersonId)
+		personID = &v
+	}
+	src, svcErr := h.profiles.UpdateSavingsSource(ctx, int32(req.Msg.Id), profileID, userID, service.SavingsSourceInput{
+		Name:           req.Msg.Name,
+		Amount:         numericFromMoney(req.Msg.Amount),
+		Frequency:      recurringTypeStringFromProto(req.Msg.Frequency),
+		Recurring:      req.Msg.Recurring,
+		BudgetPersonID: personID,
+	})
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.UpdateSavingsSourceResponse{Source: toProtoSavingsSource(src)}), nil
+}
+
+func (h *BudgetHandler) DeleteSavingsSource(ctx context.Context, req *connect.Request[v1.DeleteSavingsSourceRequest]) (*connect.Response[v1.DeleteSavingsSourceResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if svcErr := h.profiles.DeleteSavingsSource(ctx, int32(req.Msg.Id), profileID, userID); svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.DeleteSavingsSourceResponse{}), nil
 }
 
 // ── Income Entries ────────────────────────────────────────────────────────────
@@ -386,11 +479,28 @@ func toProtoIncomeSource(s db.IncomeSource) *v1.IncomeSource {
 		personID = int64(*s.BudgetPersonID)
 	}
 	return &v1.IncomeSource{
+		Id:               int64(s.ID),
+		BudgetProfileId:  s.BudgetProfileID.String(),
+		Name:             s.Name,
+		IncomeType:       protoIncomeTypeFromString(s.IncomeType),
+		DefaultAmount:    moneyFromNumeric(s.DefaultAmount),
+		Recurring:        s.Recurring,
+		BudgetPersonId:   personID,
+		PaymentFrequency: protoRecurringTypeFromString(s.PaymentFrequency),
+	}
+}
+
+func toProtoSavingsSource(s db.SavingsSource) *v1.SavingsSource {
+	var personID int64
+	if s.BudgetPersonID != nil {
+		personID = int64(*s.BudgetPersonID)
+	}
+	return &v1.SavingsSource{
 		Id:              int64(s.ID),
 		BudgetProfileId: s.BudgetProfileID.String(),
 		Name:            s.Name,
-		IncomeType:      protoIncomeTypeFromString(s.IncomeType),
-		DefaultAmount:   moneyFromNumeric(s.DefaultAmount),
+		Amount:          moneyFromNumeric(s.Amount),
+		Frequency:       protoRecurringTypeFromString(s.Frequency),
 		Recurring:       s.Recurring,
 		BudgetPersonId:  personID,
 	}
@@ -471,7 +581,43 @@ func protoIncomeTypeFromString(s string) v1.IncomeType {
 		return v1.IncomeType_INCOME_TYPE_CONTRACTOR
 	case "investment":
 		return v1.IncomeType_INCOME_TYPE_INVESTMENT
+	case "interest":
+		return v1.IncomeType_INCOME_TYPE_INTEREST
+	case "one_time":
+		return v1.IncomeType_INCOME_TYPE_ONE_TIME
+	case "gift":
+		return v1.IncomeType_INCOME_TYPE_GIFT
 	default:
 		return v1.IncomeType_INCOME_TYPE_OTHER
+	}
+}
+
+func recurringTypeStringFromProto(t v1.RecurringType) string {
+	switch t {
+	case v1.RecurringType_RECURRING_TYPE_WEEKLY:
+		return "weekly"
+	case v1.RecurringType_RECURRING_TYPE_BI_WEEKLY:
+		return "bi_weekly"
+	case v1.RecurringType_RECURRING_TYPE_YEARLY:
+		return "yearly"
+	case v1.RecurringType_RECURRING_TYPE_ONE_OFF:
+		return "one_off"
+	default:
+		return "monthly"
+	}
+}
+
+func protoRecurringTypeFromString(s string) v1.RecurringType {
+	switch s {
+	case "weekly":
+		return v1.RecurringType_RECURRING_TYPE_WEEKLY
+	case "bi_weekly":
+		return v1.RecurringType_RECURRING_TYPE_BI_WEEKLY
+	case "yearly":
+		return v1.RecurringType_RECURRING_TYPE_YEARLY
+	case "one_off":
+		return v1.RecurringType_RECURRING_TYPE_ONE_OFF
+	default:
+		return v1.RecurringType_RECURRING_TYPE_MONTHLY
 	}
 }
