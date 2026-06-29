@@ -67,6 +67,7 @@ func main() {
 		spendsensev1connect.AuthServiceLoginProcedure:              true,
 		spendsensev1connect.AuthServiceGetGoogleAuthURLProcedure:   true,
 		spendsensev1connect.AuthServiceExchangeGoogleCodeProcedure: true,
+		spendsensev1connect.UserServiceListCountriesProcedure:      true,
 	}
 
 	interceptors := connect.WithInterceptors(

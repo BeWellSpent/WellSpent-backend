@@ -16,14 +16,16 @@ import (
 // ── Mock ──────────────────────────────────────────────────────────────────────
 
 type mockUserRepo struct {
-	getByEmail     func(context.Context, string) (db.User, error)
-	getByID        func(context.Context, uuid.UUID) (db.User, error)
-	create         func(context.Context, db.CreateUserParams) (db.User, error)
-	update         func(context.Context, db.UpdateUserParams) (db.User, error)
-	updatePassword func(context.Context, db.UpdateUserPasswordParams) error
-	delete         func(context.Context, uuid.UUID) error
-	getOAuth       func(context.Context, db.GetOAuthAccountParams) (db.OauthAccount, error)
-	createOAuth    func(context.Context, db.CreateOAuthAccountParams) (db.OauthAccount, error)
+	getByEmail            func(context.Context, string) (db.User, error)
+	getByID               func(context.Context, uuid.UUID) (db.User, error)
+	create                func(context.Context, db.CreateUserParams) (db.User, error)
+	update                func(context.Context, db.UpdateUserParams) (db.User, error)
+	updatePassword        func(context.Context, db.UpdateUserPasswordParams) error
+	delete                func(context.Context, uuid.UUID) error
+	getOAuth              func(context.Context, db.GetOAuthAccountParams) (db.OauthAccount, error)
+	createOAuth           func(context.Context, db.CreateOAuthAccountParams) (db.OauthAccount, error)
+	listEnabledCountries  func(context.Context) ([]db.ListEnabledCountriesRow, error)
+	listCountryFeatures   func(context.Context) ([]db.CountryFeature, error)
 }
 
 func (m *mockUserRepo) GetByEmail(ctx context.Context, email string) (db.User, error) {
@@ -82,6 +84,20 @@ func (m *mockUserRepo) CreateOAuthAccount(ctx context.Context, arg db.CreateOAut
 	return db.OauthAccount{ID: uuid.New(), UserID: arg.UserID}, nil
 }
 
+func (m *mockUserRepo) ListEnabledCountries(ctx context.Context) ([]db.ListEnabledCountriesRow, error) {
+	if m.listEnabledCountries != nil {
+		return m.listEnabledCountries(ctx)
+	}
+	return nil, nil
+}
+
+func (m *mockUserRepo) ListCountryFeatures(ctx context.Context) ([]db.CountryFeature, error) {
+	if m.listCountryFeatures != nil {
+		return m.listCountryFeatures(ctx)
+	}
+	return nil, nil
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func testJWT() *auth.JWTService {
@@ -103,7 +119,7 @@ func hashFor(t *testing.T, password string) string {
 
 func TestRegister_Success(t *testing.T) {
 	repo := &mockUserRepo{}
-	result, err := newAuthSvc(repo).Register(context.Background(), "new@example.com", "Strong@1", "Jane", "Doe")
+	result, err := newAuthSvc(repo).Register(context.Background(), "new@example.com", "Strong@1", "Jane", "Doe", "", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.AccessToken)
 	assert.Equal(t, int64(3600), result.ExpiresIn)
@@ -117,13 +133,13 @@ func TestRegister_EmailNormalized(t *testing.T) {
 			return db.User{ID: uuid.New(), Email: arg.Email, IsActive: true}, nil
 		},
 	}
-	_, err := newAuthSvc(repo).Register(context.Background(), "  USER@Example.COM  ", "Strong@1", "", "")
+	_, err := newAuthSvc(repo).Register(context.Background(), "  USER@Example.COM  ", "Strong@1", "", "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "user@example.com", capturedEmail)
 }
 
 func TestRegister_InvalidEmail(t *testing.T) {
-	_, err := newAuthSvc(&mockUserRepo{}).Register(context.Background(), "not-an-email", "Strong@1", "", "")
+	_, err := newAuthSvc(&mockUserRepo{}).Register(context.Background(), "not-an-email", "Strong@1", "", "", "", "")
 	require.Error(t, err)
 	var ve *apperr.ValidationError
 	require.ErrorAs(t, err, &ve)
@@ -135,7 +151,7 @@ func TestRegister_DuplicateEmail(t *testing.T) {
 			return db.User{Email: email, IsActive: true}, nil
 		},
 	}
-	_, err := newAuthSvc(repo).Register(context.Background(), "exists@example.com", "Strong@1", "", "")
+	_, err := newAuthSvc(repo).Register(context.Background(), "exists@example.com", "Strong@1", "", "", "", "")
 	require.Error(t, err)
 	var de *apperr.DuplicateError
 	require.ErrorAs(t, err, &de)
@@ -234,4 +250,54 @@ func TestLogin_OAuthOnlyAccount(t *testing.T) {
 	var ve *apperr.ValidationError
 	require.ErrorAs(t, err, &ve)
 	assert.Contains(t, err.Error(), "OAuth")
+}
+
+// ── UserService ───────────────────────────────────────────────────────────────
+
+func TestUserService_Update_PassesNewFields(t *testing.T) {
+	id := uuid.New()
+	cc := "US"
+	sc := "CA"
+	var captured db.UpdateUserParams
+	repo := &mockUserRepo{
+		update: func(_ context.Context, arg db.UpdateUserParams) (db.User, error) {
+			captured = arg
+			return db.User{}, nil
+		},
+	}
+	svc := NewUserService(repo)
+	_, err := svc.Update(context.Background(), id, UpdateUserInput{
+		CountryCode:         &cc,
+		StateCode:           &sc,
+		FilingStatus:        "1",
+		TaxPaymentFrequency: 3,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, &cc, captured.CountryCode)
+	assert.Equal(t, &sc, captured.StateCode)
+	assert.Equal(t, "1", captured.FilingStatus)
+	assert.Equal(t, int32(3), captured.TaxPaymentFrequency)
+}
+
+func TestUserService_ListCountries_MergesFeatures(t *testing.T) {
+	repo := &mockUserRepo{
+		listEnabledCountries: func(_ context.Context) ([]db.ListEnabledCountriesRow, error) {
+			return []db.ListEnabledCountriesRow{
+				{Code: "US", Name: "United States", IsEnabled: true},
+				{Code: "ES", Name: "Spain", IsEnabled: true},
+			}, nil
+		},
+		listCountryFeatures: func(_ context.Context) ([]db.CountryFeature, error) {
+			return []db.CountryFeature{
+				{CountryCode: "US", FeatureName: "before_tax_income", IsEnabled: true},
+			}, nil
+		},
+	}
+	svc := NewUserService(repo)
+	countries, byCode, err := svc.ListCountries(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, countries, 2)
+	assert.Len(t, byCode["US"], 1)
+	assert.Equal(t, "before_tax_income", byCode["US"][0].FeatureName)
+	assert.Empty(t, byCode["ES"])
 }

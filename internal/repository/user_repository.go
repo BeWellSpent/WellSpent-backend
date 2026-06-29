@@ -19,6 +19,8 @@ type UserRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetOAuthAccount(ctx context.Context, arg db.GetOAuthAccountParams) (db.OauthAccount, error)
 	CreateOAuthAccount(ctx context.Context, arg db.CreateOAuthAccountParams) (db.OauthAccount, error)
+	ListEnabledCountries(ctx context.Context) ([]db.ListEnabledCountriesRow, error)
+	ListCountryFeatures(ctx context.Context) ([]db.CountryFeature, error)
 }
 
 type userRepository struct {
@@ -71,4 +73,12 @@ func (r *userRepository) GetOAuthAccount(ctx context.Context, arg db.GetOAuthAcc
 
 func (r *userRepository) CreateOAuthAccount(ctx context.Context, arg db.CreateOAuthAccountParams) (db.OauthAccount, error) {
 	return r.q.CreateOAuthAccount(ctx, arg)
+}
+
+func (r *userRepository) ListEnabledCountries(ctx context.Context) ([]db.ListEnabledCountriesRow, error) {
+	return r.q.ListEnabledCountries(ctx)
+}
+
+func (r *userRepository) ListCountryFeatures(ctx context.Context) ([]db.CountryFeature, error) {
+	return r.q.ListCountryFeatures(ctx)
 }

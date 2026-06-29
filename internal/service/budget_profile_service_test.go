@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"math/big"
 	"testing"
 
 	"github.com/google/uuid"
@@ -12,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func bigInt(n int64) *big.Int { return big.NewInt(n) }
 
 // ── Mock BudgetProfileRepository ─────────────────────────────────────────────
 
@@ -41,10 +44,11 @@ type mockBudgetProfileRepo struct {
 	listIncomeEntries            func(context.Context, uuid.UUID) ([]db.IncomeEntry, error)
 	createIncomeEntry            func(context.Context, db.CreateIncomeEntryParams) (db.IncomeEntry, error)
 	updateIncomeEntry            func(context.Context, db.UpdateIncomeEntryParams) (db.IncomeEntry, error)
-	addSavingsSource             func(context.Context, db.AddSavingsSourceParams) (db.SavingsSource, error)
-	listSavingsSources           func(context.Context, uuid.UUID) ([]db.SavingsSource, error)
-	updateSavingsSource          func(context.Context, db.UpdateSavingsSourceParams) (db.SavingsSource, error)
-	deleteSavingsSource          func(context.Context, db.DeleteSavingsSourceParams) error
+	addSavingsSource                   func(context.Context, db.AddSavingsSourceParams) (db.SavingsSource, error)
+	listSavingsSources                 func(context.Context, uuid.UUID) ([]db.SavingsSource, error)
+	updateSavingsSource                func(context.Context, db.UpdateSavingsSourceParams) (db.SavingsSource, error)
+	deleteSavingsSource                func(context.Context, db.DeleteSavingsSourceParams) error
+	upsertTaxReserveSavingsSource      func(context.Context, db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error)
 }
 
 func (m *mockBudgetProfileRepo) ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
@@ -228,6 +232,13 @@ func (m *mockBudgetProfileRepo) DeleteSavingsSource(ctx context.Context, arg db.
 		return m.deleteSavingsSource(ctx, arg)
 	}
 	return nil
+}
+
+func (m *mockBudgetProfileRepo) UpsertTaxReserveSavingsSource(ctx context.Context, arg db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error) {
+	if m.upsertTaxReserveSavingsSource != nil {
+		return m.upsertTaxReserveSavingsSource(ctx, arg)
+	}
+	return db.SavingsSource{BudgetProfileID: arg.BudgetProfileID, IsTaxReserve: true}, nil
 }
 
 // ── BudgetProfileService tests ────────────────────────────────────────────────
@@ -548,3 +559,78 @@ func TestUpdatePerson_Forbidden(t *testing.T) {
 }
 
 // mockUserRepo is defined in auth_service_test.go (same package).
+
+func TestCreateBudgetPeriod_TaxReserveUpserted_ForUSProfile(t *testing.T) {
+	ownerID := uuid.New()
+	profileID := uuid.New()
+	us := "US"
+	ca := "CA"
+	upserted := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID, CountryCode: &us}, nil
+			},
+			listIncomeSources: func(_ context.Context, _ uuid.UUID) ([]db.IncomeSource, error) {
+				return []db.IncomeSource{
+					{
+						ID: 1, Name: "Salary", Recurring: true, BeforeTax: true,
+						DefaultAmount: pgtype.Numeric{Int: bigInt(80000), Exp: 0, Valid: true},
+					},
+				}, nil
+			},
+			upsertTaxReserveSavingsSource: func(_ context.Context, arg db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error) {
+				assert.Equal(t, profileID, arg.BudgetProfileID)
+				assert.True(t, arg.Amount.Valid)
+				upserted = true
+				return db.SavingsSource{IsTaxReserve: true}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockUserRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.User, error) {
+				if id == ownerID {
+					return db.User{ID: ownerID, StateCode: &ca, FilingStatus: "1"}, nil
+				}
+				return db.User{}, apperr.NotFound("user", id.String())
+			},
+		},
+	)
+
+	_, err := svc.CreateBudgetPeriod(context.Background(), profileID, ownerID)
+	require.NoError(t, err)
+	assert.True(t, upserted, "expected tax reserve savings source to be upserted")
+}
+
+func TestAddPeople_CountryMismatch_Rejected(t *testing.T) {
+	ownerID := uuid.New()
+	foreignUserID := uuid.New()
+	profileID := uuid.New()
+	us := "US"
+	ar := "AR"
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID, CountryCode: &us}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockUserRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.User, error) {
+				if id == foreignUserID {
+					return db.User{ID: foreignUserID, CountryCode: &ar}, nil
+				}
+				return db.User{}, apperr.NotFound("user", id.String())
+			},
+		},
+	)
+
+	_, err := svc.AddPeople(context.Background(), profileID, ownerID, []ProfilePersonInput{
+		{UserName: "Carlos", UserID: &foreignUserID, Color: "red"},
+	})
+	require.Error(t, err)
+	var inv *apperr.ValidationError
+	assert.True(t, errors.As(err, &inv), "expected ValidationError for country mismatch")
+}

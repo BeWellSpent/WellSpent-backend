@@ -92,6 +92,27 @@ func (s *TransactionService) CreateCategory(ctx context.Context, arg db.CreateCa
 }
 
 func (s *TransactionService) UpdateCategory(ctx context.Context, arg db.UpdateCategoryParams) (db.UpdateCategoryRow, error) {
+	cat, err := s.transactions.GetCategory(ctx, arg.ID)
+	if err != nil {
+		return db.UpdateCategoryRow{}, err
+	}
+	if cat.IsSystem {
+		row, err := s.transactions.UpdateSystemCategoryColor(ctx, db.UpdateSystemCategoryColorParams{
+			ID:    arg.ID,
+			Color: arg.Color,
+		})
+		if err != nil {
+			return db.UpdateCategoryRow{}, err
+		}
+		return db.UpdateCategoryRow{
+			ID:       row.ID,
+			Name:     row.Name,
+			TypeID:   row.TypeID,
+			IsSystem: row.IsSystem,
+			UserID:   row.UserID,
+			Color:    row.Color,
+		}, nil
+	}
 	return s.transactions.UpdateCategory(ctx, arg)
 }
 

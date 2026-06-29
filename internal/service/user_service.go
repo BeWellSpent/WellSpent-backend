@@ -23,12 +23,42 @@ func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (db.User, error
 	return s.users.GetByID(ctx, id)
 }
 
-func (s *UserService) Update(ctx context.Context, id uuid.UUID, firstName, lastName *string) (db.User, error) {
+type UpdateUserInput struct {
+	FirstName           *string
+	LastName            *string
+	CountryCode         *string
+	StateCode           *string
+	FilingStatus        string
+	TaxPaymentFrequency int32
+}
+
+func (s *UserService) Update(ctx context.Context, id uuid.UUID, inp UpdateUserInput) (db.User, error) {
 	return s.users.Update(ctx, db.UpdateUserParams{
-		ID:        id,
-		FirstName: firstName,
-		LastName:  lastName,
+		ID:                  id,
+		FirstName:           inp.FirstName,
+		LastName:            inp.LastName,
+		CountryCode:         inp.CountryCode,
+		StateCode:           inp.StateCode,
+		FilingStatus:        inp.FilingStatus,
+		TaxPaymentFrequency: inp.TaxPaymentFrequency,
 	})
+}
+
+// ListCountries returns all enabled countries with their feature flags merged in.
+func (s *UserService) ListCountries(ctx context.Context) ([]db.ListEnabledCountriesRow, map[string][]db.CountryFeature, error) {
+	countries, err := s.users.ListEnabledCountries(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	features, err := s.users.ListCountryFeatures(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	byCountry := make(map[string][]db.CountryFeature)
+	for _, f := range features {
+		byCountry[f.CountryCode] = append(byCountry[f.CountryCode], f)
+	}
+	return countries, byCountry, nil
 }
 
 func (s *UserService) ChangePassword(ctx context.Context, id uuid.UUID, currentPassword, newPassword string) error {

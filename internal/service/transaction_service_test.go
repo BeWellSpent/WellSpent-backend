@@ -24,6 +24,7 @@ type mockTransactionRepo struct {
 	listCategories                func(context.Context, uuid.UUID) ([]db.ListCategoriesRow, error)
 	createCategory                func(context.Context, db.CreateCategoryParams) (db.CreateCategoryRow, error)
 	updateCategory                func(context.Context, db.UpdateCategoryParams) (db.UpdateCategoryRow, error)
+	updateSystemCategoryColor     func(context.Context, db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error)
 	deleteCategoryAndReassign     func(context.Context, db.DeleteCategoryAndReassignParams) error
 	listPaymentMethods            func(context.Context, uuid.UUID) ([]db.ListPaymentMethodsRow, error)
 	createPaymentMethod           func(context.Context, db.CreatePaymentMethodParams) (db.PaymentMethod, error)
@@ -91,6 +92,12 @@ func (m *mockTransactionRepo) UpdateCategory(ctx context.Context, arg db.UpdateC
 		return m.updateCategory(ctx, arg)
 	}
 	return db.UpdateCategoryRow{}, nil
+}
+func (m *mockTransactionRepo) UpdateSystemCategoryColor(ctx context.Context, arg db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error) {
+	if m.updateSystemCategoryColor != nil {
+		return m.updateSystemCategoryColor(ctx, arg)
+	}
+	return db.UpdateSystemCategoryColorRow{}, nil
 }
 func (m *mockTransactionRepo) DeleteCategoryAndReassign(ctx context.Context, arg db.DeleteCategoryAndReassignParams) error {
 	if m.deleteCategoryAndReassign != nil {
@@ -222,6 +229,9 @@ func TestUpdateCategory_Success(t *testing.T) {
 
 	svc := NewTransactionService(
 		&mockTransactionRepo{
+			getCategory: func(_ context.Context, id int32) (db.GetCategoryRow, error) {
+				return db.GetCategoryRow{ID: id, IsSystem: false}, nil
+			},
 			updateCategory: func(_ context.Context, arg db.UpdateCategoryParams) (db.UpdateCategoryRow, error) {
 				assert.Equal(t, int32(10), arg.ID)
 				assert.Equal(t, "Fun Money", arg.Name)
@@ -245,9 +255,7 @@ func TestUpdateCategory_Success(t *testing.T) {
 func TestUpdateCategory_NotFound(t *testing.T) {
 	svc := NewTransactionService(
 		&mockTransactionRepo{
-			updateCategory: func(_ context.Context, arg db.UpdateCategoryParams) (db.UpdateCategoryRow, error) {
-				return db.UpdateCategoryRow{}, apperr.NotFound("category", "99")
-			},
+			// getCategory returns NotFound (default) — service returns early
 		},
 		&mockBudgetProfileRepo{},
 	)
@@ -262,6 +270,56 @@ func TestUpdateCategory_NotFound(t *testing.T) {
 	var notFound *apperr.NotFoundError
 	require.ErrorAs(t, err, &notFound)
 	assert.Equal(t, "category", notFound.Resource)
+}
+
+func TestUpdateCategory_SystemColor_Success(t *testing.T) {
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getCategory: func(_ context.Context, id int32) (db.GetCategoryRow, error) {
+				return db.GetCategoryRow{ID: id, Name: "Food", IsSystem: true}, nil
+			},
+			updateSystemCategoryColor: func(_ context.Context, arg db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error) {
+				assert.Equal(t, int32(5), arg.ID)
+				assert.Equal(t, "#4caf50", arg.Color)
+				return db.UpdateSystemCategoryColorRow{ID: 5, Name: "Food", IsSystem: true, Color: "#4caf50"}, nil
+			},
+		},
+		&mockBudgetProfileRepo{},
+	)
+
+	result, err := svc.UpdateCategory(context.Background(), db.UpdateCategoryParams{
+		ID:    5,
+		Name:  "Food", // name is ignored for system categories
+		Color: "#4caf50",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "Food", result.Name)
+	assert.Equal(t, "#4caf50", result.Color)
+	assert.True(t, result.IsSystem)
+}
+
+func TestUpdateCategory_SystemColor_NotFound(t *testing.T) {
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getCategory: func(_ context.Context, id int32) (db.GetCategoryRow, error) {
+				return db.GetCategoryRow{ID: id, IsSystem: true}, nil
+			},
+			updateSystemCategoryColor: func(_ context.Context, arg db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error) {
+				return db.UpdateSystemCategoryColorRow{}, apperr.NotFound("category", "99")
+			},
+		},
+		&mockBudgetProfileRepo{},
+	)
+
+	_, err := svc.UpdateCategory(context.Background(), db.UpdateCategoryParams{
+		ID:    99,
+		Color: "#ff0000",
+	})
+
+	require.Error(t, err)
+	var notFound *apperr.NotFoundError
+	require.ErrorAs(t, err, &notFound)
 }
 
 // ── DeleteCategory tests ──────────────────────────────────────────────────────

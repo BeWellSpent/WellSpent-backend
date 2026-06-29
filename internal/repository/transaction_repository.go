@@ -23,6 +23,7 @@ type TransactionRepository interface {
 	ListCategories(ctx context.Context, userID uuid.UUID) ([]db.ListCategoriesRow, error)
 	CreateCategory(ctx context.Context, arg db.CreateCategoryParams) (db.CreateCategoryRow, error)
 	UpdateCategory(ctx context.Context, arg db.UpdateCategoryParams) (db.UpdateCategoryRow, error)
+	UpdateSystemCategoryColor(ctx context.Context, arg db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error)
 	DeleteCategoryAndReassign(ctx context.Context, arg db.DeleteCategoryAndReassignParams) error
 
 	GetPaymentMethod(ctx context.Context, id uuid.UUID) (db.PaymentMethod, error)
@@ -92,6 +93,14 @@ func (r *transactionRepository) UpdateCategory(ctx context.Context, arg db.Updat
 	c, err := r.q.UpdateCategory(ctx, arg)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.UpdateCategoryRow{}, apperr.NotFound("category", fmt.Sprintf("%d", arg.ID))
+	}
+	return c, err
+}
+
+func (r *transactionRepository) UpdateSystemCategoryColor(ctx context.Context, arg db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error) {
+	c, err := r.q.UpdateSystemCategoryColor(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.UpdateSystemCategoryColorRow{}, apperr.NotFound("category", fmt.Sprintf("%d", arg.ID))
 	}
 	return c, err
 }

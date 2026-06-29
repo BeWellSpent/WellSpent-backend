@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
+	"math/big"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 	"github.com/mauro-afa91/spendsense/internal/apperr"
 	"github.com/mauro-afa91/spendsense/internal/repository"
 	db "github.com/mauro-afa91/spendsense/internal/sqlc"
+	"github.com/mauro-afa91/spendsense/internal/tax"
 )
 
 type BudgetProfileService struct {
@@ -68,11 +72,16 @@ func (s *BudgetProfileService) Create(ctx context.Context, userID uuid.UUID, nam
 		return db.BudgetProfile{}, db.BudgetPeriod{}, apperr.Duplicate("budget_profile", "name", name)
 	}
 
-	profile, err := s.profiles.Create(ctx, db.CreateBudgetProfileParams{
+	createParams := db.CreateBudgetProfileParams{
 		UserID: userID,
 		Name:   name,
 		Cycle:  cycle,
-	})
+	}
+	// Propagate owner's country to the profile so tax features are country-gated.
+	if owner, ownerErr := s.users.GetByID(ctx, userID); ownerErr == nil {
+		createParams.CountryCode = owner.CountryCode
+	}
+	profile, err := s.profiles.Create(ctx, createParams)
 	if err != nil {
 		return db.BudgetProfile{}, db.BudgetPeriod{}, err
 	}
@@ -158,6 +167,7 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 
 	// Pre-fill recurring income sources as entries.
 	sources, _ := s.profiles.ListIncomeSources(ctx, profile.ID)
+	var annualBeforeTaxIncome float64
 	for _, src := range sources {
 		if !src.Recurring {
 			continue
@@ -170,6 +180,36 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 			Name:           &src.Name,
 			Amount:         src.DefaultAmount,
 		})
+		// Accumulate before-tax income for the tax reserve calculation.
+		if src.BeforeTax && src.DefaultAmount.Valid {
+			f, _ := new(big.Float).SetInt(src.DefaultAmount.Int).Float64()
+			if src.DefaultAmount.Exp > 0 {
+				mul := math.Pow(10, float64(src.DefaultAmount.Exp))
+				f *= mul
+			} else if src.DefaultAmount.Exp < 0 {
+				div := math.Pow(10, float64(-src.DefaultAmount.Exp))
+				f /= div
+			}
+			annualBeforeTaxIncome += f
+		}
+	}
+
+	// Upsert tax reserve savings source for US profiles with before-tax income.
+	if profile.CountryCode != nil && *profile.CountryCode == "US" && annualBeforeTaxIncome > 0 {
+		if owner, ownerErr := s.users.GetByID(ctx, profile.UserID); ownerErr == nil {
+			stateCode := ""
+			if owner.StateCode != nil {
+				stateCode = *owner.StateCode
+			}
+			fsInt, _ := strconv.Atoi(owner.FilingStatus)
+			estimate := tax.Estimate(annualBeforeTaxIncome, stateCode, tax.FilingStatus(fsInt))
+			cents := int64(math.Round(estimate.MonthlySaving * 100))
+			monthly := pgtype.Numeric{Int: big.NewInt(cents), Exp: -2, Valid: true}
+			_, _ = s.profiles.UpsertTaxReserveSavingsSource(ctx, db.UpsertTaxReserveSavingsSourceParams{
+				BudgetProfileID: profile.ID,
+				Amount:          monthly,
+			})
+		}
 	}
 
 	// Carry forward fixed+recurring transactions from the previous period.
@@ -224,11 +264,21 @@ type ProfilePersonInput struct {
 }
 
 func (s *BudgetProfileService) AddPeople(ctx context.Context, profileID, userID uuid.UUID, people []ProfilePersonInput) ([]db.BudgetToProfileMapping, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	profile, err := s.assertOwner(ctx, profileID, userID)
+	if err != nil {
 		return nil, err
 	}
 	var results []db.BudgetToProfileMapping
 	for _, p := range people {
+		// Country constraint: if the person being added is a registered user,
+		// they must be in the same country as the budget profile.
+		if p.UserID != nil {
+			person, personErr := s.users.GetByID(ctx, *p.UserID)
+			if personErr == nil && profile.CountryCode != nil && person.CountryCode != nil &&
+				*person.CountryCode != *profile.CountryCode {
+				return nil, apperr.Invalid("all budget members must be in the same country")
+			}
+		}
 		exists, err := s.profiles.ExistsPerson(ctx, profileID, p.UserName)
 		if err != nil {
 			return nil, err
@@ -308,6 +358,7 @@ type IncomeSourceInput struct {
 	Recurring        bool
 	BudgetPersonID   *int32
 	PaymentFrequency string
+	BeforeTax        bool
 }
 
 func (s *BudgetProfileService) AddIncomeSource(ctx context.Context, profileID, userID uuid.UUID, inp IncomeSourceInput) (db.IncomeSource, error) {
@@ -315,13 +366,14 @@ func (s *BudgetProfileService) AddIncomeSource(ctx context.Context, profileID, u
 		return db.IncomeSource{}, err
 	}
 	return s.profiles.AddIncomeSource(ctx, db.AddIncomeSourceParams{
-		BudgetProfileID: profileID,
-		BudgetPersonID:  inp.BudgetPersonID,
-		Name:            inp.Name,
-		IncomeType:      inp.IncomeType,
-		DefaultAmount:   inp.DefaultAmount,
-		Recurring:       inp.Recurring,
+		BudgetProfileID:  profileID,
+		BudgetPersonID:   inp.BudgetPersonID,
+		Name:             inp.Name,
+		IncomeType:       inp.IncomeType,
+		DefaultAmount:    inp.DefaultAmount,
+		Recurring:        inp.Recurring,
 		PaymentFrequency: inp.PaymentFrequency,
+		BeforeTax:        inp.BeforeTax,
 	})
 }
 
@@ -345,6 +397,7 @@ func (s *BudgetProfileService) UpdateIncomeSource(ctx context.Context, id int32,
 		Recurring:        inp.Recurring,
 		BudgetPersonID:   inp.BudgetPersonID,
 		PaymentFrequency: inp.PaymentFrequency,
+		BeforeTax:        inp.BeforeTax,
 	})
 }
 

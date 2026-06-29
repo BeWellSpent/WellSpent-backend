@@ -1,18 +1,18 @@
 -- ── BudgetProfile ─────────────────────────────────────────────────────────────
 
 -- name: CreateBudgetProfile :one
-INSERT INTO budget_profile (user_id, name, cycle)
-VALUES ($1, $2, $3)
-RETURNING id, user_id, name, cycle, created_at;
+INSERT INTO budget_profile (user_id, name, cycle, country_code)
+VALUES ($1, $2, $3, $4)
+RETURNING id, user_id, name, cycle, created_at, country_code;
 
 -- name: ListBudgetProfilesByUser :many
-SELECT id, user_id, name, cycle, created_at
+SELECT id, user_id, name, cycle, created_at, country_code
 FROM budget_profile
 WHERE user_id = $1
 ORDER BY created_at DESC;
 
 -- name: GetBudgetProfileByID :one
-SELECT id, user_id, name, cycle, created_at
+SELECT id, user_id, name, cycle, created_at, country_code
 FROM budget_profile
 WHERE id = $1
 LIMIT 1;
@@ -26,7 +26,7 @@ SELECT EXISTS (
 UPDATE budget_profile
 SET name = $2, cycle = $3
 WHERE id = $1
-RETURNING id, user_id, name, cycle, created_at;
+RETURNING id, user_id, name, cycle, created_at, country_code;
 
 -- name: DeleteBudgetProfile :exec
 DELETE FROM budget_profile WHERE id = $1;
@@ -142,21 +142,21 @@ WHERE budget_to_profile_mapping.id = sqlc.arg('person_id')
 -- ── Income Sources ────────────────────────────────────────────────────────────
 
 -- name: AddIncomeSource :one
-INSERT INTO income_source (budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, payment_frequency)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at, payment_frequency;
+INSERT INTO income_source (budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, payment_frequency, before_tax)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at, payment_frequency, before_tax;
 
 -- name: ListIncomeSources :many
-SELECT id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at, payment_frequency
+SELECT id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at, payment_frequency, before_tax
 FROM income_source
 WHERE budget_profile_id = $1
 ORDER BY id;
 
 -- name: UpdateIncomeSource :one
 UPDATE income_source
-SET name = $3, income_type = $4, default_amount = $5, recurring = $6, budget_person_id = $7, payment_frequency = $8
+SET name = $3, income_type = $4, default_amount = $5, recurring = $6, budget_person_id = $7, payment_frequency = $8, before_tax = $9
 WHERE id = $1 AND budget_profile_id = $2
-RETURNING id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at, payment_frequency;
+RETURNING id, budget_profile_id, budget_person_id, name, income_type, default_amount, recurring, created_at, payment_frequency, before_tax;
 
 -- name: DeleteIncomeSource :exec
 DELETE FROM income_source WHERE id = $1 AND budget_profile_id = $2;
@@ -166,10 +166,10 @@ DELETE FROM income_source WHERE id = $1 AND budget_profile_id = $2;
 -- name: AddSavingsSource :one
 INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at;
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve;
 
 -- name: ListSavingsSources :many
-SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at
+SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve
 FROM savings_source
 WHERE budget_profile_id = $1
 ORDER BY id;
@@ -178,10 +178,19 @@ ORDER BY id;
 UPDATE savings_source
 SET name = $3, amount = $4, frequency = $5, budget_person_id = $6
 WHERE id = $1 AND budget_profile_id = $2
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at;
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve;
 
 -- name: DeleteSavingsSource :exec
 DELETE FROM savings_source WHERE id = $1 AND budget_profile_id = $2;
+
+-- Upserts the system-managed tax reserve savings source for a budget profile.
+-- Uses the partial unique index idx_savings_source_tax_reserve.
+-- name: UpsertTaxReserveSavingsSource :one
+INSERT INTO savings_source (budget_profile_id, name, amount, frequency, is_tax_reserve)
+VALUES (sqlc.arg('budget_profile_id')::uuid, 'Future Tax Payment', sqlc.arg('amount'), 'monthly', TRUE)
+ON CONFLICT (budget_profile_id) WHERE is_tax_reserve = TRUE
+DO UPDATE SET amount = EXCLUDED.amount
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve;
 
 -- ── Income Entries ────────────────────────────────────────────────────────────
 

@@ -65,6 +65,12 @@ SET name = sqlc.arg('name'), color = sqlc.arg('color')
 WHERE id = sqlc.arg('id') AND user_id = sqlc.arg('user_id')::uuid AND is_system = FALSE
 RETURNING id, name, type_id, is_system, user_id, color;
 
+-- name: UpdateSystemCategoryColor :one
+UPDATE category
+SET color = sqlc.arg('color')
+WHERE id = sqlc.arg('id') AND is_system = TRUE
+RETURNING id, name, type_id, is_system, user_id, color;
+
 -- Reassigns all transactions with this category to the replacement, then soft-deletes.
 -- No budget scoping: categories are user-scoped so reassignment spans all periods.
 -- name: DeleteCategoryAndReassign :exec

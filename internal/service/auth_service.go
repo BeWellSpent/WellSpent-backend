@@ -129,7 +129,7 @@ type RegisterResult struct {
 	ExpiresIn   int64
 }
 
-func (s *AuthService) Register(ctx context.Context, email, password, firstName, lastName string) (RegisterResult, error) {
+func (s *AuthService) Register(ctx context.Context, email, password, firstName, lastName, countryCode, stateCode string) (RegisterResult, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if _, err := mail.ParseAddress(email); err != nil {
 		return RegisterResult{}, apperr.Invalid("invalid email address")
@@ -154,12 +154,19 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 	hashed := string(hash)
 	fn := firstName
 	ln := lastName
-	user, err := s.users.Create(ctx, db.CreateUserParams{
+	params := db.CreateUserParams{
 		Email:          email,
 		HashedPassword: &hashed,
 		FirstName:      &fn,
 		LastName:       &ln,
-	})
+	}
+	if countryCode != "" {
+		params.CountryCode = &countryCode
+	}
+	if stateCode != "" {
+		params.StateCode = &stateCode
+	}
+	user, err := s.users.Create(ctx, params)
 	if err != nil {
 		return RegisterResult{}, fmt.Errorf("auth: create user: %w", err)
 	}

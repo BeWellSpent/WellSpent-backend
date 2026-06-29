@@ -53,6 +53,7 @@ type BudgetProfileRepository interface {
 	ListSavingsSources(ctx context.Context, profileID uuid.UUID) ([]db.SavingsSource, error)
 	UpdateSavingsSource(ctx context.Context, arg db.UpdateSavingsSourceParams) (db.SavingsSource, error)
 	DeleteSavingsSource(ctx context.Context, arg db.DeleteSavingsSourceParams) error
+	UpsertTaxReserveSavingsSource(ctx context.Context, arg db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error)
 }
 
 type budgetProfileRepository struct {
@@ -228,4 +229,8 @@ func (r *budgetProfileRepository) UpdateSavingsSource(ctx context.Context, arg d
 
 func (r *budgetProfileRepository) DeleteSavingsSource(ctx context.Context, arg db.DeleteSavingsSourceParams) error {
 	return r.q.DeleteSavingsSource(ctx, arg)
+}
+
+func (r *budgetProfileRepository) UpsertTaxReserveSavingsSource(ctx context.Context, arg db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error) {
+	return r.q.UpsertTaxReserveSavingsSource(ctx, arg)
 }

@@ -260,6 +260,7 @@ func (h *BudgetHandler) AddIncomeSource(ctx context.Context, req *connect.Reques
 		Recurring:        req.Msg.Recurring,
 		BudgetPersonID:   personID,
 		PaymentFrequency: recurringTypeStringFromProto(req.Msg.PaymentFrequency),
+		BeforeTax:        req.Msg.BeforeTax,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -308,6 +309,7 @@ func (h *BudgetHandler) UpdateIncomeSource(ctx context.Context, req *connect.Req
 		Recurring:        req.Msg.Recurring,
 		BudgetPersonID:   personID,
 		PaymentFrequency: recurringTypeStringFromProto(req.Msg.PaymentFrequency),
+		BeforeTax:        req.Msg.BeforeTax,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -461,10 +463,11 @@ func (h *BudgetHandler) UpdateIncomeEntry(ctx context.Context, req *connect.Requ
 
 func toProtoBudgetProfile(p db.BudgetProfile) *v1.BudgetProfile {
 	return &v1.BudgetProfile{
-		Id:     p.ID.String(),
-		UserId: p.UserID.String(),
-		Name:   p.Name,
-		Cycle:  protoCycleFromString(p.Cycle),
+		Id:          p.ID.String(),
+		UserId:      p.UserID.String(),
+		Name:        p.Name,
+		Cycle:       protoCycleFromString(p.Cycle),
+		CountryCode: nullStr(p.CountryCode),
 	}
 }
 
@@ -502,6 +505,7 @@ func toProtoIncomeSource(s db.IncomeSource) *v1.IncomeSource {
 		Recurring:        s.Recurring,
 		BudgetPersonId:   personID,
 		PaymentFrequency: protoRecurringTypeFromString(s.PaymentFrequency),
+		BeforeTax:        s.BeforeTax,
 	}
 }
 
@@ -517,6 +521,7 @@ func toProtoSavingsSource(s db.SavingsSource) *v1.SavingsSource {
 		Amount:          moneyFromNumeric(s.Amount),
 		Frequency:       protoRecurringTypeFromString(s.Frequency),
 		BudgetPersonId:  personID,
+		IsTaxReserve:    s.IsTaxReserve,
 	}
 }
 

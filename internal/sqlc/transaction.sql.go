@@ -593,6 +593,41 @@ func (q *Queries) UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMeth
 	return i, err
 }
 
+const updateSystemCategoryColor = `-- name: UpdateSystemCategoryColor :one
+UPDATE category
+SET color = $1
+WHERE id = $2 AND is_system = TRUE
+RETURNING id, name, type_id, is_system, user_id, color
+`
+
+type UpdateSystemCategoryColorParams struct {
+	Color string `json:"color"`
+	ID    int32  `json:"id"`
+}
+
+type UpdateSystemCategoryColorRow struct {
+	ID       int32      `json:"id"`
+	Name     string     `json:"name"`
+	TypeID   *int32     `json:"type_id"`
+	IsSystem bool       `json:"is_system"`
+	UserID   *uuid.UUID `json:"user_id"`
+	Color    string     `json:"color"`
+}
+
+func (q *Queries) UpdateSystemCategoryColor(ctx context.Context, arg UpdateSystemCategoryColorParams) (UpdateSystemCategoryColorRow, error) {
+	row := q.db.QueryRow(ctx, updateSystemCategoryColor, arg.Color, arg.ID)
+	var i UpdateSystemCategoryColorRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.TypeID,
+		&i.IsSystem,
+		&i.UserID,
+		&i.Color,
+	)
+	return i, err
+}
+
 const updateTransaction = `-- name: UpdateTransaction :one
 UPDATE transaction
 SET name = $2, amount = $3, planned_amount = $4, date = $5, recurring = $6,

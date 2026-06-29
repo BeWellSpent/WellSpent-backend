@@ -43,9 +43,10 @@ func (q *Queries) CreateOAuthAccount(ctx context.Context, arg CreateOAuthAccount
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (email, hashed_password, first_name, last_name)
-VALUES ($1, $2, $3, $4)
-RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at
+INSERT INTO users (email, hashed_password, first_name, last_name, country_code, state_code)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
+          country_code, state_code, filing_status, tax_payment_frequency
 `
 
 type CreateUserParams struct {
@@ -53,6 +54,8 @@ type CreateUserParams struct {
 	HashedPassword *string `json:"hashed_password"`
 	FirstName      *string `json:"first_name"`
 	LastName       *string `json:"last_name"`
+	CountryCode    *string `json:"country_code"`
+	StateCode      *string `json:"state_code"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
@@ -61,6 +64,8 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.HashedPassword,
 		arg.FirstName,
 		arg.LastName,
+		arg.CountryCode,
+		arg.StateCode,
 	)
 	var i User
 	err := row.Scan(
@@ -73,6 +78,10 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.IsSuperuser,
 		&i.IsVerified,
 		&i.CreatedAt,
+		&i.CountryCode,
+		&i.StateCode,
+		&i.FilingStatus,
+		&i.TaxPaymentFrequency,
 	)
 	return i, err
 }
@@ -113,7 +122,8 @@ func (q *Queries) GetOAuthAccount(ctx context.Context, arg GetOAuthAccountParams
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at
+SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
+       country_code, state_code, filing_status, tax_payment_frequency
 FROM users
 WHERE email = $1
 LIMIT 1
@@ -132,12 +142,17 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.IsSuperuser,
 		&i.IsVerified,
 		&i.CreatedAt,
+		&i.CountryCode,
+		&i.StateCode,
+		&i.FilingStatus,
+		&i.TaxPaymentFrequency,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at
+SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
+       country_code, state_code, filing_status, tax_payment_frequency
 FROM users
 WHERE id = $1
 LIMIT 1
@@ -156,25 +171,106 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.IsSuperuser,
 		&i.IsVerified,
 		&i.CreatedAt,
+		&i.CountryCode,
+		&i.StateCode,
+		&i.FilingStatus,
+		&i.TaxPaymentFrequency,
 	)
 	return i, err
 }
 
+const listCountryFeatures = `-- name: ListCountryFeatures :many
+SELECT country_code, feature_name, is_enabled
+FROM country_features
+ORDER BY country_code, feature_name
+`
+
+func (q *Queries) ListCountryFeatures(ctx context.Context) ([]CountryFeature, error) {
+	rows, err := q.db.Query(ctx, listCountryFeatures)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountryFeature
+	for rows.Next() {
+		var i CountryFeature
+		if err := rows.Scan(&i.CountryCode, &i.FeatureName, &i.IsEnabled); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEnabledCountries = `-- name: ListEnabledCountries :many
+SELECT code, name, is_enabled
+FROM countries
+WHERE is_enabled = TRUE
+ORDER BY name
+`
+
+type ListEnabledCountriesRow struct {
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	IsEnabled bool   `json:"is_enabled"`
+}
+
+func (q *Queries) ListEnabledCountries(ctx context.Context) ([]ListEnabledCountriesRow, error) {
+	rows, err := q.db.Query(ctx, listEnabledCountries)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEnabledCountriesRow
+	for rows.Next() {
+		var i ListEnabledCountriesRow
+		if err := rows.Scan(&i.Code, &i.Name, &i.IsEnabled); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateUser = `-- name: UpdateUser :one
 UPDATE users
-SET first_name = $2, last_name = $3
-WHERE id = $1
-RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at
+SET first_name            = $1,
+    last_name             = $2,
+    country_code          = $3,
+    state_code            = $4,
+    filing_status         = $5,
+    tax_payment_frequency = $6
+WHERE id = $7
+RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
+          country_code, state_code, filing_status, tax_payment_frequency
 `
 
 type UpdateUserParams struct {
-	ID        uuid.UUID `json:"id"`
-	FirstName *string   `json:"first_name"`
-	LastName  *string   `json:"last_name"`
+	FirstName           *string   `json:"first_name"`
+	LastName            *string   `json:"last_name"`
+	CountryCode         *string   `json:"country_code"`
+	StateCode           *string   `json:"state_code"`
+	FilingStatus        string    `json:"filing_status"`
+	TaxPaymentFrequency int32     `json:"tax_payment_frequency"`
+	ID                  uuid.UUID `json:"id"`
 }
 
 func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUser, arg.ID, arg.FirstName, arg.LastName)
+	row := q.db.QueryRow(ctx, updateUser,
+		arg.FirstName,
+		arg.LastName,
+		arg.CountryCode,
+		arg.StateCode,
+		arg.FilingStatus,
+		arg.TaxPaymentFrequency,
+		arg.ID,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -186,6 +282,10 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.IsSuperuser,
 		&i.IsVerified,
 		&i.CreatedAt,
+		&i.CountryCode,
+		&i.StateCode,
+		&i.FilingStatus,
+		&i.TaxPaymentFrequency,
 	)
 	return i, err
 }

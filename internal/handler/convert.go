@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/google/uuid"
@@ -71,4 +72,33 @@ func nullUUID(u *uuid.UUID) string {
 		return ""
 	}
 	return u.String()
+}
+
+// filingStatusToString converts a proto FilingStatus enum to its stored string form (the integer value).
+func filingStatusToString(fs v1.FilingStatus) string {
+	return fmt.Sprintf("%d", int32(fs))
+}
+
+// filingStatusFromString parses the stored string back to a proto FilingStatus enum.
+func filingStatusFromString(s string) v1.FilingStatus {
+	if s == "" {
+		return v1.FilingStatus_FILING_STATUS_UNSPECIFIED
+	}
+	for _, fs := range []v1.FilingStatus{
+		v1.FilingStatus_FILING_STATUS_SINGLE,
+		v1.FilingStatus_FILING_STATUS_MARRIED_FILING_JOINTLY,
+		v1.FilingStatus_FILING_STATUS_MARRIED_FILING_SEPARATELY,
+		v1.FilingStatus_FILING_STATUS_HEAD_OF_HOUSEHOLD,
+		v1.FilingStatus_FILING_STATUS_QUALIFYING_SURVIVING_SPOUSE,
+	} {
+		if fmt.Sprintf("%d", int32(fs)) == s {
+			return fs
+		}
+	}
+	return v1.FilingStatus_FILING_STATUS_UNSPECIFIED
+}
+
+// taxPaymentFrequencyFromProto converts a proto TaxPaymentFrequency enum to its int32 month value.
+func taxPaymentFrequencyFromProto(t v1.TaxPaymentFrequency) int32 {
+	return int32(t)
 }

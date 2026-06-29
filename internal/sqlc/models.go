@@ -19,11 +19,12 @@ type BudgetPeriod struct {
 }
 
 type BudgetProfile struct {
-	ID        uuid.UUID          `json:"id"`
-	UserID    uuid.UUID          `json:"user_id"`
-	Name      string             `json:"name"`
-	Cycle     string             `json:"cycle"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID          uuid.UUID          `json:"id"`
+	UserID      uuid.UUID          `json:"user_id"`
+	Name        string             `json:"name"`
+	Cycle       string             `json:"cycle"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CountryCode *string            `json:"country_code"`
 }
 
 type BudgetToProfileMapping struct {
@@ -50,6 +51,19 @@ type CategoryType struct {
 	Name string `json:"name"`
 }
 
+type Country struct {
+	Code      string             `json:"code"`
+	Name      string             `json:"name"`
+	IsEnabled bool               `json:"is_enabled"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type CountryFeature struct {
+	CountryCode string `json:"country_code"`
+	FeatureName string `json:"feature_name"`
+	IsEnabled   bool   `json:"is_enabled"`
+}
+
 type IncomeEntry struct {
 	ID             int32              `json:"id"`
 	BudgetPeriodID uuid.UUID          `json:"budget_period_id"`
@@ -70,6 +84,7 @@ type IncomeSource struct {
 	Recurring        bool               `json:"recurring"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	PaymentFrequency string             `json:"payment_frequency"`
+	BeforeTax        bool               `json:"before_tax"`
 }
 
 type OauthAccount struct {
@@ -103,6 +118,7 @@ type SavingsSource struct {
 	Amount          pgtype.Numeric     `json:"amount"`
 	Frequency       string             `json:"frequency"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	IsTaxReserve    bool               `json:"is_tax_reserve"`
 }
 
 type Transaction struct {
@@ -131,13 +147,17 @@ type TransactionType struct {
 }
 
 type User struct {
-	ID             uuid.UUID          `json:"id"`
-	Email          string             `json:"email"`
-	HashedPassword *string            `json:"hashed_password"`
-	FirstName      *string            `json:"first_name"`
-	LastName       *string            `json:"last_name"`
-	IsActive       bool               `json:"is_active"`
-	IsSuperuser    bool               `json:"is_superuser"`
-	IsVerified     bool               `json:"is_verified"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ID                  uuid.UUID          `json:"id"`
+	Email               string             `json:"email"`
+	HashedPassword      *string            `json:"hashed_password"`
+	FirstName           *string            `json:"first_name"`
+	LastName            *string            `json:"last_name"`
+	IsActive            bool               `json:"is_active"`
+	IsSuperuser         bool               `json:"is_superuser"`
+	IsVerified          bool               `json:"is_verified"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	CountryCode         *string            `json:"country_code"`
+	StateCode           *string            `json:"state_code"`
+	FilingStatus        string             `json:"filing_status"`
+	TaxPaymentFrequency int32              `json:"tax_payment_frequency"`
 }
