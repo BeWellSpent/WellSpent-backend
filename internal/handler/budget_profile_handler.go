@@ -156,7 +156,7 @@ func (h *BudgetHandler) AddBudgetPeople(ctx context.Context, req *connect.Reques
 	}
 	people := make([]service.ProfilePersonInput, len(req.Msg.People))
 	for i, p := range req.Msg.People {
-		pi := service.ProfilePersonInput{UserName: p.UserName}
+		pi := service.ProfilePersonInput{UserName: p.UserName, Color: p.Color}
 		if p.UserId != "" {
 			uid, parseErr := uuid.Parse(p.UserId)
 			if parseErr != nil {
@@ -195,6 +195,22 @@ func (h *BudgetHandler) ListBudgetPeople(ctx context.Context, req *connect.Reque
 		protos[i] = toProtoBudgetPerson(m)
 	}
 	return connect.NewResponse(&v1.ListBudgetPeopleResponse{People: protos}), nil
+}
+
+func (h *BudgetHandler) UpdateBudgetPerson(ctx context.Context, req *connect.Request[v1.UpdateBudgetPersonRequest]) (*connect.Response[v1.UpdateBudgetPersonResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	m, svcErr := h.profiles.UpdatePerson(ctx, profileID, int32(req.Msg.Id), req.Msg.Color, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.UpdateBudgetPersonResponse{Person: toProtoBudgetPerson(m)}), nil
 }
 
 func (h *BudgetHandler) RemoveBudgetPerson(ctx context.Context, req *connect.Request[v1.RemoveBudgetPersonRequest]) (*connect.Response[v1.RemoveBudgetPersonResponse], error) {
@@ -468,6 +484,7 @@ func toProtoBudgetPerson(m db.BudgetToProfileMapping) *v1.BudgetPerson {
 		BudgetProfileId: m.BudgetProfileID.String(),
 		UserName:        nullStr(m.UserName),
 		UserId:          nullUUID(m.UserID),
+		Color:           m.Color,
 	}
 }
 

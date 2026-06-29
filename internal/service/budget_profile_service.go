@@ -95,6 +95,7 @@ func (s *BudgetProfileService) Create(ctx context.Context, userID uuid.UUID, nam
 			BudgetProfileID: profile.ID,
 			UserName:        &displayName,
 			UserID:          &userID,
+			Color:           "",
 		})
 	}
 
@@ -219,6 +220,7 @@ func (s *BudgetProfileService) GetBudgetPeriod(ctx context.Context, periodID, us
 type ProfilePersonInput struct {
 	UserName string
 	UserID   *uuid.UUID
+	Color    string
 }
 
 func (s *BudgetProfileService) AddPeople(ctx context.Context, profileID, userID uuid.UUID, people []ProfilePersonInput) ([]db.BudgetToProfileMapping, error) {
@@ -238,6 +240,7 @@ func (s *BudgetProfileService) AddPeople(ctx context.Context, profileID, userID 
 			BudgetProfileID: profileID,
 			UserName:        &p.UserName,
 			UserID:          p.UserID,
+			Color:           p.Color,
 		})
 		if err != nil {
 			return nil, err
@@ -245,6 +248,17 @@ func (s *BudgetProfileService) AddPeople(ctx context.Context, profileID, userID 
 		results = append(results, m)
 	}
 	return results, nil
+}
+
+func (s *BudgetProfileService) UpdatePerson(ctx context.Context, profileID uuid.UUID, personID int32, color string, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
+	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+		return db.BudgetToProfileMapping{}, err
+	}
+	return s.profiles.UpdatePerson(ctx, db.UpdateBudgetPersonParams{
+		ID:              personID,
+		BudgetProfileID: profileID,
+		Color:           color,
+	})
 }
 
 func (s *BudgetProfileService) ListPeople(ctx context.Context, profileID, userID uuid.UUID) ([]db.BudgetToProfileMapping, error) {

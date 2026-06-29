@@ -43,27 +43,27 @@ DELETE FROM transaction
 WHERE id = $1 AND budget_period_id = $2;
 
 -- name: GetCategory :one
-SELECT id, name, type_id, is_system, user_id
+SELECT id, name, type_id, is_system, user_id, color
 FROM category
 WHERE id = $1
 LIMIT 1;
 
 -- name: ListCategories :many
-SELECT id, name, type_id, is_system, user_id
+SELECT id, name, type_id, is_system, user_id, color
 FROM category
 WHERE (user_id = $1::uuid AND is_active = TRUE) OR user_id IS NULL
 ORDER BY name;
 
 -- name: CreateCategory :one
-INSERT INTO category (name, user_id)
-VALUES (sqlc.arg('name'), sqlc.arg('user_id')::uuid)
-RETURNING id, name, type_id, is_system, user_id;
+INSERT INTO category (name, user_id, color)
+VALUES (sqlc.arg('name'), sqlc.arg('user_id')::uuid, sqlc.arg('color'))
+RETURNING id, name, type_id, is_system, user_id, color;
 
 -- name: UpdateCategory :one
 UPDATE category
-SET name = sqlc.arg('name')
+SET name = sqlc.arg('name'), color = sqlc.arg('color')
 WHERE id = sqlc.arg('id') AND user_id = sqlc.arg('user_id')::uuid AND is_system = FALSE
-RETURNING id, name, type_id, is_system, user_id;
+RETURNING id, name, type_id, is_system, user_id, color;
 
 -- Reassigns all transactions with this category to the replacement, then soft-deletes.
 -- No budget scoping: categories are user-scoped so reassignment spans all periods.
@@ -77,13 +77,13 @@ SET is_active = FALSE
 WHERE category.id = sqlc.arg('id') AND category.user_id = sqlc.arg('user_id')::uuid AND category.is_system = FALSE;
 
 -- name: GetPaymentMethod :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color
 FROM payment_methods
 WHERE id = $1
 LIMIT 1;
 
 -- name: ListPaymentMethods :many
-SELECT pm.id, pm.name, pm.payment_type_id, pm.user_id, pt.name AS type_name, pm.budget_person_id
+SELECT pm.id, pm.name, pm.payment_type_id, pm.user_id, pt.name AS type_name, pm.budget_person_id, pm.color
 FROM payment_methods pm
 LEFT JOIN payment_type pt ON pm.payment_type_id = pt.id
 WHERE pm.budget_person_id IN (
@@ -93,15 +93,15 @@ AND pm.is_active = TRUE
 ORDER BY pm.name;
 
 -- name: CreatePaymentMethod :one
-INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id)
-VALUES ($1, $2, $3, $4)
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id;
+INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, color)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color;
 
 -- name: UpdatePaymentMethod :one
 UPDATE payment_methods
-SET name = sqlc.arg('name')
+SET name = sqlc.arg('name'), color = sqlc.arg('color')
 WHERE id = sqlc.arg('id') AND user_id = sqlc.arg('user_id')::uuid
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id;
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color;
 
 -- Reassigns all transactions referencing this method within the profile's periods, then soft-deletes.
 -- name: DeletePaymentMethodAndReassign :exec

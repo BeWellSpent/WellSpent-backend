@@ -33,6 +33,7 @@ type BudgetProfileRepository interface {
 	GetPerson(ctx context.Context, personID int32, profileID uuid.UUID) (db.BudgetToProfileMapping, error)
 	ExistsPerson(ctx context.Context, profileID uuid.UUID, userName string) (bool, error)
 	AddPerson(ctx context.Context, arg db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error)
+	UpdatePerson(ctx context.Context, arg db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error)
 	SoftRemovePerson(ctx context.Context, arg db.SoftRemovePersonFromProfileParams) error
 	SoftRemovePersonAndReassign(ctx context.Context, arg db.SoftRemovePersonAndReassignFromProfileParams) error
 
@@ -149,6 +150,14 @@ func (r *budgetProfileRepository) ExistsPerson(ctx context.Context, profileID uu
 
 func (r *budgetProfileRepository) AddPerson(ctx context.Context, arg db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error) {
 	return r.q.AddBudgetPersonToProfile(ctx, arg)
+}
+
+func (r *budgetProfileRepository) UpdatePerson(ctx context.Context, arg db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error) {
+	m, err := r.q.UpdateBudgetPerson(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", fmt.Sprintf("%d", arg.ID))
+	}
+	return m, err
 }
 
 func (r *budgetProfileRepository) SoftRemovePerson(ctx context.Context, arg db.SoftRemovePersonFromProfileParams) error {

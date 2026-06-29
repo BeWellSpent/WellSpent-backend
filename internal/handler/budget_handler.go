@@ -200,7 +200,7 @@ func (h *BudgetHandler) ListCategories(ctx context.Context, _ *connect.Request[v
 	}
 	protos := make([]*v1.Category, len(cats))
 	for i, c := range cats {
-		protos[i] = &v1.Category{Id: c.ID, Name: c.Name, IsSystem: c.IsSystem}
+		protos[i] = &v1.Category{Id: c.ID, Name: c.Name, IsSystem: c.IsSystem, Color: c.Color}
 	}
 	return connect.NewResponse(&v1.ListCategoriesResponse{Categories: protos}), nil
 }
@@ -213,12 +213,13 @@ func (h *BudgetHandler) CreateCategory(ctx context.Context, req *connect.Request
 	cat, svcErr := h.transactions.CreateCategory(ctx, db.CreateCategoryParams{
 		Name:   req.Msg.Name,
 		UserID: userID,
+		Color:  req.Msg.Color,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
 	return connect.NewResponse(&v1.CreateCategoryResponse{
-		Category: &v1.Category{Id: cat.ID, Name: cat.Name, IsSystem: cat.IsSystem},
+		Category: &v1.Category{Id: cat.ID, Name: cat.Name, IsSystem: cat.IsSystem, Color: cat.Color},
 	}), nil
 }
 
@@ -230,13 +231,14 @@ func (h *BudgetHandler) UpdateCategory(ctx context.Context, req *connect.Request
 	cat, svcErr := h.transactions.UpdateCategory(ctx, db.UpdateCategoryParams{
 		ID:     req.Msg.Id,
 		Name:   req.Msg.Name,
+		Color:  req.Msg.Color,
 		UserID: userID,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
 	return connect.NewResponse(&v1.UpdateCategoryResponse{
-		Category: &v1.Category{Id: cat.ID, Name: cat.Name, IsSystem: cat.IsSystem},
+		Category: &v1.Category{Id: cat.ID, Name: cat.Name, IsSystem: cat.IsSystem, Color: cat.Color},
 	}), nil
 }
 
@@ -276,7 +278,7 @@ func (h *BudgetHandler) ListPaymentMethods(ctx context.Context, req *connect.Req
 		if m.BudgetPersonID != nil {
 			personID = int64(*m.BudgetPersonID)
 		}
-		protos[i] = &v1.PaymentMethod{Id: m.ID.String(), Name: m.Name, Type: typeVal, BudgetPersonId: personID}
+		protos[i] = &v1.PaymentMethod{Id: m.ID.String(), Name: m.Name, Type: typeVal, BudgetPersonId: personID, Color: m.Color}
 	}
 	return connect.NewResponse(&v1.ListPaymentMethodsResponse{Methods: protos}), nil
 }
@@ -297,6 +299,7 @@ func (h *BudgetHandler) CreatePaymentMethod(ctx context.Context, req *connect.Re
 		PaymentTypeID:  &typeID,
 		UserID:         &userID,
 		BudgetPersonID: personID,
+		Color:          req.Msg.Color,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -311,6 +314,7 @@ func (h *BudgetHandler) CreatePaymentMethod(ctx context.Context, req *connect.Re
 			Name:           method.Name,
 			Type:           req.Msg.Type,
 			BudgetPersonId: retPersonID,
+			Color:          method.Color,
 		},
 	}), nil
 }
@@ -327,6 +331,7 @@ func (h *BudgetHandler) UpdatePaymentMethod(ctx context.Context, req *connect.Re
 	method, svcErr := h.transactions.UpdatePaymentMethod(ctx, db.UpdatePaymentMethodParams{
 		ID:     id,
 		Name:   req.Msg.Name,
+		Color:  req.Msg.Color,
 		UserID: userID,
 	})
 	if svcErr != nil {
@@ -346,6 +351,7 @@ func (h *BudgetHandler) UpdatePaymentMethod(ctx context.Context, req *connect.Re
 			Name:           method.Name,
 			Type:           typeVal,
 			BudgetPersonId: personID,
+			Color:          method.Color,
 		},
 	}), nil
 }

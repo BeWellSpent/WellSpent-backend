@@ -9,6 +9,9 @@ tmp_dir = "tmp"
   # generated dirs and vendor don't need to trigger rebuilds
   exclude_dir = ["gen", "internal/sqlc", "tmp", "vendor", "bin"]
   delay = 500 # ms debounce
+  # polling required on Windows/WSL2 — inotify events don't cross the boundary
+  poll = true
+  poll_interval = 500 # ms
 
 [log]
   time = true

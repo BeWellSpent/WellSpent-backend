@@ -14,20 +14,26 @@ import (
 
 const addBudgetPersonToProfile = `-- name: AddBudgetPersonToProfile :one
 
-INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id)
-VALUES ($1, $2, $3)
-RETURNING id, budget_profile_id, user_name, user_id, is_active
+INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id, color)
+VALUES ($1, $2, $3, $4)
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color
 `
 
 type AddBudgetPersonToProfileParams struct {
 	BudgetProfileID uuid.UUID  `json:"budget_profile_id"`
 	UserName        *string    `json:"user_name"`
 	UserID          *uuid.UUID `json:"user_id"`
+	Color           string     `json:"color"`
 }
 
 // ── People ────────────────────────────────────────────────────────────────────
 func (q *Queries) AddBudgetPersonToProfile(ctx context.Context, arg AddBudgetPersonToProfileParams) (BudgetToProfileMapping, error) {
-	row := q.db.QueryRow(ctx, addBudgetPersonToProfile, arg.BudgetProfileID, arg.UserName, arg.UserID)
+	row := q.db.QueryRow(ctx, addBudgetPersonToProfile,
+		arg.BudgetProfileID,
+		arg.UserName,
+		arg.UserID,
+		arg.Color,
+	)
 	var i BudgetToProfileMapping
 	err := row.Scan(
 		&i.ID,
@@ -35,6 +41,7 @@ func (q *Queries) AddBudgetPersonToProfile(ctx context.Context, arg AddBudgetPer
 		&i.UserName,
 		&i.UserID,
 		&i.IsActive,
+		&i.Color,
 	)
 	return i, err
 }
@@ -307,7 +314,7 @@ func (q *Queries) GetBudgetPeriodByID(ctx context.Context, id uuid.UUID) (Budget
 }
 
 const getBudgetPersonByProfileID = `-- name: GetBudgetPersonByProfileID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active
+SELECT id, budget_profile_id, user_name, user_id, is_active, color
 FROM budget_to_profile_mapping
 WHERE id = $1 AND budget_profile_id = $2
 LIMIT 1
@@ -327,6 +334,7 @@ func (q *Queries) GetBudgetPersonByProfileID(ctx context.Context, arg GetBudgetP
 		&i.UserName,
 		&i.UserID,
 		&i.IsActive,
+		&i.Color,
 	)
 	return i, err
 }
@@ -374,7 +382,7 @@ func (q *Queries) GetLatestBudgetPeriod(ctx context.Context, budgetProfileID uui
 }
 
 const listBudgetPeopleByProfile = `-- name: ListBudgetPeopleByProfile :many
-SELECT id, budget_profile_id, user_name, user_id, is_active
+SELECT id, budget_profile_id, user_name, user_id, is_active, color
 FROM budget_to_profile_mapping
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY id
@@ -395,6 +403,7 @@ func (q *Queries) ListBudgetPeopleByProfile(ctx context.Context, budgetProfileID
 			&i.UserName,
 			&i.UserID,
 			&i.IsActive,
+			&i.Color,
 		); err != nil {
 			return nil, err
 		}
@@ -679,6 +688,33 @@ type SoftRemovePersonFromProfileParams struct {
 func (q *Queries) SoftRemovePersonFromProfile(ctx context.Context, arg SoftRemovePersonFromProfileParams) error {
 	_, err := q.db.Exec(ctx, softRemovePersonFromProfile, arg.PersonID, arg.BudgetProfileID)
 	return err
+}
+
+const updateBudgetPerson = `-- name: UpdateBudgetPerson :one
+UPDATE budget_to_profile_mapping
+SET color = $1
+WHERE id = $2 AND budget_profile_id = $3::uuid AND is_active = TRUE
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color
+`
+
+type UpdateBudgetPersonParams struct {
+	Color           string    `json:"color"`
+	ID              int32     `json:"id"`
+	BudgetProfileID uuid.UUID `json:"budget_profile_id"`
+}
+
+func (q *Queries) UpdateBudgetPerson(ctx context.Context, arg UpdateBudgetPersonParams) (BudgetToProfileMapping, error) {
+	row := q.db.QueryRow(ctx, updateBudgetPerson, arg.Color, arg.ID, arg.BudgetProfileID)
+	var i BudgetToProfileMapping
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetProfileID,
+		&i.UserName,
+		&i.UserID,
+		&i.IsActive,
+		&i.Color,
+	)
+	return i, err
 }
 
 const updateBudgetProfile = `-- name: UpdateBudgetProfile :one

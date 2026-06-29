@@ -71,21 +71,27 @@ WHERE bp.end_date = $1::date
 -- ── People ────────────────────────────────────────────────────────────────────
 
 -- name: AddBudgetPersonToProfile :one
-INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id)
-VALUES ($1, $2, $3)
-RETURNING id, budget_profile_id, user_name, user_id, is_active;
+INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id, color)
+VALUES ($1, $2, $3, $4)
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color;
 
 -- name: ListBudgetPeopleByProfile :many
-SELECT id, budget_profile_id, user_name, user_id, is_active
+SELECT id, budget_profile_id, user_name, user_id, is_active, color
 FROM budget_to_profile_mapping
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY id;
 
 -- name: GetBudgetPersonByProfileID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active
+SELECT id, budget_profile_id, user_name, user_id, is_active, color
 FROM budget_to_profile_mapping
 WHERE id = $1 AND budget_profile_id = $2
 LIMIT 1;
+
+-- name: UpdateBudgetPerson :one
+UPDATE budget_to_profile_mapping
+SET color = sqlc.arg('color')
+WHERE id = sqlc.arg('id') AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid AND is_active = TRUE
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color;
 
 -- name: ExistsBudgetPersonInProfile :one
 SELECT EXISTS (

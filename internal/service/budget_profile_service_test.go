@@ -31,6 +31,7 @@ type mockBudgetProfileRepo struct {
 	getPerson                    func(context.Context, int32, uuid.UUID) (db.BudgetToProfileMapping, error)
 	existsPerson                 func(context.Context, uuid.UUID, string) (bool, error)
 	addPerson                    func(context.Context, db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error)
+	updatePerson                 func(context.Context, db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error)
 	softRemovePerson             func(context.Context, db.SoftRemovePersonFromProfileParams) error
 	softRemovePersonAndReassign  func(context.Context, db.SoftRemovePersonAndReassignFromProfileParams) error
 	listIncomeSources            func(context.Context, uuid.UUID) ([]db.IncomeSource, error)
@@ -135,6 +136,12 @@ func (m *mockBudgetProfileRepo) AddPerson(ctx context.Context, arg db.AddBudgetP
 		return m.addPerson(ctx, arg)
 	}
 	return db.BudgetToProfileMapping{BudgetProfileID: arg.BudgetProfileID, UserName: arg.UserName, UserID: arg.UserID}, nil
+}
+func (m *mockBudgetProfileRepo) UpdatePerson(ctx context.Context, arg db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error) {
+	if m.updatePerson != nil {
+		return m.updatePerson(ctx, arg)
+	}
+	return db.BudgetToProfileMapping{Color: arg.Color}, nil
 }
 func (m *mockBudgetProfileRepo) SoftRemovePerson(ctx context.Context, arg db.SoftRemovePersonFromProfileParams) error {
 	if m.softRemovePerson != nil {
@@ -495,6 +502,46 @@ func TestDeleteSavingsSource_Forbidden(t *testing.T) {
 	)
 
 	err := svc.DeleteSavingsSource(context.Background(), 1, profileID, otherID)
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	assert.True(t, errors.As(err, &forbidden))
+}
+
+func TestUpdatePerson_Success(t *testing.T) {
+	ownerID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockUserRepo{},
+	)
+
+	m, err := svc.UpdatePerson(context.Background(), profileID, 1, "green", ownerID)
+	require.NoError(t, err)
+	assert.Equal(t, "green", m.Color)
+}
+
+func TestUpdatePerson_Forbidden(t *testing.T) {
+	ownerID := uuid.New()
+	otherID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.UpdatePerson(context.Background(), profileID, 1, "blue", otherID)
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	assert.True(t, errors.As(err, &forbidden))

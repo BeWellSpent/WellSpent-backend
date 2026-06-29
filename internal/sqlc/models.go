@@ -32,6 +32,7 @@ type BudgetToProfileMapping struct {
 	UserName        *string    `json:"user_name"`
 	UserID          *uuid.UUID `json:"user_id"`
 	IsActive        bool       `json:"is_active"`
+	Color           string     `json:"color"`
 }
 
 type Category struct {
@@ -41,6 +42,7 @@ type Category struct {
 	UserID   *uuid.UUID `json:"user_id"`
 	IsSystem bool       `json:"is_system"`
 	IsActive bool       `json:"is_active"`
+	Color    string     `json:"color"`
 }
 
 type CategoryType struct {
@@ -85,6 +87,7 @@ type PaymentMethod struct {
 	UserID         *uuid.UUID `json:"user_id"`
 	IsActive       bool       `json:"is_active"`
 	BudgetPersonID *int32     `json:"budget_person_id"`
+	Color          string     `json:"color"`
 }
 
 type PaymentType struct {

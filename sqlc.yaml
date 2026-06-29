@@ -13,6 +13,7 @@ sql:
       - "internal/db/migrations/000008_budget_rework.sql"
       - "internal/db/migrations/000009_savings.sql"
       - "internal/db/migrations/000010_drop_savings_recurring.sql"
+      - "internal/db/migrations/000011_add_color.sql"
     gen:
       go:
         package: "db"
