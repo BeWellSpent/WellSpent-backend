@@ -183,6 +183,9 @@ RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, crea
 -- name: DeleteSavingsSource :exec
 DELETE FROM savings_source WHERE id = $1 AND budget_profile_id = $2;
 
+-- name: DeleteTaxReserveSavingsSource :exec
+DELETE FROM savings_source WHERE budget_profile_id = $1 AND is_tax_reserve = TRUE;
+
 -- Upserts the system-managed tax reserve savings source for a budget profile.
 -- Uses the partial unique index idx_savings_source_tax_reserve.
 -- name: UpsertTaxReserveSavingsSource :one

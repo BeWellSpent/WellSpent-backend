@@ -49,6 +49,7 @@ type mockBudgetProfileRepo struct {
 	updateSavingsSource                func(context.Context, db.UpdateSavingsSourceParams) (db.SavingsSource, error)
 	deleteSavingsSource                func(context.Context, db.DeleteSavingsSourceParams) error
 	upsertTaxReserveSavingsSource      func(context.Context, db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error)
+	deleteTaxReserveSavingsSource      func(context.Context, uuid.UUID) error
 }
 
 func (m *mockBudgetProfileRepo) ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
@@ -239,6 +240,13 @@ func (m *mockBudgetProfileRepo) UpsertTaxReserveSavingsSource(ctx context.Contex
 		return m.upsertTaxReserveSavingsSource(ctx, arg)
 	}
 	return db.SavingsSource{BudgetProfileID: arg.BudgetProfileID, IsTaxReserve: true}, nil
+}
+
+func (m *mockBudgetProfileRepo) DeleteTaxReserveSavingsSource(ctx context.Context, profileID uuid.UUID) error {
+	if m.deleteTaxReserveSavingsSource != nil {
+		return m.deleteTaxReserveSavingsSource(ctx, profileID)
+	}
+	return nil
 }
 
 // ── BudgetProfileService tests ────────────────────────────────────────────────

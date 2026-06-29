@@ -365,7 +365,7 @@ func (s *BudgetProfileService) AddIncomeSource(ctx context.Context, profileID, u
 	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
 		return db.IncomeSource{}, err
 	}
-	return s.profiles.AddIncomeSource(ctx, db.AddIncomeSourceParams{
+	src, err := s.profiles.AddIncomeSource(ctx, db.AddIncomeSourceParams{
 		BudgetProfileID:  profileID,
 		BudgetPersonID:   inp.BudgetPersonID,
 		Name:             inp.Name,
@@ -375,6 +375,11 @@ func (s *BudgetProfileService) AddIncomeSource(ctx context.Context, profileID, u
 		PaymentFrequency: inp.PaymentFrequency,
 		BeforeTax:        inp.BeforeTax,
 	})
+	if err != nil {
+		return db.IncomeSource{}, err
+	}
+	s.recalculateTaxReserve(ctx, profileID)
+	return src, nil
 }
 
 func (s *BudgetProfileService) ListIncomeSources(ctx context.Context, profileID, userID uuid.UUID) ([]db.IncomeSource, error) {
@@ -388,7 +393,7 @@ func (s *BudgetProfileService) UpdateIncomeSource(ctx context.Context, id int32,
 	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
 		return db.IncomeSource{}, err
 	}
-	return s.profiles.UpdateIncomeSource(ctx, db.UpdateIncomeSourceParams{
+	src, err := s.profiles.UpdateIncomeSource(ctx, db.UpdateIncomeSourceParams{
 		ID:               id,
 		BudgetProfileID:  profileID,
 		Name:             inp.Name,
@@ -399,15 +404,90 @@ func (s *BudgetProfileService) UpdateIncomeSource(ctx context.Context, id int32,
 		PaymentFrequency: inp.PaymentFrequency,
 		BeforeTax:        inp.BeforeTax,
 	})
+	if err != nil {
+		return db.IncomeSource{}, err
+	}
+	s.recalculateTaxReserve(ctx, profileID)
+	return src, nil
 }
 
 func (s *BudgetProfileService) DeleteIncomeSource(ctx context.Context, id int32, profileID, userID uuid.UUID) error {
 	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
 		return err
 	}
-	return s.profiles.DeleteIncomeSource(ctx, db.DeleteIncomeSourceParams{
+	if err := s.profiles.DeleteIncomeSource(ctx, db.DeleteIncomeSourceParams{
 		ID:              id,
 		BudgetProfileID: profileID,
+	}); err != nil {
+		return err
+	}
+	s.recalculateTaxReserve(ctx, profileID)
+	return nil
+}
+
+// recalculateTaxReserve recomputes the tax reserve savings source for a US
+// profile whenever income sources change. It is best-effort — failures are
+// silently ignored so the primary mutation is never blocked.
+func (s *BudgetProfileService) recalculateTaxReserve(ctx context.Context, profileID uuid.UUID) {
+	profile, err := s.profiles.GetByID(ctx, profileID)
+	if err != nil {
+		return
+	}
+
+	// Resolve effective country: fall back to the owner's country when the
+	// profile pre-dates the country_code column.
+	countryCode := ""
+	if profile.CountryCode != nil {
+		countryCode = *profile.CountryCode
+	}
+	if countryCode == "" {
+		if owner, oErr := s.users.GetByID(ctx, profile.UserID); oErr == nil && owner.CountryCode != nil {
+			countryCode = *owner.CountryCode
+		}
+	}
+	if countryCode != "US" {
+		return
+	}
+
+	sources, err := s.profiles.ListIncomeSources(ctx, profileID)
+	if err != nil {
+		return
+	}
+
+	var annualBeforeTax float64
+	for _, src := range sources {
+		if !src.BeforeTax || !src.DefaultAmount.Valid {
+			continue
+		}
+		f, _ := new(big.Float).SetInt(src.DefaultAmount.Int).Float64()
+		if src.DefaultAmount.Exp > 0 {
+			f *= math.Pow(10, float64(src.DefaultAmount.Exp))
+		} else if src.DefaultAmount.Exp < 0 {
+			f /= math.Pow(10, float64(-src.DefaultAmount.Exp))
+		}
+		annualBeforeTax += f
+	}
+
+	if annualBeforeTax == 0 {
+		_ = s.profiles.DeleteTaxReserveSavingsSource(ctx, profileID)
+		return
+	}
+
+	owner, err := s.users.GetByID(ctx, profile.UserID)
+	if err != nil {
+		return
+	}
+	stateCode := ""
+	if owner.StateCode != nil {
+		stateCode = *owner.StateCode
+	}
+	fsInt, _ := strconv.Atoi(owner.FilingStatus)
+	estimate := tax.Estimate(annualBeforeTax, stateCode, tax.FilingStatus(fsInt))
+	cents := int64(math.Round(estimate.MonthlySaving * 100))
+	monthly := pgtype.Numeric{Int: big.NewInt(cents), Exp: -2, Valid: true}
+	_, _ = s.profiles.UpsertTaxReserveSavingsSource(ctx, db.UpsertTaxReserveSavingsSourceParams{
+		BudgetProfileID: profileID,
+		Amount:          monthly,
 	})
 }
 

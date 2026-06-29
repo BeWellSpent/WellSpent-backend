@@ -266,6 +266,15 @@ func (q *Queries) DeleteSavingsSource(ctx context.Context, arg DeleteSavingsSour
 	return err
 }
 
+const deleteTaxReserveSavingsSource = `-- name: DeleteTaxReserveSavingsSource :exec
+DELETE FROM savings_source WHERE budget_profile_id = $1 AND is_tax_reserve = TRUE
+`
+
+func (q *Queries) DeleteTaxReserveSavingsSource(ctx context.Context, budgetProfileID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteTaxReserveSavingsSource, budgetProfileID)
+	return err
+}
+
 const existsBudgetPersonInProfile = `-- name: ExistsBudgetPersonInProfile :one
 SELECT EXISTS (
     SELECT 1 FROM budget_to_profile_mapping
