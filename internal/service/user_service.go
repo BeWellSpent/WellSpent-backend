@@ -72,7 +72,7 @@ func (s *UserService) ChangePassword(ctx context.Context, id uuid.UUID, currentP
 	if err := bcrypt.CompareHashAndPassword([]byte(*user.HashedPassword), []byte(currentPassword)); err != nil {
 		return apperr.Invalid("current password is incorrect")
 	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
 	if err != nil {
 		return fmt.Errorf("user: hash password: %w", err)
 	}

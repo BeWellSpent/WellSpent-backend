@@ -14,6 +14,7 @@ type Config struct {
 	JWTLifetimeSeconds  int      `envconfig:"JWT_LIFETIME_SECONDS" default:"3600"`
 	GoogleClientID      string   `envconfig:"GOOGLE_CLIENT_ID"`
 	GoogleClientSecret  string   `envconfig:"GOOGLE_CLIENT_SECRET"`
+	GoogleRedirectURI   string   `envconfig:"GOOGLE_REDIRECT_URI"`
 	CORSAllowedOrigins  []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"http://localhost:5173,http://localhost:3000"`
 	Debug               bool     `envconfig:"DEBUG" default:"false"`
 	Env                 string   `envconfig:"ENV" default:"dev"`

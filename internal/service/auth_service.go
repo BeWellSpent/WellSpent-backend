@@ -147,7 +147,7 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 		return RegisterResult{}, err
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
 		return RegisterResult{}, fmt.Errorf("auth: hash password: %w", err)
 	}

@@ -54,7 +54,7 @@ func main() {
 
 	// Auth
 	jwtSvc     := auth.NewJWTService(cfg.JWTSecret, cfg.JWTLifetimeSeconds)
-	googleOAuth := auth.NewGoogleOAuth(cfg.GoogleClientID, cfg.GoogleClientSecret, "")
+	googleOAuth := auth.NewGoogleOAuth(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURI)
 
 	// Services
 	authSvc        := service.NewAuthService(userRepo, jwtSvc, googleOAuth)
