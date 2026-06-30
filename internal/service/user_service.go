@@ -30,6 +30,8 @@ type UpdateUserInput struct {
 	StateCode           *string
 	FilingStatus        string
 	TaxPaymentFrequency int32
+	Language            string
+	Currency            string
 }
 
 func (s *UserService) Update(ctx context.Context, id uuid.UUID, inp UpdateUserInput) (db.User, error) {
@@ -41,6 +43,8 @@ func (s *UserService) Update(ctx context.Context, id uuid.UUID, inp UpdateUserIn
 		StateCode:           inp.StateCode,
 		FilingStatus:        inp.FilingStatus,
 		TaxPaymentFrequency: inp.TaxPaymentFrequency,
+		Language:            inp.Language,
+		Currency:            inp.Currency,
 	})
 }
 

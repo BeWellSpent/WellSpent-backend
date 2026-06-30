@@ -29,6 +29,8 @@ func NewAuthService(users repository.UserRepository, jwt *auth.JWTService, googl
 type LoginResult struct {
 	AccessToken string
 	ExpiresIn   int64
+	Language    string
+	Currency    string
 }
 
 func (s *AuthService) Login(ctx context.Context, email, password string) (LoginResult, error) {
@@ -51,16 +53,18 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (LoginR
 	if err != nil {
 		return LoginResult{}, fmt.Errorf("auth: generate token: %w", err)
 	}
-	return LoginResult{AccessToken: token, ExpiresIn: s.jwt.LifetimeSeconds()}, nil
+	return LoginResult{AccessToken: token, ExpiresIn: s.jwt.LifetimeSeconds(), Language: user.Language, Currency: user.Currency}, nil
 }
 
 type GoogleExchangeResult struct {
 	AccessToken string
 	ExpiresIn   int64
 	IsNewUser   bool
+	Language    string
+	Currency    string
 }
 
-func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI string) (GoogleExchangeResult, error) {
+func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI, language, currency string) (GoogleExchangeResult, error) {
 	info, _, err := s.google.Exchange(ctx, code)
 	if err != nil {
 		return GoogleExchangeResult{}, fmt.Errorf("auth: google exchange: %w", err)
@@ -73,6 +77,7 @@ func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI stri
 	})
 
 	var userID uuid.UUID
+	var userLang, userCurrency string
 	isNew := false
 
 	if err != nil {
@@ -88,10 +93,20 @@ func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI stri
 				return GoogleExchangeResult{}, err
 			}
 			// Create brand new user
+			lang := language
+			if lang == "" {
+				lang = "en"
+			}
+			cur := currency
+			if cur == "" {
+				cur = "USD"
+			}
 			user, err = s.users.Create(ctx, db.CreateUserParams{
 				Email:     info.Email,
 				FirstName: &info.GivenName,
 				LastName:  &info.FamilyName,
+				Language:  lang,
+				Currency:  cur,
 			})
 			if err != nil {
 				return GoogleExchangeResult{}, fmt.Errorf("auth: create user: %w", err)
@@ -99,6 +114,8 @@ func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI stri
 			isNew = true
 		}
 		userID = user.ID
+		userLang = user.Language
+		userCurrency = user.Currency
 		// Link OAuth account
 		_, err = s.users.CreateOAuthAccount(ctx, db.CreateOAuthAccountParams{
 			UserID:       userID,
@@ -111,13 +128,19 @@ func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI stri
 		}
 	} else {
 		userID = oauthAcc.UserID
+		existing, fetchErr := s.users.GetByID(ctx, userID)
+		if fetchErr != nil {
+			return GoogleExchangeResult{}, fmt.Errorf("auth: get user: %w", fetchErr)
+		}
+		userLang = existing.Language
+		userCurrency = existing.Currency
 	}
 
 	token, err := s.jwt.GenerateToken(userID)
 	if err != nil {
 		return GoogleExchangeResult{}, fmt.Errorf("auth: generate token: %w", err)
 	}
-	return GoogleExchangeResult{AccessToken: token, ExpiresIn: s.jwt.LifetimeSeconds(), IsNewUser: isNew}, nil
+	return GoogleExchangeResult{AccessToken: token, ExpiresIn: s.jwt.LifetimeSeconds(), IsNewUser: isNew, Language: userLang, Currency: userCurrency}, nil
 }
 
 func (s *AuthService) GoogleAuthURL(state string) string {
@@ -129,7 +152,7 @@ type RegisterResult struct {
 	ExpiresIn   int64
 }
 
-func (s *AuthService) Register(ctx context.Context, email, password, firstName, lastName, countryCode, stateCode string) (RegisterResult, error) {
+func (s *AuthService) Register(ctx context.Context, email, password, firstName, lastName, countryCode, stateCode, language, currency string) (RegisterResult, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if _, err := mail.ParseAddress(email); err != nil {
 		return RegisterResult{}, apperr.Invalid("invalid email address")
@@ -154,11 +177,21 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 	hashed := string(hash)
 	fn := firstName
 	ln := lastName
+	lang := language
+	if lang == "" {
+		lang = "en"
+	}
+	cur := currency
+	if cur == "" {
+		cur = "USD"
+	}
 	params := db.CreateUserParams{
 		Email:          email,
 		HashedPassword: &hashed,
 		FirstName:      &fn,
 		LastName:       &ln,
+		Language:       lang,
+		Currency:       cur,
 	}
 	if countryCode != "" {
 		params.CountryCode = &countryCode

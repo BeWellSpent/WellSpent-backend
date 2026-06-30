@@ -170,4 +170,6 @@ type User struct {
 	StateCode           *string            `json:"state_code"`
 	FilingStatus        string             `json:"filing_status"`
 	TaxPaymentFrequency int32              `json:"tax_payment_frequency"`
+	Language            string             `json:"language"`
+	Currency            string             `json:"currency"`
 }

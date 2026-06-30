@@ -1,22 +1,22 @@
 -- name: GetUserByID :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-       country_code, state_code, filing_status, tax_payment_frequency
+       country_code, state_code, filing_status, tax_payment_frequency, language, currency
 FROM users
 WHERE id = $1
 LIMIT 1;
 
 -- name: GetUserByEmail :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-       country_code, state_code, filing_status, tax_payment_frequency
+       country_code, state_code, filing_status, tax_payment_frequency, language, currency
 FROM users
 WHERE email = $1
 LIMIT 1;
 
 -- name: CreateUser :one
-INSERT INTO users (email, hashed_password, first_name, last_name, country_code, state_code)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO users (email, hashed_password, first_name, last_name, country_code, state_code, language, currency)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-          country_code, state_code, filing_status, tax_payment_frequency;
+          country_code, state_code, filing_status, tax_payment_frequency, language, currency;
 
 -- name: UpdateUser :one
 UPDATE users
@@ -25,10 +25,12 @@ SET first_name            = sqlc.arg('first_name'),
     country_code          = sqlc.arg('country_code'),
     state_code            = sqlc.arg('state_code'),
     filing_status         = sqlc.arg('filing_status'),
-    tax_payment_frequency = sqlc.arg('tax_payment_frequency')
+    tax_payment_frequency = sqlc.arg('tax_payment_frequency'),
+    language              = sqlc.arg('language'),
+    currency              = sqlc.arg('currency')
 WHERE id = sqlc.arg('id')
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-          country_code, state_code, filing_status, tax_payment_frequency;
+          country_code, state_code, filing_status, tax_payment_frequency, language, currency;
 
 -- name: UpdateUserPassword :exec
 UPDATE users

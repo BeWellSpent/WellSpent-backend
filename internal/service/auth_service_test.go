@@ -119,7 +119,7 @@ func hashFor(t *testing.T, password string) string {
 
 func TestRegister_Success(t *testing.T) {
 	repo := &mockUserRepo{}
-	result, err := newAuthSvc(repo).Register(context.Background(), "new@example.com", "Strong@1", "Jane", "Doe", "", "")
+	result, err := newAuthSvc(repo).Register(context.Background(), "new@example.com", "Strong@1", "Jane", "Doe", "", "", "", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.AccessToken)
 	assert.Equal(t, int64(3600), result.ExpiresIn)
@@ -133,13 +133,13 @@ func TestRegister_EmailNormalized(t *testing.T) {
 			return db.User{ID: uuid.New(), Email: arg.Email, IsActive: true}, nil
 		},
 	}
-	_, err := newAuthSvc(repo).Register(context.Background(), "  USER@Example.COM  ", "Strong@1", "", "", "", "")
+	_, err := newAuthSvc(repo).Register(context.Background(), "  USER@Example.COM  ", "Strong@1", "", "", "", "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "user@example.com", capturedEmail)
 }
 
 func TestRegister_InvalidEmail(t *testing.T) {
-	_, err := newAuthSvc(&mockUserRepo{}).Register(context.Background(), "not-an-email", "Strong@1", "", "", "", "")
+	_, err := newAuthSvc(&mockUserRepo{}).Register(context.Background(), "not-an-email", "Strong@1", "", "", "", "", "", "")
 	require.Error(t, err)
 	var ve *apperr.ValidationError
 	require.ErrorAs(t, err, &ve)
@@ -151,7 +151,7 @@ func TestRegister_DuplicateEmail(t *testing.T) {
 			return db.User{Email: email, IsActive: true}, nil
 		},
 	}
-	_, err := newAuthSvc(repo).Register(context.Background(), "exists@example.com", "Strong@1", "", "", "", "")
+	_, err := newAuthSvc(repo).Register(context.Background(), "exists@example.com", "Strong@1", "", "", "", "", "", "")
 	require.Error(t, err)
 	var de *apperr.DuplicateError
 	require.ErrorAs(t, err, &de)

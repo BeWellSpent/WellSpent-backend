@@ -43,10 +43,10 @@ func (q *Queries) CreateOAuthAccount(ctx context.Context, arg CreateOAuthAccount
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (email, hashed_password, first_name, last_name, country_code, state_code)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO users (email, hashed_password, first_name, last_name, country_code, state_code, language, currency)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-          country_code, state_code, filing_status, tax_payment_frequency
+          country_code, state_code, filing_status, tax_payment_frequency, language, currency
 `
 
 type CreateUserParams struct {
@@ -56,6 +56,8 @@ type CreateUserParams struct {
 	LastName       *string `json:"last_name"`
 	CountryCode    *string `json:"country_code"`
 	StateCode      *string `json:"state_code"`
+	Language       string  `json:"language"`
+	Currency       string  `json:"currency"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
@@ -66,6 +68,8 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.LastName,
 		arg.CountryCode,
 		arg.StateCode,
+		arg.Language,
+		arg.Currency,
 	)
 	var i User
 	err := row.Scan(
@@ -82,6 +86,8 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.StateCode,
 		&i.FilingStatus,
 		&i.TaxPaymentFrequency,
+		&i.Language,
+		&i.Currency,
 	)
 	return i, err
 }
@@ -123,7 +129,7 @@ func (q *Queries) GetOAuthAccount(ctx context.Context, arg GetOAuthAccountParams
 
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-       country_code, state_code, filing_status, tax_payment_frequency
+       country_code, state_code, filing_status, tax_payment_frequency, language, currency
 FROM users
 WHERE email = $1
 LIMIT 1
@@ -146,13 +152,15 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.StateCode,
 		&i.FilingStatus,
 		&i.TaxPaymentFrequency,
+		&i.Language,
+		&i.Currency,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-       country_code, state_code, filing_status, tax_payment_frequency
+       country_code, state_code, filing_status, tax_payment_frequency, language, currency
 FROM users
 WHERE id = $1
 LIMIT 1
@@ -175,6 +183,8 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.StateCode,
 		&i.FilingStatus,
 		&i.TaxPaymentFrequency,
+		&i.Language,
+		&i.Currency,
 	)
 	return i, err
 }
@@ -245,10 +255,12 @@ SET first_name            = $1,
     country_code          = $3,
     state_code            = $4,
     filing_status         = $5,
-    tax_payment_frequency = $6
-WHERE id = $7
+    tax_payment_frequency = $6,
+    language              = $7,
+    currency              = $8
+WHERE id = $9
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-          country_code, state_code, filing_status, tax_payment_frequency
+          country_code, state_code, filing_status, tax_payment_frequency, language, currency
 `
 
 type UpdateUserParams struct {
@@ -258,6 +270,8 @@ type UpdateUserParams struct {
 	StateCode           *string   `json:"state_code"`
 	FilingStatus        string    `json:"filing_status"`
 	TaxPaymentFrequency int32     `json:"tax_payment_frequency"`
+	Language            string    `json:"language"`
+	Currency            string    `json:"currency"`
 	ID                  uuid.UUID `json:"id"`
 }
 
@@ -269,6 +283,8 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		arg.StateCode,
 		arg.FilingStatus,
 		arg.TaxPaymentFrequency,
+		arg.Language,
+		arg.Currency,
 		arg.ID,
 	)
 	var i User
@@ -286,6 +302,8 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.StateCode,
 		&i.FilingStatus,
 		&i.TaxPaymentFrequency,
+		&i.Language,
+		&i.Currency,
 	)
 	return i, err
 }

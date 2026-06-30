@@ -54,6 +54,8 @@ func (h *UserHandler) UpdateMe(ctx context.Context, req *connect.Request[v1.Upda
 	if req.Msg.StateCode != "" {
 		inp.StateCode = &req.Msg.StateCode
 	}
+	inp.Language = req.Msg.Language
+	inp.Currency = req.Msg.Currency
 	user, svcErr := h.svc.Update(ctx, userID, inp)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -124,5 +126,7 @@ func toProtoUser(u db.User) *v1.User {
 		StateCode:           nullStr(u.StateCode),
 		FilingStatus:        filingStatusFromString(u.FilingStatus),
 		TaxPaymentFrequency: v1.TaxPaymentFrequency(u.TaxPaymentFrequency),
+		Language:            u.Language,
+		Currency:            u.Currency,
 	}
 }

@@ -17,7 +17,7 @@ func NewAuthHandler(svc *service.AuthService) *AuthHandler {
 }
 
 func (h *AuthHandler) Register(ctx context.Context, req *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error) {
-	result, err := h.svc.Register(ctx, req.Msg.Email, req.Msg.Password, req.Msg.FirstName, req.Msg.LastName, req.Msg.CountryCode, req.Msg.StateCode)
+	result, err := h.svc.Register(ctx, req.Msg.Email, req.Msg.Password, req.Msg.FirstName, req.Msg.LastName, req.Msg.CountryCode, req.Msg.StateCode, req.Msg.Language, req.Msg.Currency)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
@@ -37,6 +37,8 @@ func (h *AuthHandler) Login(ctx context.Context, req *connect.Request[v1.LoginRe
 		AccessToken: result.AccessToken,
 		TokenType:   "bearer",
 		ExpiresIn:   result.ExpiresIn,
+		Language:    result.Language,
+		Currency:    result.Currency,
 	}), nil
 }
 
@@ -55,7 +57,7 @@ func (h *AuthHandler) GetGoogleAuthURL(_ context.Context, req *connect.Request[v
 }
 
 func (h *AuthHandler) ExchangeGoogleCode(ctx context.Context, req *connect.Request[v1.ExchangeGoogleCodeRequest]) (*connect.Response[v1.ExchangeGoogleCodeResponse], error) {
-	result, err := h.svc.GoogleExchange(ctx, req.Msg.Code, req.Msg.RedirectUri)
+	result, err := h.svc.GoogleExchange(ctx, req.Msg.Code, req.Msg.RedirectUri, req.Msg.Language, req.Msg.Currency)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
@@ -63,5 +65,7 @@ func (h *AuthHandler) ExchangeGoogleCode(ctx context.Context, req *connect.Reque
 		AccessToken: result.AccessToken,
 		ExpiresIn:   result.ExpiresIn,
 		IsNewUser:   result.IsNewUser,
+		Language:    result.Language,
+		Currency:    result.Currency,
 	}), nil
 }
