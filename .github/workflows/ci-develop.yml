@@ -1,8 +1,8 @@
-name: CI
+name: CI — Develop
 
 on:
   push:
-    branches: [main, develop, 'feature/**']
+    branches: [develop]
 
 jobs:
   generate:
@@ -38,3 +38,18 @@ jobs:
         run: go build ./...
       - name: Test
         run: go test ./...
+
+  migrate-dev:
+    name: Migrate dev DB
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+        run: go run ./cmd/migrate up
