@@ -3,8 +3,6 @@ name: CI
 on:
   push:
     branches: [main, develop, 'feature/**']
-  pull_request:
-    branches: [main]
 
 env:
   REGION: us-central1
@@ -57,6 +55,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate BSR
+        run: echo "${{ secrets.BUF_TOKEN }}" | buf registry login buf.build --token-stdin
+
+      - name: Generate proto
+        run: buf generate
 
       - uses: google-github-actions/auth@v2
         with:
