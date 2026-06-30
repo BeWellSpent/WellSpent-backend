@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/pressly/goose/v3"
@@ -24,7 +25,7 @@ func main() {
 
 	_ = godotenv.Load(fmt.Sprintf(".env.%s", env))
 
-	dsn := os.Getenv("DATABASE_URL")
+	dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if dsn == "" {
 		log.Fatal("DATABASE_URL is required")
 	}

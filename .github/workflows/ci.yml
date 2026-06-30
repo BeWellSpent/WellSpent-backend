@@ -37,8 +37,20 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Migrate dev
-        if: github.ref == 'refs/heads/develop'
+  migrate-dev:
+    name: Migrate dev DB
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/develop'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
         run: go run ./cmd/migrate up
