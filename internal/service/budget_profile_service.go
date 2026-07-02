@@ -539,10 +539,11 @@ func (s *BudgetProfileService) UpdateIncomeEntry(ctx context.Context, id int32, 
 // ── Savings Sources ───────────────────────────────────────────────────────────
 
 type SavingsSourceInput struct {
-	Name           string
-	Amount         pgtype.Numeric
-	Frequency      string
-	BudgetPersonID *int32
+	Name            string
+	Amount          pgtype.Numeric
+	Frequency       string
+	BudgetPersonID  *int32
+	PaymentMethodID *uuid.UUID
 }
 
 func (s *BudgetProfileService) AddSavingsSource(ctx context.Context, profileID, userID uuid.UUID, inp SavingsSourceInput) (db.SavingsSource, error) {
@@ -555,6 +556,7 @@ func (s *BudgetProfileService) AddSavingsSource(ctx context.Context, profileID, 
 		Name:            inp.Name,
 		Amount:          inp.Amount,
 		Frequency:       inp.Frequency,
+		PaymentMethodID: inp.PaymentMethodID,
 	})
 }
 
@@ -576,6 +578,7 @@ func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32
 		Amount:          inp.Amount,
 		Frequency:       inp.Frequency,
 		BudgetPersonID:  inp.BudgetPersonID,
+		PaymentMethodID: inp.PaymentMethodID,
 	})
 }
 

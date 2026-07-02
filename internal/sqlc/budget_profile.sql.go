@@ -94,9 +94,9 @@ func (q *Queries) AddIncomeSource(ctx context.Context, arg AddIncomeSourceParams
 
 const addSavingsSource = `-- name: AddSavingsSource :one
 
-INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount
+INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency, payment_method_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount, payment_method_id
 `
 
 type AddSavingsSourceParams struct {
@@ -105,6 +105,7 @@ type AddSavingsSourceParams struct {
 	Name            string         `json:"name"`
 	Amount          pgtype.Numeric `json:"amount"`
 	Frequency       string         `json:"frequency"`
+	PaymentMethodID *uuid.UUID     `json:"payment_method_id"`
 }
 
 // ── Savings Sources ───────────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ func (q *Queries) AddSavingsSource(ctx context.Context, arg AddSavingsSourcePara
 		arg.Name,
 		arg.Amount,
 		arg.Frequency,
+		arg.PaymentMethodID,
 	)
 	var i SavingsSource
 	err := row.Scan(
@@ -128,6 +130,7 @@ func (q *Queries) AddSavingsSource(ctx context.Context, arg AddSavingsSourcePara
 		&i.IsTaxReserve,
 		&i.FederalAmount,
 		&i.StateAmount,
+		&i.PaymentMethodID,
 	)
 	return i, err
 }
@@ -612,7 +615,7 @@ func (q *Queries) ListProfileIDsWithLatestPeriodEndingOn(ctx context.Context, do
 }
 
 const listSavingsSources = `-- name: ListSavingsSources :many
-SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount
+SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount, payment_method_id
 FROM savings_source
 WHERE budget_profile_id = $1
 ORDER BY id
@@ -638,6 +641,7 @@ func (q *Queries) ListSavingsSources(ctx context.Context, budgetProfileID uuid.U
 			&i.IsTaxReserve,
 			&i.FederalAmount,
 			&i.StateAmount,
+			&i.PaymentMethodID,
 		); err != nil {
 			return nil, err
 		}
@@ -849,9 +853,9 @@ func (q *Queries) UpdateIncomeSource(ctx context.Context, arg UpdateIncomeSource
 
 const updateSavingsSource = `-- name: UpdateSavingsSource :one
 UPDATE savings_source
-SET name = $3, amount = $4, frequency = $5, budget_person_id = $6
+SET name = $3, amount = $4, frequency = $5, budget_person_id = $6, payment_method_id = $7
 WHERE id = $1 AND budget_profile_id = $2
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount, payment_method_id
 `
 
 type UpdateSavingsSourceParams struct {
@@ -861,6 +865,7 @@ type UpdateSavingsSourceParams struct {
 	Amount          pgtype.Numeric `json:"amount"`
 	Frequency       string         `json:"frequency"`
 	BudgetPersonID  *int32         `json:"budget_person_id"`
+	PaymentMethodID *uuid.UUID     `json:"payment_method_id"`
 }
 
 func (q *Queries) UpdateSavingsSource(ctx context.Context, arg UpdateSavingsSourceParams) (SavingsSource, error) {
@@ -871,6 +876,7 @@ func (q *Queries) UpdateSavingsSource(ctx context.Context, arg UpdateSavingsSour
 		arg.Amount,
 		arg.Frequency,
 		arg.BudgetPersonID,
+		arg.PaymentMethodID,
 	)
 	var i SavingsSource
 	err := row.Scan(
@@ -884,6 +890,7 @@ func (q *Queries) UpdateSavingsSource(ctx context.Context, arg UpdateSavingsSour
 		&i.IsTaxReserve,
 		&i.FederalAmount,
 		&i.StateAmount,
+		&i.PaymentMethodID,
 	)
 	return i, err
 }
@@ -893,7 +900,7 @@ INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, f
 VALUES ($1::uuid, $2, 'Future Tax Payment', $3, 'monthly', TRUE, $4, $5)
 ON CONFLICT (budget_profile_id, budget_person_id) WHERE is_tax_reserve = TRUE
 DO UPDATE SET amount = EXCLUDED.amount, federal_amount = EXCLUDED.federal_amount, state_amount = EXCLUDED.state_amount
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount, payment_method_id
 `
 
 type UpsertTaxReserveSavingsSourceParams struct {
@@ -926,6 +933,7 @@ func (q *Queries) UpsertTaxReserveSavingsSource(ctx context.Context, arg UpsertT
 		&i.IsTaxReserve,
 		&i.FederalAmount,
 		&i.StateAmount,
+		&i.PaymentMethodID,
 	)
 	return i, err
 }

@@ -164,21 +164,21 @@ DELETE FROM income_source WHERE id = $1 AND budget_profile_id = $2;
 -- ── Savings Sources ───────────────────────────────────────────────────────────
 
 -- name: AddSavingsSource :one
-INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount;
+INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency, payment_method_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount, payment_method_id;
 
 -- name: ListSavingsSources :many
-SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount
+SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount, payment_method_id
 FROM savings_source
 WHERE budget_profile_id = $1
 ORDER BY id;
 
 -- name: UpdateSavingsSource :one
 UPDATE savings_source
-SET name = $3, amount = $4, frequency = $5, budget_person_id = $6
+SET name = $3, amount = $4, frequency = $5, budget_person_id = $6, payment_method_id = $7
 WHERE id = $1 AND budget_profile_id = $2
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount;
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount, payment_method_id;
 
 -- name: DeleteSavingsSource :exec
 DELETE FROM savings_source WHERE id = $1 AND budget_profile_id = $2;
@@ -193,7 +193,7 @@ INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, f
 VALUES (sqlc.arg('budget_profile_id')::uuid, sqlc.arg('budget_person_id'), 'Future Tax Payment', sqlc.arg('amount'), 'monthly', TRUE, sqlc.arg('federal_amount'), sqlc.arg('state_amount'))
 ON CONFLICT (budget_profile_id, budget_person_id) WHERE is_tax_reserve = TRUE
 DO UPDATE SET amount = EXCLUDED.amount, federal_amount = EXCLUDED.federal_amount, state_amount = EXCLUDED.state_amount
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount;
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount, payment_method_id;
 
 -- ── Income Entries ────────────────────────────────────────────────────────────
 

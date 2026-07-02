@@ -20,6 +20,7 @@ sql:
       - "internal/db/migrations/000015_expense_allocation.sql"
       - "internal/db/migrations/000016_add_gas_auto_categories.sql"
       - "internal/db/migrations/000017_add_language_currency.sql"
+      - "internal/db/migrations/000018_savings_rework.sql"
     gen:
       go:
         package: "db"

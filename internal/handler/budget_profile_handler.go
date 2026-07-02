@@ -348,11 +348,20 @@ func (h *BudgetHandler) AddSavingsSource(ctx context.Context, req *connect.Reque
 		v := int32(req.Msg.BudgetPersonId)
 		personID = &v
 	}
+	var pmID *uuid.UUID
+	if req.Msg.PaymentMethodId != "" {
+		parsed, err := uuid.Parse(req.Msg.PaymentMethodId)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		pmID = &parsed
+	}
 	src, svcErr := h.profiles.AddSavingsSource(ctx, profileID, userID, service.SavingsSourceInput{
-		Name:           req.Msg.Name,
-		Amount:         numericFromMoney(req.Msg.Amount),
-		Frequency:      recurringTypeStringFromProto(req.Msg.Frequency),
-		BudgetPersonID: personID,
+		Name:            req.Msg.Name,
+		Amount:          numericFromMoney(req.Msg.Amount),
+		Frequency:       recurringTypeStringFromProto(req.Msg.Frequency),
+		BudgetPersonID:  personID,
+		PaymentMethodID: pmID,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -394,11 +403,20 @@ func (h *BudgetHandler) UpdateSavingsSource(ctx context.Context, req *connect.Re
 		v := int32(req.Msg.BudgetPersonId)
 		personID = &v
 	}
+	var pmIDUpdate *uuid.UUID
+	if req.Msg.PaymentMethodId != "" {
+		parsed, err := uuid.Parse(req.Msg.PaymentMethodId)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		pmIDUpdate = &parsed
+	}
 	src, svcErr := h.profiles.UpdateSavingsSource(ctx, int32(req.Msg.Id), profileID, userID, service.SavingsSourceInput{
-		Name:           req.Msg.Name,
-		Amount:         numericFromMoney(req.Msg.Amount),
-		Frequency:      recurringTypeStringFromProto(req.Msg.Frequency),
-		BudgetPersonID: personID,
+		Name:            req.Msg.Name,
+		Amount:          numericFromMoney(req.Msg.Amount),
+		Frequency:       recurringTypeStringFromProto(req.Msg.Frequency),
+		BudgetPersonID:  personID,
+		PaymentMethodID: pmIDUpdate,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -521,6 +539,10 @@ func toProtoSavingsSource(s db.SavingsSource) *v1.SavingsSource {
 	if s.StateAmount.Valid {
 		stateAmount = moneyFromNumeric(s.StateAmount)
 	}
+	var pmID string
+	if s.PaymentMethodID != nil {
+		pmID = s.PaymentMethodID.String()
+	}
 	return &v1.SavingsSource{
 		Id:              int64(s.ID),
 		BudgetProfileId: s.BudgetProfileID.String(),
@@ -531,6 +553,7 @@ func toProtoSavingsSource(s db.SavingsSource) *v1.SavingsSource {
 		IsTaxReserve:    s.IsTaxReserve,
 		FederalAmount:   federalAmount,
 		StateAmount:     stateAmount,
+		PaymentMethodId: pmID,
 	}
 }
 

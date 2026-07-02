@@ -129,6 +129,7 @@ type SavingsSource struct {
 	IsTaxReserve    bool               `json:"is_tax_reserve"`
 	FederalAmount   pgtype.Numeric     `json:"federal_amount"`
 	StateAmount     pgtype.Numeric     `json:"state_amount"`
+	PaymentMethodID *uuid.UUID         `json:"payment_method_id"`
 }
 
 type Transaction struct {
