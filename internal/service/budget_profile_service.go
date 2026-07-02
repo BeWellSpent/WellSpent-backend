@@ -691,6 +691,11 @@ func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32
 		return db.SavingsSource{}, apperr.Invalid("payment_days must have 1, 2, or 4 entries")
 	}
 
+	old, err := s.profiles.GetSavingsSource(ctx, db.GetSavingsSourceParams{ID: id, BudgetProfileID: profileID})
+	if err != nil {
+		return db.SavingsSource{}, err
+	}
+
 	var personID *int32
 	if inp.PaymentMethodID != nil {
 		pm, err := s.transactions.GetPaymentMethod(ctx, *inp.PaymentMethodID)
@@ -705,7 +710,7 @@ func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32
 		freq = "" // preserve existing if no days supplied
 	}
 
-	return s.profiles.UpdateSavingsSource(ctx, db.UpdateSavingsSourceParams{
+	updated, err := s.profiles.UpdateSavingsSource(ctx, db.UpdateSavingsSourceParams{
 		ID:              id,
 		BudgetProfileID: profileID,
 		Name:            inp.Name,
@@ -715,6 +720,33 @@ func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32
 		PaymentMethodID: inp.PaymentMethodID,
 		PaymentDays:     inp.PaymentDays,
 	})
+	if err != nil {
+		return db.SavingsSource{}, err
+	}
+
+	// Delete old auto-created transactions, then recreate with updated values.
+	if old.PaymentMethodID != nil {
+		cats, err := s.transactions.ListCategories(ctx, userID)
+		if err == nil {
+			for _, c := range cats {
+				if c.IsSystem && c.Name == "Savings" {
+					catID := c.ID
+					_ = s.transactions.DeleteSavingsSourceTransactions(ctx, db.DeleteSavingsSourceTransactionsParams{
+						BudgetProfileID: profileID,
+						Name:            &old.Name,
+						PaymentMethodID: *old.PaymentMethodID,
+						CategoryID:      &catID,
+					})
+					break
+				}
+			}
+		}
+	}
+	if updated.PaymentMethodID != nil && len(updated.PaymentDays) > 0 {
+		s.createSavingsTransactions(ctx, profileID, userID, updated)
+	}
+
+	return updated, nil
 }
 
 func (s *BudgetProfileService) DeleteSavingsSource(ctx context.Context, id int32, profileID, userID uuid.UUID) error {
