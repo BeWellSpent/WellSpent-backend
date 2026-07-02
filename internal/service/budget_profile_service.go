@@ -541,23 +541,106 @@ func (s *BudgetProfileService) UpdateIncomeEntry(ctx context.Context, id int32, 
 type SavingsSourceInput struct {
 	Name            string
 	Amount          pgtype.Numeric
-	Frequency       string
-	BudgetPersonID  *int32
 	PaymentMethodID *uuid.UUID
+	PaymentDays     []int32 // 1=monthly, 2=bi-weekly, 4=weekly; owner inferred from PM
+}
+
+func paymentDaysFrequency(n int) string {
+	switch n {
+	case 2:
+		return "bi_weekly"
+	case 4:
+		return "weekly"
+	default:
+		return "monthly"
+	}
 }
 
 func (s *BudgetProfileService) AddSavingsSource(ctx context.Context, profileID, userID uuid.UUID, inp SavingsSourceInput) (db.SavingsSource, error) {
 	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
 		return db.SavingsSource{}, err
 	}
-	return s.profiles.AddSavingsSource(ctx, db.AddSavingsSourceParams{
+	n := len(inp.PaymentDays)
+	if n != 1 && n != 2 && n != 4 {
+		return db.SavingsSource{}, apperr.Invalid("payment_days must have 1, 2, or 4 entries")
+	}
+
+	var personID *int32
+	if inp.PaymentMethodID != nil {
+		pm, err := s.transactions.GetPaymentMethod(ctx, *inp.PaymentMethodID)
+		if err != nil {
+			return db.SavingsSource{}, err
+		}
+		personID = pm.BudgetPersonID
+	}
+
+	src, err := s.profiles.AddSavingsSource(ctx, db.AddSavingsSourceParams{
 		BudgetProfileID: profileID,
-		BudgetPersonID:  inp.BudgetPersonID,
+		BudgetPersonID:  personID,
 		Name:            inp.Name,
 		Amount:          inp.Amount,
-		Frequency:       inp.Frequency,
+		Frequency:       paymentDaysFrequency(n),
 		PaymentMethodID: inp.PaymentMethodID,
+		PaymentDays:     inp.PaymentDays,
 	})
+	if err != nil {
+		return db.SavingsSource{}, err
+	}
+
+	s.createSavingsTransactions(ctx, profileID, userID, src)
+	return src, nil
+}
+
+func (s *BudgetProfileService) createSavingsTransactions(ctx context.Context, profileID, userID uuid.UUID, src db.SavingsSource) {
+	period, err := s.profiles.GetLatestPeriod(ctx, profileID)
+	if err != nil {
+		return
+	}
+	cats, err := s.transactions.ListCategories(ctx, userID)
+	if err != nil {
+		return
+	}
+	var savingsCatID *int32
+	for _, c := range cats {
+		if c.Name == "Savings" && c.IsSystem {
+			id := c.ID
+			savingsCatID = &id
+			break
+		}
+	}
+	if savingsCatID == nil {
+		return
+	}
+
+	txTypeID := int32(1) // Fixed
+	freqIDByFreq := map[string]int32{"monthly": 4, "bi_weekly": 3, "weekly": 2}
+	txFreqID := freqIDByFreq[src.Frequency]
+
+	startTime := period.StartDate.Time
+	lastDay := time.Date(startTime.Year(), startTime.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	for _, day := range src.PaymentDays {
+		d := int(day)
+		if d > lastDay {
+			d = lastDay
+		}
+		txDate := pgtype.Date{
+			Time:  time.Date(startTime.Year(), startTime.Month(), d, 0, 0, 0, 0, time.UTC),
+			Valid: true,
+		}
+		s.transactions.Create(ctx, db.CreateTransactionParams{ //nolint:errcheck
+			Name:                   &src.Name,
+			Amount:                 src.Amount,
+			PlannedAmount:          src.Amount,
+			Date:                   txDate,
+			RenewalDate:            pgtype.Date{},
+			Recurring:              func() *bool { v := true; return &v }(),
+			BudgetPeriodID:         &period.ID,
+			CategoryID:             savingsCatID,
+			PaymentMethodID:        src.PaymentMethodID,
+			TransactionFrequencyID: &txFreqID,
+			TransactionTypeID:      &txTypeID,
+		})
+	}
 }
 
 func (s *BudgetProfileService) ListSavingsSources(ctx context.Context, profileID, userID uuid.UUID) ([]db.SavingsSource, error) {
@@ -571,14 +654,34 @@ func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32
 	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
 		return db.SavingsSource{}, err
 	}
+	n := len(inp.PaymentDays)
+	if n != 0 && n != 1 && n != 2 && n != 4 {
+		return db.SavingsSource{}, apperr.Invalid("payment_days must have 1, 2, or 4 entries")
+	}
+
+	var personID *int32
+	if inp.PaymentMethodID != nil {
+		pm, err := s.transactions.GetPaymentMethod(ctx, *inp.PaymentMethodID)
+		if err != nil {
+			return db.SavingsSource{}, err
+		}
+		personID = pm.BudgetPersonID
+	}
+
+	freq := paymentDaysFrequency(n)
+	if n == 0 {
+		freq = "" // preserve existing if no days supplied
+	}
+
 	return s.profiles.UpdateSavingsSource(ctx, db.UpdateSavingsSourceParams{
 		ID:              id,
 		BudgetProfileID: profileID,
 		Name:            inp.Name,
 		Amount:          inp.Amount,
-		Frequency:       inp.Frequency,
-		BudgetPersonID:  inp.BudgetPersonID,
+		Frequency:       freq,
+		BudgetPersonID:  personID,
 		PaymentMethodID: inp.PaymentMethodID,
+		PaymentDays:     inp.PaymentDays,
 	})
 }
 

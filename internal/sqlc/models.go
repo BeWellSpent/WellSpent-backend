@@ -130,6 +130,7 @@ type SavingsSource struct {
 	FederalAmount   pgtype.Numeric     `json:"federal_amount"`
 	StateAmount     pgtype.Numeric     `json:"state_amount"`
 	PaymentMethodID *uuid.UUID         `json:"payment_method_id"`
+	PaymentDays     []int32            `json:"payment_days"`
 }
 
 type Transaction struct {

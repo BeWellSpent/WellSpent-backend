@@ -343,11 +343,6 @@ func (h *BudgetHandler) AddSavingsSource(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	var personID *int32
-	if req.Msg.BudgetPersonId != 0 {
-		v := int32(req.Msg.BudgetPersonId)
-		personID = &v
-	}
 	var pmID *uuid.UUID
 	if req.Msg.PaymentMethodId != "" {
 		parsed, err := uuid.Parse(req.Msg.PaymentMethodId)
@@ -359,9 +354,8 @@ func (h *BudgetHandler) AddSavingsSource(ctx context.Context, req *connect.Reque
 	src, svcErr := h.profiles.AddSavingsSource(ctx, profileID, userID, service.SavingsSourceInput{
 		Name:            req.Msg.Name,
 		Amount:          numericFromMoney(req.Msg.Amount),
-		Frequency:       recurringTypeStringFromProto(req.Msg.Frequency),
-		BudgetPersonID:  personID,
 		PaymentMethodID: pmID,
+		PaymentDays:     req.Msg.PaymentDays,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -398,11 +392,6 @@ func (h *BudgetHandler) UpdateSavingsSource(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	var personID *int32
-	if req.Msg.BudgetPersonId != 0 {
-		v := int32(req.Msg.BudgetPersonId)
-		personID = &v
-	}
 	var pmIDUpdate *uuid.UUID
 	if req.Msg.PaymentMethodId != "" {
 		parsed, err := uuid.Parse(req.Msg.PaymentMethodId)
@@ -414,9 +403,8 @@ func (h *BudgetHandler) UpdateSavingsSource(ctx context.Context, req *connect.Re
 	src, svcErr := h.profiles.UpdateSavingsSource(ctx, int32(req.Msg.Id), profileID, userID, service.SavingsSourceInput{
 		Name:            req.Msg.Name,
 		Amount:          numericFromMoney(req.Msg.Amount),
-		Frequency:       recurringTypeStringFromProto(req.Msg.Frequency),
-		BudgetPersonID:  personID,
 		PaymentMethodID: pmIDUpdate,
+		PaymentDays:     req.Msg.PaymentDays,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -554,6 +542,7 @@ func toProtoSavingsSource(s db.SavingsSource) *v1.SavingsSource {
 		FederalAmount:   federalAmount,
 		StateAmount:     stateAmount,
 		PaymentMethodId: pmID,
+		PaymentDays:     s.PaymentDays,
 	}
 }
 

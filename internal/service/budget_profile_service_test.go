@@ -378,6 +378,7 @@ func TestAddSavingsSource_Success(t *testing.T) {
 	userID := uuid.New()
 	profileID := uuid.New()
 	personID := int32(1)
+	pmID := uuid.New()
 
 	svc := NewBudgetProfileService(
 		&mockBudgetProfileRepo{
@@ -389,17 +390,23 @@ func TestAddSavingsSource_Success(t *testing.T) {
 				assert.Equal(t, "bi_weekly", arg.Frequency)
 				require.NotNil(t, arg.BudgetPersonID)
 				assert.Equal(t, personID, *arg.BudgetPersonID)
+				assert.Equal(t, []int32{1, 15}, arg.PaymentDays)
 				return db.SavingsSource{ID: 1, BudgetProfileID: profileID, Name: arg.Name, Frequency: arg.Frequency}, nil
 			},
 		},
-		&mockTransactionRepo{},
+		&mockTransactionRepo{
+			getPaymentMethod: func(_ context.Context, id uuid.UUID) (db.PaymentMethod, error) {
+				assert.Equal(t, pmID, id)
+				return db.PaymentMethod{ID: id, BudgetPersonID: &personID}, nil
+			},
+		},
 		&mockUserRepo{},
 	)
 
 	src, err := svc.AddSavingsSource(context.Background(), profileID, userID, SavingsSourceInput{
-		Name:           "Emergency Fund",
-		Frequency:      "bi_weekly",
-		BudgetPersonID: &personID,
+		Name:            "Emergency Fund",
+		PaymentMethodID: &pmID,
+		PaymentDays:     []int32{1, 15},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Emergency Fund", src.Name)
@@ -473,8 +480,8 @@ func TestUpdateSavingsSource_Success(t *testing.T) {
 	)
 
 	src, err := svc.UpdateSavingsSource(context.Background(), 1, profileID, userID, SavingsSourceInput{
-		Name:      "Renamed Fund",
-		Frequency: "monthly",
+		Name:        "Renamed Fund",
+		PaymentDays: []int32{15},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Renamed Fund", src.Name)
