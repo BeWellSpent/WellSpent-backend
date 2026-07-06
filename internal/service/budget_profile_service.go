@@ -191,10 +191,23 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 			if tx.RenewalDate.Valid && tx.RenewalDate.Time.Before(startDate) {
 				continue // expired
 			}
+			// Advance the date to the same day-of-month in the new period's month.
+			var newDate pgtype.Date
+			if tx.Date.Valid {
+				day := tx.Date.Time.Day()
+				// Clamp to the last day of the target month (e.g. Jan 31 → Feb 28).
+				target := time.Date(startDate.Year(), startDate.Month(), day, 0, 0, 0, 0, time.UTC)
+				if target.Month() != startDate.Month() {
+					// Overflowed into the next month — roll back to last day of startDate.Month().
+					target = time.Date(startDate.Year(), startDate.Month()+1, 0, 0, 0, 0, 0, time.UTC)
+				}
+				newDate = pgtype.Date{Time: target, Valid: true}
+			}
 			_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
 				Name:                   tx.Name,
 				Amount:                 tx.Amount,
 				PlannedAmount:          tx.PlannedAmount,
+				Date:                   newDate,
 				RenewalDate:            tx.RenewalDate,
 				Recurring:              tx.Recurring,
 				BudgetPeriodID:         &period.ID,
