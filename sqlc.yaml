@@ -24,6 +24,7 @@ sql:
       - "internal/db/migrations/000019_savings_payment_days.sql"
       - "internal/db/migrations/000020_mark_transaction_paid.sql"
       - "internal/db/migrations/000021_fixed_expenses.sql"
+      - "internal/db/migrations/000022_add_shopping_family_categories.sql"
     gen:
       go:
         package: "db"
