@@ -66,3 +66,12 @@ bypass := map[string]bool{
 ## Secrets
 
 `.env.dev` is gitignored. `.env.dev.enc` is the SOPS-encrypted version (committed). Age private key lives at `%APPDATA%\sops\age\keys.txt` (Windows) or `~/.config/sops/age/keys.txt`.
+
+## Git workflow
+
+`main` is production. Never commit or push directly to `main`.
+
+- Branch work off `develop` (or commit straight to `develop` for small fixes)
+- Push to `origin/develop`
+- Open a PR from `develop` into `main`
+- Enable auto-merge on the PR (`mergeMethod: MERGE`) so it lands once required checks pass
