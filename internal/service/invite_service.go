@@ -89,7 +89,7 @@ func (s *InviteService) sendEmail(budgetName string, token uuid.UUID, to string)
 	client := resend.NewClient(s.cfg.ResendAPIKey)
 	link := fmt.Sprintf("%s/invite/%s", strings.TrimRight(s.cfg.FrontendURL, "/"), token.String())
 	body := fmt.Sprintf(
-		`<p>You've been invited to collaborate on the <strong>%s</strong> budget in SpendSense.</p>`+
+		`<p>You've been invited to collaborate on the <strong>%s</strong> budget in WellSpent.</p>`+
 			`<p><a href="%s">Accept invitation</a></p>`+
 			`<p>This link expires in 7 days.</p>`,
 		budgetName, link,
