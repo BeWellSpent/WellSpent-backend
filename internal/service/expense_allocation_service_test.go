@@ -49,6 +49,26 @@ func profileOwnerRepo(profileID, ownerID uuid.UUID) *mockBudgetProfileRepo {
 			}
 			return db.BudgetProfile{}, apperr.NotFound("budget_profile", id.String())
 		},
+		getPersonByUserID: func(_ context.Context, _ uuid.UUID, uid uuid.UUID) (db.BudgetToProfileMapping, error) {
+			return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", uid.String())
+		},
+	}
+}
+
+func profileRepoWithMember(profileID, ownerID, memberID uuid.UUID, role string) *mockBudgetProfileRepo {
+	return &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+			if id == profileID {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			}
+			return db.BudgetProfile{}, apperr.NotFound("budget_profile", id.String())
+		},
+		getPersonByUserID: func(_ context.Context, _ uuid.UUID, uid uuid.UUID) (db.BudgetToProfileMapping, error) {
+			if uid == memberID {
+				return db.BudgetToProfileMapping{Role: role}, nil
+			}
+			return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", uid.String())
+		},
 	}
 }
 
@@ -166,6 +186,104 @@ func TestExpenseAllocation_Delete_WrongUser(t *testing.T) {
 	)
 
 	err := svc.Delete(context.Background(), 1, profileID, otherID)
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
+}
+
+// ── Role-based access ─────────────────────────────────────────────────────────
+
+func TestExpenseAllocation_List_CollaboratorAllowed(t *testing.T) {
+	profileID := uuid.New()
+	ownerID := uuid.New()
+	collaboratorID := uuid.New()
+	expected := []db.ExpenseAllocation{{ID: 1, BudgetProfileID: profileID, CategoryID: 5}}
+
+	svc := NewExpenseAllocationService(
+		&mockAllocationRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.ExpenseAllocation, error) { return expected, nil },
+		},
+		profileRepoWithMember(profileID, ownerID, collaboratorID, "collaborator"),
+	)
+
+	got, err := svc.List(context.Background(), profileID, collaboratorID)
+	require.NoError(t, err)
+	assert.Equal(t, expected, got)
+}
+
+func TestExpenseAllocation_List_ViewerAllowed(t *testing.T) {
+	profileID := uuid.New()
+	ownerID := uuid.New()
+	viewerID := uuid.New()
+	expected := []db.ExpenseAllocation{{ID: 2, BudgetProfileID: profileID, CategoryID: 3}}
+
+	svc := NewExpenseAllocationService(
+		&mockAllocationRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.ExpenseAllocation, error) { return expected, nil },
+		},
+		profileRepoWithMember(profileID, ownerID, viewerID, "viewer"),
+	)
+
+	got, err := svc.List(context.Background(), profileID, viewerID)
+	require.NoError(t, err)
+	assert.Equal(t, expected, got)
+}
+
+func TestExpenseAllocation_Upsert_CollaboratorAllowed(t *testing.T) {
+	profileID := uuid.New()
+	ownerID := uuid.New()
+	collaboratorID := uuid.New()
+
+	svc := NewExpenseAllocationService(
+		&mockAllocationRepo{},
+		profileRepoWithMember(profileID, ownerID, collaboratorID, "collaborator"),
+	)
+
+	_, err := svc.Upsert(context.Background(), profileID, collaboratorID, 1, nil, pgtype.Numeric{Valid: true})
+	require.NoError(t, err)
+}
+
+func TestExpenseAllocation_Upsert_ViewerForbidden(t *testing.T) {
+	profileID := uuid.New()
+	ownerID := uuid.New()
+	viewerID := uuid.New()
+
+	svc := NewExpenseAllocationService(
+		&mockAllocationRepo{},
+		profileRepoWithMember(profileID, ownerID, viewerID, "viewer"),
+	)
+
+	_, err := svc.Upsert(context.Background(), profileID, viewerID, 1, nil, pgtype.Numeric{Valid: true})
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
+}
+
+func TestExpenseAllocation_Delete_CollaboratorAllowed(t *testing.T) {
+	profileID := uuid.New()
+	ownerID := uuid.New()
+	collaboratorID := uuid.New()
+
+	svc := NewExpenseAllocationService(
+		&mockAllocationRepo{},
+		profileRepoWithMember(profileID, ownerID, collaboratorID, "collaborator"),
+	)
+
+	err := svc.Delete(context.Background(), 1, profileID, collaboratorID)
+	require.NoError(t, err)
+}
+
+func TestExpenseAllocation_Delete_ViewerForbidden(t *testing.T) {
+	profileID := uuid.New()
+	ownerID := uuid.New()
+	viewerID := uuid.New()
+
+	svc := NewExpenseAllocationService(
+		&mockAllocationRepo{},
+		profileRepoWithMember(profileID, ownerID, viewerID, "viewer"),
+	)
+
+	err := svc.Delete(context.Background(), 1, profileID, viewerID)
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	require.ErrorAs(t, err, &forbidden)
