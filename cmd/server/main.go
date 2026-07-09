@@ -64,7 +64,7 @@ func main() {
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo)
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo)
 	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
-	inviteSvc := service.NewInviteService(inviteRepo, budgetProfileRepo, userRepo, cfg)
+	inviteSvc := service.NewInviteService(inviteRepo, budgetProfileRepo, userRepo, cfg, logger)
 
 	// Procedures that don't require authentication
 	bypass := map[string]bool{

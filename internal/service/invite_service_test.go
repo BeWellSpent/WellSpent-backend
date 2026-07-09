@@ -13,6 +13,7 @@ import (
 	db "github.com/mauro-afa91/spendsense/internal/sqlc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 // ── Mock invite repo ──────────────────────────────────────────────────────────
@@ -71,7 +72,7 @@ func newInviteSvc(invRepo *mockInviteRepo, profRepo *mockBudgetProfileRepo) *Inv
 	if profRepo == nil {
 		profRepo = &mockBudgetProfileRepo{}
 	}
-	return NewInviteService(invRepo, profRepo, &mockUserRepo{}, &config.Config{})
+	return NewInviteService(invRepo, profRepo, &mockUserRepo{}, &config.Config{}, zap.NewNop())
 }
 
 func futureTS() pgtype.Timestamptz {
@@ -221,7 +222,7 @@ func TestInviteAccept_CreatesNewPerson(t *testing.T) {
 		},
 	}
 
-	svc := NewInviteService(invRepo, profRepo, userRepo, &config.Config{})
+	svc := NewInviteService(invRepo, profRepo, userRepo, &config.Config{}, zap.NewNop())
 	returnedProfileID, err := svc.Accept(context.Background(), token, callerID)
 	require.NoError(t, err)
 	assert.Equal(t, profileID, returnedProfileID)
@@ -260,7 +261,7 @@ func TestInviteAccept_LinksExistingPerson(t *testing.T) {
 		},
 	}
 
-	svc := NewInviteService(invRepo, profRepo, &mockUserRepo{}, &config.Config{})
+	svc := NewInviteService(invRepo, profRepo, &mockUserRepo{}, &config.Config{}, zap.NewNop())
 	returnedProfileID, err := svc.Accept(context.Background(), token, callerID)
 	require.NoError(t, err)
 	assert.Equal(t, profileID, returnedProfileID)
