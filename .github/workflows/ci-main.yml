@@ -85,6 +85,9 @@ jobs:
             GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest
             GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
             GOOGLE_REDIRECT_URI=GOOGLE_REDIRECT_URI:latest
+            RESEND_API_KEY=RESEND_API_KEY:latest
+            RESEND_FROM_EMAIL=RESEND_FROM_EMAIL:latest
+            FRONTEND_URL=FRONTEND_URL:latest
 
       - name: Deploy cycle-budgets — Cloud Run Job
         run: |
