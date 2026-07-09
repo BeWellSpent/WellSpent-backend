@@ -76,7 +76,6 @@ bypass := map[string]bool{
 ```bash
 git checkout develop
 git pull origin develop
-git checkout -b feature/<name>
 ```
 
 **Final steps after implementation:**
@@ -91,14 +90,14 @@ git add internal/... cmd/...
 
 # Commit and push
 git commit -m "feat: meaningful description of what changed"
-git push origin feature/<name>
+git push origin develop
 
-# Create PR from feature branch → main and immediately enable auto-merge
-gh pr create --base main --head feature/<name> --title "Short title" --body "Description"
-gh pr merge feature/<name> --auto --merge
+# Create PR from develop → main and immediately enable auto-merge
+gh pr create --base main --head develop --title "Short title" --body "Description"
+gh pr merge develop --auto --merge
 ```
 
-- Always pull `develop` before branching — never start from a stale base
-- Always branch off `develop` with a `feature/<name>` branch; never commit directly to `develop` or `main`
+- Always pull `develop` before starting — never work from a stale base
+- Commit directly to `develop`; never commit directly to `main`
 - `gh pr merge --auto` enables auto-merge — the PR lands once CI passes; no manual merge needed
 - Never merge PRs manually — always let auto-merge handle it after checks pass
