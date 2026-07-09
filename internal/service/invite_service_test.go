@@ -261,7 +261,12 @@ func TestInviteAccept_LinksExistingPerson(t *testing.T) {
 		},
 	}
 
-	svc := NewInviteService(invRepo, profRepo, &mockUserRepo{}, &config.Config{}, zap.NewNop())
+	userRepo := &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+			return db.User{}, nil
+		},
+	}
+	svc := NewInviteService(invRepo, profRepo, userRepo, &config.Config{}, zap.NewNop())
 	returnedProfileID, err := svc.Accept(context.Background(), token, callerID)
 	require.NoError(t, err)
 	assert.Equal(t, profileID, returnedProfileID)

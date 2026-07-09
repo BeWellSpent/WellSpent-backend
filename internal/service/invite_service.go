@@ -168,6 +168,12 @@ func (s *InviteService) Accept(ctx context.Context, token uuid.UUID, callerID uu
 		return uuid.UUID{}, err
 	}
 
+	// Verify the caller's account still exists — JWT is stateless so the
+	// middleware doesn't catch deleted users, and the FK on user_id would panic.
+	if _, err := s.users.GetByID(ctx, callerID); err != nil {
+		return uuid.UUID{}, err
+	}
+
 	// Guard: user must not already be a member.
 	already, _ := s.profiles.ExistsPersonForUser(ctx, row.BudgetProfileID, callerID)
 	if already {
