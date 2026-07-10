@@ -1342,3 +1342,260 @@ func TestCreateBudgetPeriod_FixedExpense_DedupSkipsAlreadySpawned(t *testing.T) 
 	require.NoError(t, err)
 	assert.False(t, created, "already-spawned fixed expense should not spawn a duplicate transaction")
 }
+
+// ── Weekly cadence (frequency_unit = WEEK) tests ───────────────────────────────
+
+func TestIsFixedExpenseDueInWeek(t *testing.T) {
+	anchor := time.Date(2026, time.January, 5, 0, 0, 0, 0, time.UTC) // a Monday
+
+	tests := []struct {
+		name     string
+		interval int32
+		week     time.Time
+		want     bool
+	}{
+		{"weekly, anchor week is due", 1, time.Date(2026, time.January, 5, 0, 0, 0, 0, time.UTC), true},
+		{"weekly, every week is due", 1, time.Date(2026, time.February, 2, 0, 0, 0, 0, time.UTC), true},
+		{"unset interval treated as weekly", 0, time.Date(2026, time.January, 26, 0, 0, 0, 0, time.UTC), true},
+		{"bi-weekly, anchor week is due", 2, time.Date(2026, time.January, 5, 0, 0, 0, 0, time.UTC), true},
+		{"bi-weekly, one week after anchor is not due", 2, time.Date(2026, time.January, 12, 0, 0, 0, 0, time.UTC), false},
+		{"bi-weekly, two weeks after anchor is due", 2, time.Date(2026, time.January, 19, 0, 0, 0, 0, time.UTC), true},
+		{"week before anchor is never due", 1, time.Date(2025, time.December, 29, 0, 0, 0, 0, time.UTC), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fe := db.FixedExpense{
+				CreatedAt:     pgtype.Timestamptz{Time: anchor, Valid: true},
+				IntervalWeeks: tt.interval,
+			}
+			assert.Equal(t, tt.want, isFixedExpenseDueInWeek(fe, tt.week))
+		})
+	}
+}
+
+func TestFixedExpenseWeekStart_ReturnsMonday(t *testing.T) {
+	// Wednesday, Jan 7 2026 -> Monday, Jan 5 2026.
+	ws := fixedExpenseWeekStart(time.Date(2026, time.January, 7, 0, 0, 0, 0, time.UTC))
+	assert.Equal(t, time.Date(2026, time.January, 5, 0, 0, 0, 0, time.UTC), ws)
+	assert.Equal(t, time.Monday, ws.Weekday())
+
+	// A Sunday should roll back to the Monday that started its own week, not
+	// forward into the next one.
+	ws = fixedExpenseWeekStart(time.Date(2026, time.January, 11, 0, 0, 0, 0, time.UTC))
+	assert.Equal(t, time.Date(2026, time.January, 5, 0, 0, 0, 0, time.UTC), ws)
+}
+
+func TestFixedExpenseNextDueDate_WeeklyUnit(t *testing.T) {
+	anchor := time.Date(2026, time.January, 5, 0, 0, 0, 0, time.UTC) // Monday
+	fe := db.FixedExpense{
+		CreatedAt:     pgtype.Timestamptz{Time: anchor, Valid: true},
+		FrequencyUnit: frequencyUnitWeek,
+		IntervalWeeks: 2,
+		DayOfWeek:     3, // Wednesday
+	}
+
+	// Asking from the anchor week returns that week's Wednesday.
+	next := FixedExpenseNextDueDate(fe, time.Date(2026, time.January, 5, 0, 0, 0, 0, time.UTC))
+	assert.Equal(t, time.Date(2026, time.January, 7, 0, 0, 0, 0, time.UTC), next)
+
+	// Asking from a not-due week (one week after anchor, bi-weekly cadence)
+	// finds the next due week ahead.
+	next = FixedExpenseNextDueDate(fe, time.Date(2026, time.January, 12, 0, 0, 0, 0, time.UTC))
+	assert.Equal(t, time.Date(2026, time.January, 21, 0, 0, 0, 0, time.UTC), next)
+}
+
+func TestFixedExpenseNextDueDate_WeeklyUnit_WithFutureAnchorDate(t *testing.T) {
+	futureAnchor := time.Date(2027, time.March, 8, 0, 0, 0, 0, time.UTC) // a Monday
+	fe := db.FixedExpense{
+		CreatedAt:     pgtype.Timestamptz{Time: time.Date(2026, time.July, 10, 0, 0, 0, 0, time.UTC), Valid: true},
+		AnchorDate:    pgtype.Date{Time: futureAnchor, Valid: true},
+		FrequencyUnit: frequencyUnitWeek,
+		IntervalWeeks: 1,
+		DayOfWeek:     1,
+	}
+	next := FixedExpenseNextDueDate(fe, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC))
+	assert.Equal(t, futureAnchor, next, "next due date should be the future anchor's week, not created_at's week")
+}
+
+func TestCreateFixedExpense_WeekUnit_SpawnsMultipleInActivePeriod(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	anchor := time.Date(2020, time.January, 6, 0, 0, 0, 0, time.UTC) // a Monday, long past — always due weekly
+	periodStart := time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := time.Date(2026, time.February, 28, 0, 0, 0, 0, time.UTC)
+	var createdDates []time.Time
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{
+					ID:        uuid.New(),
+					StartDate: pgtype.Date{Time: periodStart, Valid: true},
+					EndDate:   pgtype.Date{Time: periodEnd, Valid: true},
+				}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, arg db.CreateTransactionParams) (db.Transaction, error) {
+				createdDates = append(createdDates, arg.Date.Time)
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			create: func(_ context.Context, arg db.CreateFixedExpenseParams) (db.FixedExpense, error) {
+				assert.Equal(t, frequencyUnitWeek, arg.FrequencyUnit)
+				return db.FixedExpense{
+					ID:              feID,
+					BudgetProfileID: profileID,
+					Name:            arg.Name,
+					FrequencyUnit:   arg.FrequencyUnit,
+					IntervalWeeks:   arg.IntervalWeeks,
+					DayOfWeek:       arg.DayOfWeek,
+					CreatedAt:       pgtype.Timestamptz{Time: anchor, Valid: true},
+				}, nil
+			},
+			hasTransactionOnDate: func(_ context.Context, _ db.FixedExpenseHasTransactionOnDateParams) (bool, error) {
+				return false, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	fe, tx, err := svc.CreateFixedExpense(context.Background(), profileID, userID, FixedExpenseInput{
+		Name:          "Groceries",
+		FrequencyUnit: frequencyUnitWeek,
+		IntervalWeeks: 1,
+		DayOfWeek:     1, // Monday
+	})
+	require.NoError(t, err)
+	assert.Equal(t, frequencyUnitWeek, fe.FrequencyUnit)
+	assert.Nil(t, tx, "WEEK unit has no single transaction to return — caller re-fetches")
+
+	want := 0
+	for d := periodStart; d.Before(periodEnd); d = d.AddDate(0, 0, 1) {
+		if d.Weekday() == time.Monday {
+			want++
+		}
+	}
+	require.Len(t, createdDates, want)
+	require.Greater(t, want, 1, "test period should span more than one Monday to prove multi-spawn")
+	for _, d := range createdDates {
+		assert.Equal(t, time.Monday, d.Weekday())
+	}
+}
+
+func TestUpdateFixedExpense_WeekUnit_DoesNotReconcileExistingTransactions(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	deleted := false
+	propagated := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				t.Fatal("WEEK-unit update should not look up the active period — it never reconciles existing transactions")
+				return db.BudgetPeriod{}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{
+			update: func(_ context.Context, arg db.UpdateFixedExpenseParams) (db.FixedExpense, error) {
+				assert.Equal(t, frequencyUnitWeek, arg.FrequencyUnit)
+				return db.FixedExpense{ID: feID, Name: arg.Name, FrequencyUnit: arg.FrequencyUnit, IntervalWeeks: arg.IntervalWeeks, DayOfWeek: arg.DayOfWeek}, nil
+			},
+			deleteUnpaidTransactions: func(_ context.Context, _ db.DeleteUnpaidTransactionByFixedExpenseParams) error {
+				deleted = true
+				return nil
+			},
+			updateTransactionFromFixed: func(_ context.Context, _ db.UpdateTransactionFromFixedExpenseParams) error {
+				propagated = true
+				return nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	fe, err := svc.UpdateFixedExpense(context.Background(), feID, profileID, userID, FixedExpenseInput{
+		Name:          "Groceries",
+		FrequencyUnit: frequencyUnitWeek,
+		IntervalWeeks: 2,
+		DayOfWeek:     5,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, frequencyUnitWeek, fe.FrequencyUnit)
+	assert.False(t, deleted, "WEEK-unit update must not delete already-spawned transactions")
+	assert.False(t, propagated, "WEEK-unit update must not propagate into already-spawned transactions")
+}
+
+func TestCreateBudgetPeriod_FixedExpense_WeekUnit_SpawnsMultipleDueWeeksWithDedup(t *testing.T) {
+	ownerID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	prevEnd := time.Date(2026, time.January, 31, 0, 0, 0, 0, time.UTC)
+	startDate, endDate := computeNextPeriodDates("monthly", prevEnd) // Feb 1 - Feb 28, 2026
+	anchor := time.Date(2020, time.January, 6, 0, 0, 0, 0, time.UTC) // a Monday, long past — always due weekly
+	// Pretend the first due Monday in range was already spawned (e.g. by
+	// CreateFixedExpense's immediate-spawn path) to prove per-date dedup.
+	alreadySpawned := fixedExpenseWeekStart(startDate)
+	for alreadySpawned.Before(startDate) {
+		alreadySpawned = alreadySpawned.AddDate(0, 0, 7)
+	}
+	var createdDates []time.Time
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID, Cycle: "monthly"}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: uuid.New(), EndDate: pgtype.Date{Time: prevEnd, Valid: true}}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, arg db.CreateTransactionParams) (db.Transaction, error) {
+				createdDates = append(createdDates, arg.Date.Time)
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{{
+					ID:              feID,
+					BudgetProfileID: profileID,
+					Name:            "Groceries",
+					FrequencyUnit:   frequencyUnitWeek,
+					IntervalWeeks:   1,
+					DayOfWeek:       1, // Monday
+					CreatedAt:       pgtype.Timestamptz{Time: anchor, Valid: true},
+				}}, nil
+			},
+			hasTransactionOnDate: func(_ context.Context, arg db.FixedExpenseHasTransactionOnDateParams) (bool, error) {
+				return arg.TargetDate.Time.Equal(alreadySpawned), nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.CreateBudgetPeriod(context.Background(), profileID, ownerID)
+	require.NoError(t, err)
+
+	want := 0
+	for d := startDate; d.Before(endDate); d = d.AddDate(0, 0, 1) {
+		if d.Weekday() == time.Monday && !d.Equal(alreadySpawned) {
+			want++
+		}
+	}
+	require.Len(t, createdDates, want)
+	for _, d := range createdDates {
+		assert.Equal(t, time.Monday, d.Weekday())
+		assert.False(t, d.Equal(alreadySpawned), "already-spawned date should be deduped")
+	}
+}

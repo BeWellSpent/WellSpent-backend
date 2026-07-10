@@ -1,16 +1,16 @@
 -- name: CreateFixedExpense :one
-INSERT INTO fixed_expense (budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, interval_months, anchor_date)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date;
+INSERT INTO fixed_expense (budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week;
 
 -- name: GetFixedExpense :one
-SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date
+SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week
 FROM fixed_expense
 WHERE id = $1
 LIMIT 1;
 
 -- name: ListFixedExpenses :many
-SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date
+SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week
 FROM fixed_expense
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY name;
@@ -23,10 +23,13 @@ SET name              = sqlc.arg('name'),
     payment_method_id = sqlc.arg('payment_method_id'),
     day_of_month      = sqlc.arg('day_of_month'),
     interval_months   = sqlc.arg('interval_months'),
-    anchor_date       = sqlc.arg('anchor_date')
+    anchor_date       = sqlc.arg('anchor_date'),
+    frequency_unit    = sqlc.arg('frequency_unit'),
+    interval_weeks    = sqlc.arg('interval_weeks'),
+    day_of_week       = sqlc.arg('day_of_week')
 WHERE id = sqlc.arg('id')::uuid
   AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid
-RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date;
+RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week;
 
 -- name: FixedExpenseHasTransactionInMonth :one
 SELECT EXISTS (
@@ -34,6 +37,13 @@ SELECT EXISTS (
     WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
       AND date >= sqlc.arg('month_start')::date
       AND date < sqlc.arg('month_end')::date
+) AS exists;
+
+-- name: FixedExpenseHasTransactionOnDate :one
+SELECT EXISTS (
+    SELECT 1 FROM transaction
+    WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
+      AND date = sqlc.arg('target_date')::date
 ) AS exists;
 
 -- name: UpdateFixedExpensePlannedAmount :exec

@@ -98,6 +98,9 @@ type FixedExpense struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	IntervalMonths  int32              `json:"interval_months"`
 	AnchorDate      pgtype.Date        `json:"anchor_date"`
+	FrequencyUnit   int16              `json:"frequency_unit"`
+	IntervalWeeks   int32              `json:"interval_weeks"`
+	DayOfWeek       int16              `json:"day_of_week"`
 }
 
 type IncomeEntry struct {

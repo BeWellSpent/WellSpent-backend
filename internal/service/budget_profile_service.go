@@ -248,12 +248,17 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 	// Spawn fixed expense transactions for the new period — only for expenses
 	// actually due this period's month (see isFixedExpenseDueInMonth), and at
 	// most once per calendar month even if weekly/bi-weekly cycles land more
-	// than one period inside that month.
+	// than one period inside that month. WEEK-unit expenses use a separate
+	// per-date path since a single period can contain several due weeks.
 	fixedExpenses, _ := s.fixedExpenses.List(ctx, profile.ID)
 	txTypeFixed := int32(1)
 	monthStart := time.Date(startDate.Year(), startDate.Month(), 1, 0, 0, 0, 0, time.UTC)
 	monthEnd := monthStart.AddDate(0, 1, 0)
 	for _, fe := range fixedExpenses {
+		if isFixedExpenseWeekUnit(fe) {
+			s.spawnWeeklyFixedExpenseOccurrences(ctx, fe, period.ID, startDate, endDate)
+			continue
+		}
 		if !isFixedExpenseDueInMonth(fe, monthStart) {
 			continue
 		}
@@ -332,9 +337,13 @@ func fixedExpenseDateInMonth(fe db.FixedExpense, monthStart time.Time) time.Time
 }
 
 // FixedExpenseNextDueDate returns the next date on or after `from` that fe is
-// due, as a full transaction date (day-of-month applied and clamped). Used to
-// surface a computed, non-persisted "next due" field to clients.
+// due, as a full transaction date (day-of-month/day-of-week applied and
+// clamped as appropriate). Used to surface a computed, non-persisted
+// "next due" field to clients.
 func FixedExpenseNextDueDate(fe db.FixedExpense, from time.Time) time.Time {
+	if isFixedExpenseWeekUnit(fe) {
+		return fixedExpenseNextDueDateWeekly(fe, from)
+	}
 	interval := int(fe.IntervalMonths)
 	if interval < 1 {
 		interval = 1
@@ -357,6 +366,124 @@ func FixedExpenseNextDueDate(fe db.FixedExpense, from time.Time) time.Time {
 	// Unreachable in practice (a multiple of interval is always found within
 	// `interval` months), but fall back to `from`'s month if it somehow isn't.
 	return fixedExpenseDateInMonth(fe, time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, time.UTC))
+}
+
+// ── Weekly cadence (frequency_unit = WEEK) ──────────────────────────────────
+//
+// Parallel to the month-index math above, but weeks are counted linearly from
+// a fixed Monday reference point rather than ISO calendar week-of-year, to
+// avoid year-boundary rollover edge cases (week 52/53 -> week 1).
+
+const (
+	frequencyUnitMonth int16 = 1 // matches FrequencyUnit_FREQUENCY_UNIT_MONTH (also the default for UNSPECIFIED/0)
+	frequencyUnitWeek  int16 = 2 // matches FrequencyUnit_FREQUENCY_UNIT_WEEK
+)
+
+// mondayEpoch is a stable Monday reference point (Jan 5 1970) for linear
+// week-index arithmetic.
+var mondayEpoch = time.Date(1970, 1, 5, 0, 0, 0, 0, time.UTC)
+
+func isFixedExpenseWeekUnit(fe db.FixedExpense) bool {
+	return fe.FrequencyUnit == frequencyUnitWeek
+}
+
+// fixedExpenseWeekIndex converts a date to a linear week number since
+// mondayEpoch, for interval arithmetic parallel to fixedExpenseMonthIndex.
+func fixedExpenseWeekIndex(t time.Time) int {
+	days := int(t.Truncate(24*time.Hour).Sub(mondayEpoch).Hours() / 24)
+	return int(math.Floor(float64(days) / 7))
+}
+
+// fixedExpenseWeekStart returns the Monday of t's week.
+func fixedExpenseWeekStart(t time.Time) time.Time {
+	t = t.Truncate(24 * time.Hour)
+	offset := (int(t.Weekday()) + 6) % 7 // days since Monday (time.Weekday: Sunday=0..Saturday=6)
+	return t.AddDate(0, 0, -offset)
+}
+
+// isFixedExpenseDueInWeek reports whether fe is due in the week starting at
+// ws (a Monday), mirroring isFixedExpenseDueInMonth.
+func isFixedExpenseDueInWeek(fe db.FixedExpense, ws time.Time) bool {
+	interval := int(fe.IntervalWeeks)
+	if interval < 1 {
+		interval = 1
+	}
+	diff := fixedExpenseWeekIndex(ws) - fixedExpenseWeekIndex(fixedExpenseWeekStart(fixedExpenseAnchor(fe)))
+	if diff < 0 {
+		return false
+	}
+	return diff%interval == 0
+}
+
+// fixedExpenseDateInWeek returns fe's transaction date within the week
+// starting at ws, applying DayOfWeek (1=Monday..7=Sunday). Every week has
+// all 7 days, so unlike day-of-month there's no clamping needed.
+func fixedExpenseDateInWeek(fe db.FixedExpense, ws time.Time) time.Time {
+	dow := int(fe.DayOfWeek)
+	if dow < 1 || dow > 7 {
+		dow = 1
+	}
+	return ws.AddDate(0, 0, dow-1)
+}
+
+// fixedExpenseNextDueDateWeekly is FixedExpenseNextDueDate's WEEK-unit path.
+func fixedExpenseNextDueDateWeekly(fe db.FixedExpense, from time.Time) time.Time {
+	interval := int(fe.IntervalWeeks)
+	if interval < 1 {
+		interval = 1
+	}
+	ws := fixedExpenseWeekStart(from)
+	anchorWeekStart := fixedExpenseWeekStart(fixedExpenseAnchor(fe))
+	if anchorWeekStart.After(ws) {
+		ws = anchorWeekStart
+	}
+	for i := 0; i < interval; i++ {
+		if isFixedExpenseDueInWeek(fe, ws) {
+			return fixedExpenseDateInWeek(fe, ws)
+		}
+		ws = ws.AddDate(0, 0, 7)
+	}
+	// Unreachable in practice, same rationale as the monthly fallback above.
+	return fixedExpenseDateInWeek(fe, fixedExpenseWeekStart(from))
+}
+
+// spawnWeeklyFixedExpenseOccurrences spawns one transaction for every due
+// week (per IntervalWeeks/DayOfWeek) whose date falls within
+// [startDate, endDate). Unlike MONTH-unit expenses — at most one transaction
+// per period — a WEEK-unit expense can have several due occurrences inside a
+// single period (e.g. "every week" within a monthly budget period), so
+// de-duplication is per exact date rather than per calendar month.
+func (s *BudgetProfileService) spawnWeeklyFixedExpenseOccurrences(ctx context.Context, fe db.FixedExpense, periodID uuid.UUID, startDate, endDate time.Time) {
+	txTypeFixed := int32(1)
+	feID := fe.ID
+	name := fe.Name
+	for ws := fixedExpenseWeekStart(startDate); ws.Before(endDate); ws = ws.AddDate(0, 0, 7) {
+		if !isFixedExpenseDueInWeek(fe, ws) {
+			continue
+		}
+		date := fixedExpenseDateInWeek(fe, ws)
+		if date.Before(startDate) || !date.Before(endDate) {
+			continue
+		}
+		exists, _ := s.fixedExpenses.HasTransactionOnDate(ctx, db.FixedExpenseHasTransactionOnDateParams{
+			FixedExpenseID: feID,
+			TargetDate:     pgtype.Date{Time: date, Valid: true},
+		})
+		if exists {
+			continue
+		}
+		_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
+			Name:              &name,
+			Amount:            fe.PlannedAmount,
+			PlannedAmount:     fe.PlannedAmount,
+			Date:              pgtype.Date{Time: date, Valid: true},
+			BudgetPeriodID:    &periodID,
+			CategoryID:        fe.CategoryID,
+			PaymentMethodID:   fe.PaymentMethodID,
+			TransactionTypeID: &txTypeFixed,
+			FixedExpenseID:    &feID,
+		})
+	}
 }
 
 func (s *BudgetProfileService) ListBudgetPeriods(ctx context.Context, profileID, userID uuid.UUID) ([]db.BudgetPeriod, error) {
@@ -940,24 +1067,49 @@ type FixedExpenseInput struct {
 	DayOfMonth      int32
 	IntervalMonths  int32
 	AnchorDate      *time.Time // explicit anchor override; overrides DayOfMonth (day is derived from it) when set
+	FrequencyUnit   int16      // 0/1 = MONTH (default), 2 = WEEK
+	IntervalWeeks   int32      // applies when FrequencyUnit = WEEK
+	DayOfWeek       int32      // 1 = Monday ... 7 = Sunday; applies when FrequencyUnit = WEEK
+}
+
+// isoWeekday converts a date to ISO 8601 weekday numbering (1=Monday..7=Sunday).
+func isoWeekday(t time.Time) int {
+	d := int(t.Weekday()) // time.Weekday: Sunday=0..Saturday=6
+	if d == 0 {
+		return 7
+	}
+	return d
 }
 
 func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID, userID uuid.UUID, inp FixedExpenseInput) (db.FixedExpense, *db.Transaction, error) {
 	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return db.FixedExpense{}, nil, err
 	}
+	unit := inp.FrequencyUnit
+	if unit != frequencyUnitWeek {
+		unit = frequencyUnitMonth
+	}
 	day := inp.DayOfMonth
 	if day < 1 {
 		day = 1
 	}
+	dayOfWeek := inp.DayOfWeek
+	if dayOfWeek < 1 || dayOfWeek > 7 {
+		dayOfWeek = 1
+	}
 	anchorDate := pgtype.Date{}
 	if inp.AnchorDate != nil {
 		day = int32(inp.AnchorDate.Day())
+		dayOfWeek = int32(isoWeekday(*inp.AnchorDate))
 		anchorDate = pgtype.Date{Time: *inp.AnchorDate, Valid: true}
 	}
 	interval := inp.IntervalMonths
 	if interval < 1 {
 		interval = 1
+	}
+	intervalWeeks := inp.IntervalWeeks
+	if intervalWeeks < 1 {
+		intervalWeeks = 1
 	}
 	fe, err := s.fixedExpenses.Create(ctx, db.CreateFixedExpenseParams{
 		BudgetProfileID: profileID,
@@ -968,18 +1120,34 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 		DayOfMonth:      day,
 		IntervalMonths:  interval,
 		AnchorDate:      anchorDate,
+		FrequencyUnit:   unit,
+		IntervalWeeks:   intervalWeeks,
+		DayOfWeek:       int16(dayOfWeek),
 	})
 	if err != nil {
 		return db.FixedExpense{}, nil, err
 	}
 
-	// Spawn transaction in the active period, unless an explicit anchor date
-	// makes it not due yet (e.g. a future-dated subscription start).
+	// Spawn transaction(s) in the active period, unless an explicit anchor
+	// date makes it not due yet (e.g. a future-dated subscription start).
 	period, err := s.profiles.GetLatestPeriod(ctx, profileID)
 	if err != nil {
 		return fe, nil, nil // no active period — still return the expense
 	}
 	startDate := period.StartDate.Time
+
+	if unit == frequencyUnitWeek {
+		// A week-unit expense can have several due occurrences inside the
+		// current period (e.g. "every week"); spawnWeeklyFixedExpenseOccurrences
+		// already skips any non-due week internally (naturally handles a
+		// future anchor too, same as the month-unit due-check below), so no
+		// separate gate is needed here. There's no single transaction to
+		// return in the response — the caller relies on re-fetching
+		// transactions afterward, same as createNextPeriod's spawn path.
+		s.spawnWeeklyFixedExpenseOccurrences(ctx, fe, period.ID, startDate, period.EndDate.Time)
+		return fe, nil, nil
+	}
+
 	if inp.AnchorDate != nil && !isFixedExpenseDueInMonth(fe, startDate) {
 		return fe, nil, nil // future-dated; no transaction until due
 	}
@@ -1023,18 +1191,31 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return db.FixedExpense{}, err
 	}
+	unit := inp.FrequencyUnit
+	if unit != frequencyUnitWeek {
+		unit = frequencyUnitMonth
+	}
 	day := inp.DayOfMonth
 	if day < 1 {
 		day = 1
 	}
+	dayOfWeek := inp.DayOfWeek
+	if dayOfWeek < 1 || dayOfWeek > 7 {
+		dayOfWeek = 1
+	}
 	anchorDate := pgtype.Date{}
 	if inp.AnchorDate != nil {
 		day = int32(inp.AnchorDate.Day())
+		dayOfWeek = int32(isoWeekday(*inp.AnchorDate))
 		anchorDate = pgtype.Date{Time: *inp.AnchorDate, Valid: true}
 	}
 	interval := inp.IntervalMonths
 	if interval < 1 {
 		interval = 1
+	}
+	intervalWeeks := inp.IntervalWeeks
+	if intervalWeeks < 1 {
+		intervalWeeks = 1
 	}
 	fe, err := s.fixedExpenses.Update(ctx, db.UpdateFixedExpenseParams{
 		ID:              id,
@@ -1046,9 +1227,20 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 		DayOfMonth:      day,
 		IntervalMonths:  interval,
 		AnchorDate:      anchorDate,
+		FrequencyUnit:   unit,
+		IntervalWeeks:   intervalWeeks,
+		DayOfWeek:       int16(dayOfWeek),
 	})
 	if err != nil {
 		return db.FixedExpense{}, err
+	}
+
+	// WEEK unit can have several transactions per period (not just one), so
+	// the "reconcile the current period's single unpaid transaction" model
+	// below doesn't apply — editing a WEEK-unit template only affects future
+	// spawns, it does not retroactively touch already-spawned transactions.
+	if unit == frequencyUnitWeek {
+		return fe, nil
 	}
 
 	// Reconcile the unpaid transaction in the active period: propagate field

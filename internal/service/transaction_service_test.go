@@ -50,6 +50,7 @@ type mockFixedExpenseRepo struct {
 	deleteUnpaidTransactions   func(context.Context, db.DeleteUnpaidTransactionByFixedExpenseParams) error
 	updateTransactionFromFixed func(context.Context, db.UpdateTransactionFromFixedExpenseParams) error
 	hasTransactionInMonth      func(context.Context, db.FixedExpenseHasTransactionInMonthParams) (bool, error)
+	hasTransactionOnDate       func(context.Context, db.FixedExpenseHasTransactionOnDateParams) (bool, error)
 }
 
 func (m *mockFixedExpenseRepo) Create(ctx context.Context, arg db.CreateFixedExpenseParams) (db.FixedExpense, error) {
@@ -109,6 +110,12 @@ func (m *mockFixedExpenseRepo) UpdateTransactionFromFixedExpense(ctx context.Con
 func (m *mockFixedExpenseRepo) HasTransactionInMonth(ctx context.Context, arg db.FixedExpenseHasTransactionInMonthParams) (bool, error) {
 	if m.hasTransactionInMonth != nil {
 		return m.hasTransactionInMonth(ctx, arg)
+	}
+	return false, nil
+}
+func (m *mockFixedExpenseRepo) HasTransactionOnDate(ctx context.Context, arg db.FixedExpenseHasTransactionOnDateParams) (bool, error) {
+	if m.hasTransactionOnDate != nil {
+		return m.hasTransactionOnDate(ctx, arg)
 	}
 	return false, nil
 }

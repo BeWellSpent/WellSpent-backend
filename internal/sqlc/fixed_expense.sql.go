@@ -13,9 +13,9 @@ import (
 )
 
 const createFixedExpense = `-- name: CreateFixedExpense :one
-INSERT INTO fixed_expense (budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, interval_months, anchor_date)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date
+INSERT INTO fixed_expense (budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week
 `
 
 type CreateFixedExpenseParams struct {
@@ -27,6 +27,9 @@ type CreateFixedExpenseParams struct {
 	DayOfMonth      int32          `json:"day_of_month"`
 	IntervalMonths  int32          `json:"interval_months"`
 	AnchorDate      pgtype.Date    `json:"anchor_date"`
+	FrequencyUnit   int16          `json:"frequency_unit"`
+	IntervalWeeks   int32          `json:"interval_weeks"`
+	DayOfWeek       int16          `json:"day_of_week"`
 }
 
 func (q *Queries) CreateFixedExpense(ctx context.Context, arg CreateFixedExpenseParams) (FixedExpense, error) {
@@ -39,6 +42,9 @@ func (q *Queries) CreateFixedExpense(ctx context.Context, arg CreateFixedExpense
 		arg.DayOfMonth,
 		arg.IntervalMonths,
 		arg.AnchorDate,
+		arg.FrequencyUnit,
+		arg.IntervalWeeks,
+		arg.DayOfWeek,
 	)
 	var i FixedExpense
 	err := row.Scan(
@@ -53,6 +59,9 @@ func (q *Queries) CreateFixedExpense(ctx context.Context, arg CreateFixedExpense
 		&i.CreatedAt,
 		&i.IntervalMonths,
 		&i.AnchorDate,
+		&i.FrequencyUnit,
+		&i.IntervalWeeks,
+		&i.DayOfWeek,
 	)
 	return i, err
 }
@@ -117,8 +126,28 @@ func (q *Queries) FixedExpenseHasTransactionInMonth(ctx context.Context, arg Fix
 	return exists, err
 }
 
+const fixedExpenseHasTransactionOnDate = `-- name: FixedExpenseHasTransactionOnDate :one
+SELECT EXISTS (
+    SELECT 1 FROM transaction
+    WHERE fixed_expense_id = $1::uuid
+      AND date = $2::date
+) AS exists
+`
+
+type FixedExpenseHasTransactionOnDateParams struct {
+	FixedExpenseID uuid.UUID   `json:"fixed_expense_id"`
+	TargetDate     pgtype.Date `json:"target_date"`
+}
+
+func (q *Queries) FixedExpenseHasTransactionOnDate(ctx context.Context, arg FixedExpenseHasTransactionOnDateParams) (bool, error) {
+	row := q.db.QueryRow(ctx, fixedExpenseHasTransactionOnDate, arg.FixedExpenseID, arg.TargetDate)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const getFixedExpense = `-- name: GetFixedExpense :one
-SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date
+SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week
 FROM fixed_expense
 WHERE id = $1
 LIMIT 1
@@ -139,6 +168,9 @@ func (q *Queries) GetFixedExpense(ctx context.Context, id uuid.UUID) (FixedExpen
 		&i.CreatedAt,
 		&i.IntervalMonths,
 		&i.AnchorDate,
+		&i.FrequencyUnit,
+		&i.IntervalWeeks,
+		&i.DayOfWeek,
 	)
 	return i, err
 }
@@ -188,7 +220,7 @@ func (q *Queries) GetUnpaidTransactionByFixedExpense(ctx context.Context, arg Ge
 }
 
 const listFixedExpenses = `-- name: ListFixedExpenses :many
-SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date
+SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week
 FROM fixed_expense
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY name
@@ -215,6 +247,9 @@ func (q *Queries) ListFixedExpenses(ctx context.Context, budgetProfileID uuid.UU
 			&i.CreatedAt,
 			&i.IntervalMonths,
 			&i.AnchorDate,
+			&i.FrequencyUnit,
+			&i.IntervalWeeks,
+			&i.DayOfWeek,
 		); err != nil {
 			return nil, err
 		}
@@ -234,10 +269,13 @@ SET name              = $1,
     payment_method_id = $4,
     day_of_month      = $5,
     interval_months   = $6,
-    anchor_date       = $7
-WHERE id = $8::uuid
-  AND budget_profile_id = $9::uuid
-RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date
+    anchor_date       = $7,
+    frequency_unit    = $8,
+    interval_weeks    = $9,
+    day_of_week       = $10
+WHERE id = $11::uuid
+  AND budget_profile_id = $12::uuid
+RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week
 `
 
 type UpdateFixedExpenseParams struct {
@@ -248,6 +286,9 @@ type UpdateFixedExpenseParams struct {
 	DayOfMonth      int32          `json:"day_of_month"`
 	IntervalMonths  int32          `json:"interval_months"`
 	AnchorDate      pgtype.Date    `json:"anchor_date"`
+	FrequencyUnit   int16          `json:"frequency_unit"`
+	IntervalWeeks   int32          `json:"interval_weeks"`
+	DayOfWeek       int16          `json:"day_of_week"`
 	ID              uuid.UUID      `json:"id"`
 	BudgetProfileID uuid.UUID      `json:"budget_profile_id"`
 }
@@ -261,6 +302,9 @@ func (q *Queries) UpdateFixedExpense(ctx context.Context, arg UpdateFixedExpense
 		arg.DayOfMonth,
 		arg.IntervalMonths,
 		arg.AnchorDate,
+		arg.FrequencyUnit,
+		arg.IntervalWeeks,
+		arg.DayOfWeek,
 		arg.ID,
 		arg.BudgetProfileID,
 	)
@@ -277,6 +321,9 @@ func (q *Queries) UpdateFixedExpense(ctx context.Context, arg UpdateFixedExpense
 		&i.CreatedAt,
 		&i.IntervalMonths,
 		&i.AnchorDate,
+		&i.FrequencyUnit,
+		&i.IntervalWeeks,
+		&i.DayOfWeek,
 	)
 	return i, err
 }

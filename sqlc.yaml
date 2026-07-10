@@ -28,6 +28,7 @@ sql:
       - "internal/db/migrations/000023_roles_and_invites.sql"
       - "internal/db/migrations/000024_fixed_expense_interval.sql"
       - "internal/db/migrations/000025_fixed_expense_anchor_date.sql"
+      - "internal/db/migrations/000026_fixed_expense_frequency_unit.sql"
     gen:
       go:
         package: "db"

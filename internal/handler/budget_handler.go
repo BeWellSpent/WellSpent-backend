@@ -467,6 +467,9 @@ func toProtoFixedExpense(fe db.FixedExpense) *v1.FixedExpense {
 		IsActive:        fe.IsActive,
 		IntervalMonths:  fe.IntervalMonths,
 		NextDueDate:     timestamppb.New(service.FixedExpenseNextDueDate(fe, time.Now().UTC())),
+		FrequencyUnit:   v1.FrequencyUnit(fe.FrequencyUnit),
+		IntervalWeeks:   fe.IntervalWeeks,
+		DayOfWeek:       int32(fe.DayOfWeek),
 	}
 	if fe.CategoryID != nil {
 		proto.CategoryId = *fe.CategoryID
@@ -544,6 +547,9 @@ func (h *BudgetHandler) CreateFixedExpense(ctx context.Context, req *connect.Req
 		DayOfMonth:      req.Msg.DayOfMonth,
 		IntervalMonths:  req.Msg.IntervalMonths,
 		AnchorDate:      anchorDate,
+		FrequencyUnit:   int16(req.Msg.FrequencyUnit),
+		IntervalWeeks:   req.Msg.IntervalWeeks,
+		DayOfWeek:       req.Msg.DayOfWeek,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -594,6 +600,9 @@ func (h *BudgetHandler) UpdateFixedExpense(ctx context.Context, req *connect.Req
 		DayOfMonth:      req.Msg.DayOfMonth,
 		IntervalMonths:  req.Msg.IntervalMonths,
 		AnchorDate:      anchorDate,
+		FrequencyUnit:   int16(req.Msg.FrequencyUnit),
+		IntervalWeeks:   req.Msg.IntervalWeeks,
+		DayOfWeek:       req.Msg.DayOfWeek,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
