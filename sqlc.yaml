@@ -27,6 +27,7 @@ sql:
       - "internal/db/migrations/000022_add_shopping_family_categories.sql"
       - "internal/db/migrations/000023_roles_and_invites.sql"
       - "internal/db/migrations/000024_fixed_expense_interval.sql"
+      - "internal/db/migrations/000025_fixed_expense_anchor_date.sql"
     gen:
       go:
         package: "db"

@@ -1,16 +1,16 @@
 -- name: CreateFixedExpense :one
-INSERT INTO fixed_expense (budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, interval_months)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months;
+INSERT INTO fixed_expense (budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, interval_months, anchor_date)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date;
 
 -- name: GetFixedExpense :one
-SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months
+SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date
 FROM fixed_expense
 WHERE id = $1
 LIMIT 1;
 
 -- name: ListFixedExpenses :many
-SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months
+SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date
 FROM fixed_expense
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY name;
@@ -22,10 +22,11 @@ SET name              = sqlc.arg('name'),
     category_id       = sqlc.arg('category_id'),
     payment_method_id = sqlc.arg('payment_method_id'),
     day_of_month      = sqlc.arg('day_of_month'),
-    interval_months   = sqlc.arg('interval_months')
+    interval_months   = sqlc.arg('interval_months'),
+    anchor_date       = sqlc.arg('anchor_date')
 WHERE id = sqlc.arg('id')::uuid
   AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid
-RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months;
+RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date;
 
 -- name: FixedExpenseHasTransactionInMonth :one
 SELECT EXISTS (

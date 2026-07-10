@@ -290,15 +290,27 @@ func fixedExpenseMonthIndex(t time.Time) int {
 	return t.Year()*12 + int(t.Month())
 }
 
+// fixedExpenseAnchor returns the anchor time used for interval arithmetic:
+// fe.AnchorDate when explicitly set (lets a fixed expense start in the
+// future instead of at creation time), otherwise fe.CreatedAt.
+func fixedExpenseAnchor(fe db.FixedExpense) time.Time {
+	if fe.AnchorDate.Valid {
+		return fe.AnchorDate.Time
+	}
+	return fe.CreatedAt.Time
+}
+
 // isFixedExpenseDueInMonth reports whether fe is due in the month starting at
-// monthStart, using fe.CreatedAt's month as the implicit anchor: due when the
-// number of months elapsed since creation is a multiple of IntervalMonths.
+// monthStart, using fixedExpenseAnchor's month as the anchor: due when the
+// number of months elapsed since the anchor is a multiple of IntervalMonths.
+// A monthStart before the anchor month is never due (covers a future-dated
+// AnchorDate not having arrived yet).
 func isFixedExpenseDueInMonth(fe db.FixedExpense, monthStart time.Time) bool {
 	interval := int(fe.IntervalMonths)
 	if interval < 1 {
 		interval = 1
 	}
-	diff := fixedExpenseMonthIndex(monthStart) - fixedExpenseMonthIndex(fe.CreatedAt.Time)
+	diff := fixedExpenseMonthIndex(monthStart) - fixedExpenseMonthIndex(fixedExpenseAnchor(fe))
 	if diff < 0 {
 		return false
 	}
@@ -328,6 +340,14 @@ func FixedExpenseNextDueDate(fe db.FixedExpense, from time.Time) time.Time {
 		interval = 1
 	}
 	monthStart := time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, time.UTC)
+	// A future anchor (AnchorDate ahead of `from`) can be more than `interval`
+	// months away, which the interval-bounded search below wouldn't reach —
+	// no due month can occur before the anchor's own month, so start there.
+	anchor := fixedExpenseAnchor(fe)
+	anchorMonthStart := time.Date(anchor.Year(), anchor.Month(), 1, 0, 0, 0, 0, time.UTC)
+	if anchorMonthStart.After(monthStart) {
+		monthStart = anchorMonthStart
+	}
 	for i := 0; i < interval; i++ {
 		if isFixedExpenseDueInMonth(fe, monthStart) {
 			return fixedExpenseDateInMonth(fe, monthStart)
@@ -919,6 +939,7 @@ type FixedExpenseInput struct {
 	PaymentMethodID *uuid.UUID
 	DayOfMonth      int32
 	IntervalMonths  int32
+	AnchorDate      *time.Time // explicit anchor override; overrides DayOfMonth (day is derived from it) when set
 }
 
 func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID, userID uuid.UUID, inp FixedExpenseInput) (db.FixedExpense, *db.Transaction, error) {
@@ -928,6 +949,11 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 	day := inp.DayOfMonth
 	if day < 1 {
 		day = 1
+	}
+	anchorDate := pgtype.Date{}
+	if inp.AnchorDate != nil {
+		day = int32(inp.AnchorDate.Day())
+		anchorDate = pgtype.Date{Time: *inp.AnchorDate, Valid: true}
 	}
 	interval := inp.IntervalMonths
 	if interval < 1 {
@@ -941,17 +967,22 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 		PaymentMethodID: inp.PaymentMethodID,
 		DayOfMonth:      day,
 		IntervalMonths:  interval,
+		AnchorDate:      anchorDate,
 	})
 	if err != nil {
 		return db.FixedExpense{}, nil, err
 	}
 
-	// Spawn transaction in the active period.
+	// Spawn transaction in the active period, unless an explicit anchor date
+	// makes it not due yet (e.g. a future-dated subscription start).
 	period, err := s.profiles.GetLatestPeriod(ctx, profileID)
 	if err != nil {
 		return fe, nil, nil // no active period — still return the expense
 	}
 	startDate := period.StartDate.Time
+	if inp.AnchorDate != nil && !isFixedExpenseDueInMonth(fe, startDate) {
+		return fe, nil, nil // future-dated; no transaction until due
+	}
 	lastDay := time.Date(startDate.Year(), startDate.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
 	d := int(day)
 	if d > lastDay {
@@ -996,6 +1027,11 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 	if day < 1 {
 		day = 1
 	}
+	anchorDate := pgtype.Date{}
+	if inp.AnchorDate != nil {
+		day = int32(inp.AnchorDate.Day())
+		anchorDate = pgtype.Date{Time: *inp.AnchorDate, Valid: true}
+	}
 	interval := inp.IntervalMonths
 	if interval < 1 {
 		interval = 1
@@ -1009,17 +1045,27 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 		PaymentMethodID: inp.PaymentMethodID,
 		DayOfMonth:      day,
 		IntervalMonths:  interval,
+		AnchorDate:      anchorDate,
 	})
 	if err != nil {
 		return db.FixedExpense{}, err
 	}
 
-	// Propagate changes to the unpaid transaction in the active period.
+	// Reconcile the unpaid transaction in the active period: propagate field
+	// changes if fe is still due this period, or remove it if the update
+	// (e.g. a rescheduled anchor) made it no longer due.
 	period, err := s.profiles.GetLatestPeriod(ctx, profileID)
 	if err != nil {
 		return fe, nil
 	}
 	startDate := period.StartDate.Time
+	if !isFixedExpenseDueInMonth(fe, startDate) {
+		_ = s.fixedExpenses.DeleteUnpaidTransactions(ctx, db.DeleteUnpaidTransactionByFixedExpenseParams{
+			FixedExpenseID:  fe.ID,
+			BudgetProfileID: profileID,
+		})
+		return fe, nil
+	}
 	lastDay := time.Date(startDate.Year(), startDate.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
 	d := int(day)
 	if d > lastDay {

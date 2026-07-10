@@ -775,6 +775,109 @@ func TestCreateFixedExpense_QuarterlyIntervalPassesThrough(t *testing.T) {
 	assert.Equal(t, int32(3), fe.IntervalMonths)
 }
 
+func TestCreateFixedExpense_FutureAnchorDate_SkipsImmediateSpawn(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	futureAnchor := currentMonthStart.AddDate(0, 2, 0).AddDate(0, 0, 9) // ~2 months out
+	created := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: uuid.New(), StartDate: pgtype.Date{Time: currentMonthStart, Valid: true}}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				created = true
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			create: func(_ context.Context, arg db.CreateFixedExpenseParams) (db.FixedExpense, error) {
+				assert.True(t, arg.AnchorDate.Valid)
+				assert.Equal(t, int32(futureAnchor.Day()), arg.DayOfMonth, "day-of-month is derived from anchor_date")
+				return db.FixedExpense{
+					ID:              feID,
+					BudgetProfileID: profileID,
+					Name:            arg.Name,
+					DayOfMonth:      arg.DayOfMonth,
+					IntervalMonths:  arg.IntervalMonths,
+					AnchorDate:      arg.AnchorDate,
+				}, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	fe, tx, err := svc.CreateFixedExpense(context.Background(), profileID, userID, FixedExpenseInput{
+		Name:       "Biennial subscription",
+		DayOfMonth: 1, // ignored — anchor date supplies the day
+		AnchorDate: &futureAnchor,
+	})
+	require.NoError(t, err)
+	assert.Nil(t, tx, "future-dated anchor should not spawn a transaction yet")
+	assert.False(t, created)
+	assert.True(t, fe.AnchorDate.Valid)
+}
+
+func TestCreateFixedExpense_DueAnchorDate_SpawnsImmediately(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	anchor := currentMonthStart.AddDate(0, 0, 19) // day 20 of the current month
+	var createdArg db.CreateTransactionParams
+	created := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: uuid.New(), StartDate: pgtype.Date{Time: currentMonthStart, Valid: true}}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, arg db.CreateTransactionParams) (db.Transaction, error) {
+				created = true
+				createdArg = arg
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			create: func(_ context.Context, arg db.CreateFixedExpenseParams) (db.FixedExpense, error) {
+				return db.FixedExpense{
+					ID:              feID,
+					BudgetProfileID: profileID,
+					Name:            arg.Name,
+					DayOfMonth:      arg.DayOfMonth,
+					IntervalMonths:  arg.IntervalMonths,
+					AnchorDate:      arg.AnchorDate,
+				}, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	_, tx, err := svc.CreateFixedExpense(context.Background(), profileID, userID, FixedExpenseInput{
+		Name:       "Just-in-time subscription",
+		AnchorDate: &anchor,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, tx, "anchor due this month should spawn immediately")
+	assert.True(t, created)
+	assert.Equal(t, anchor.Day(), createdArg.Date.Time.Day())
+}
+
 func TestCreateFixedExpense_Forbidden(t *testing.T) {
 	ownerID := uuid.New()
 	otherID := uuid.New()
@@ -855,6 +958,106 @@ func TestUpdateFixedExpense_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "New Rent", fe.Name)
 	assert.Equal(t, int32(6), fe.IntervalMonths)
+}
+
+func TestUpdateFixedExpense_RescheduledToFuture_DeletesUnpaidTransaction(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	futureAnchor := currentMonthStart.AddDate(0, 3, 0).AddDate(0, 0, 4) // ~3 months out
+	deleted := false
+	propagated := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: uuid.New(), StartDate: pgtype.Date{Time: currentMonthStart, Valid: true}}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{
+			update: func(_ context.Context, arg db.UpdateFixedExpenseParams) (db.FixedExpense, error) {
+				return db.FixedExpense{
+					ID:              feID,
+					BudgetProfileID: profileID,
+					Name:            arg.Name,
+					DayOfMonth:      arg.DayOfMonth,
+					IntervalMonths:  arg.IntervalMonths,
+					AnchorDate:      arg.AnchorDate,
+				}, nil
+			},
+			deleteUnpaidTransactions: func(_ context.Context, arg db.DeleteUnpaidTransactionByFixedExpenseParams) error {
+				deleted = true
+				assert.Equal(t, feID, arg.FixedExpenseID)
+				return nil
+			},
+			updateTransactionFromFixed: func(_ context.Context, _ db.UpdateTransactionFromFixedExpenseParams) error {
+				propagated = true
+				return nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	fe, err := svc.UpdateFixedExpense(context.Background(), feID, profileID, userID, FixedExpenseInput{
+		Name:       "Rescheduled subscription",
+		AnchorDate: &futureAnchor,
+	})
+	require.NoError(t, err)
+	assert.True(t, deleted, "no-longer-due expense should have its unpaid transaction removed")
+	assert.False(t, propagated, "should not propagate date changes to a transaction it just deleted")
+	assert.True(t, fe.AnchorDate.Valid)
+}
+
+func TestUpdateFixedExpense_StillDue_PropagatesToUnpaidTransaction(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	deleted := false
+	propagated := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: uuid.New(), StartDate: pgtype.Date{Time: currentMonthStart, Valid: true}}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{
+			update: func(_ context.Context, arg db.UpdateFixedExpenseParams) (db.FixedExpense, error) {
+				// No AnchorDate given — falls back to (zero-value) CreatedAt with the
+				// default monthly interval, which is always due.
+				return db.FixedExpense{ID: feID, Name: arg.Name, DayOfMonth: arg.DayOfMonth, IntervalMonths: arg.IntervalMonths}, nil
+			},
+			deleteUnpaidTransactions: func(_ context.Context, _ db.DeleteUnpaidTransactionByFixedExpenseParams) error {
+				deleted = true
+				return nil
+			},
+			updateTransactionFromFixed: func(_ context.Context, _ db.UpdateTransactionFromFixedExpenseParams) error {
+				propagated = true
+				return nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.UpdateFixedExpense(context.Background(), feID, profileID, userID, FixedExpenseInput{
+		Name:       "Still due",
+		DayOfMonth: 5,
+	})
+	require.NoError(t, err)
+	assert.True(t, propagated, "still-due expense should have its unpaid transaction updated in place")
+	assert.False(t, deleted)
 }
 
 func TestDeleteFixedExpense_Success(t *testing.T) {
@@ -949,6 +1152,20 @@ func TestIsFixedExpenseDueInMonth(t *testing.T) {
 	}
 }
 
+func TestIsFixedExpenseDueInMonth_AnchorDateOverridesCreatedAt(t *testing.T) {
+	createdAt := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC) // long past, would always be "due" on its own
+	futureAnchor := time.Date(2027, time.March, 10, 0, 0, 0, 0, time.UTC)
+	fe := db.FixedExpense{
+		CreatedAt:      pgtype.Timestamptz{Time: createdAt, Valid: true},
+		AnchorDate:     pgtype.Date{Time: futureAnchor, Valid: true},
+		IntervalMonths: 1,
+	}
+
+	assert.False(t, isFixedExpenseDueInMonth(fe, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)), "not due before the anchor's month")
+	assert.True(t, isFixedExpenseDueInMonth(fe, time.Date(2027, time.March, 1, 0, 0, 0, 0, time.UTC)), "due in the anchor's own month")
+	assert.True(t, isFixedExpenseDueInMonth(fe, time.Date(2027, time.April, 1, 0, 0, 0, 0, time.UTC)), "monthly cadence stays due after the anchor")
+}
+
 func TestFixedExpenseNextDueDate(t *testing.T) {
 	anchor := time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)
 	fe := db.FixedExpense{
@@ -975,6 +1192,18 @@ func TestFixedExpenseNextDueDate_ClampsToLastDayOfMonth(t *testing.T) {
 	}
 	next := FixedExpenseNextDueDate(fe, time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC))
 	assert.Equal(t, time.Date(2026, time.February, 28, 0, 0, 0, 0, time.UTC), next, "Feb 2026 has 28 days")
+}
+
+func TestFixedExpenseNextDueDate_WithFutureAnchorDate(t *testing.T) {
+	futureAnchor := time.Date(2027, time.March, 10, 0, 0, 0, 0, time.UTC)
+	fe := db.FixedExpense{
+		CreatedAt:      pgtype.Timestamptz{Time: time.Date(2026, time.July, 10, 0, 0, 0, 0, time.UTC), Valid: true},
+		AnchorDate:     pgtype.Date{Time: futureAnchor, Valid: true},
+		IntervalMonths: 1,
+		DayOfMonth:     10,
+	}
+	next := FixedExpenseNextDueDate(fe, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC))
+	assert.Equal(t, futureAnchor, next, "next due date should be the future anchor, not created_at's month")
 }
 
 // ── createNextPeriod fixed-expense spawn tests ─────────────────────────────────
