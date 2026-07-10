@@ -85,6 +85,31 @@ FROM category
 WHERE (user_id = $1::uuid AND is_active = TRUE) OR user_id IS NULL
 ORDER BY name;
 
+-- name: ListCategoriesForBudget :many
+-- Returns the same set as ListCategories but also includes categories referenced
+-- by transactions or fixed expenses in the given budget, so collaborators/viewers
+-- can see categories created by the budget owner.
+SELECT DISTINCT c.id, c.name, c.type_id, c.is_system, c.user_id, c.color
+FROM category c
+WHERE (
+  (c.user_id = sqlc.arg('user_id')::uuid AND c.is_active = TRUE)
+  OR c.user_id IS NULL
+  OR c.id IN (
+    SELECT DISTINCT t.category_id
+    FROM transaction t
+    JOIN budget_period bp ON t.budget_period_id = bp.id
+    WHERE bp.budget_profile_id = sqlc.arg('budget_profile_id')::uuid
+      AND t.category_id IS NOT NULL
+  )
+  OR c.id IN (
+    SELECT DISTINCT fe.category_id
+    FROM fixed_expense fe
+    WHERE fe.budget_profile_id = sqlc.arg('budget_profile_id')::uuid
+      AND fe.category_id IS NOT NULL
+  )
+)
+ORDER BY c.name;
+
 -- name: CreateCategory :one
 INSERT INTO category (name, user_id, color)
 VALUES (sqlc.arg('name'), sqlc.arg('user_id')::uuid, sqlc.arg('color'))

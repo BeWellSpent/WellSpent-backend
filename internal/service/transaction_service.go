@@ -108,7 +108,10 @@ func (s *TransactionService) GetCategory(ctx context.Context, id int32) (db.GetC
 	return s.transactions.GetCategory(ctx, id)
 }
 
-func (s *TransactionService) ListCategories(ctx context.Context, userID uuid.UUID) ([]db.ListCategoriesRow, error) {
+func (s *TransactionService) ListCategories(ctx context.Context, userID uuid.UUID, budgetProfileID *uuid.UUID) ([]db.ListCategoriesRow, error) {
+	if budgetProfileID != nil {
+		return s.transactions.ListCategoriesForBudget(ctx, userID, *budgetProfileID)
+	}
 	return s.transactions.ListCategories(ctx, userID)
 }
 

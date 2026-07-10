@@ -22,6 +22,7 @@ type TransactionRepository interface {
 
 	GetCategory(ctx context.Context, id int32) (db.GetCategoryRow, error)
 	ListCategories(ctx context.Context, userID uuid.UUID) ([]db.ListCategoriesRow, error)
+	ListCategoriesForBudget(ctx context.Context, userID uuid.UUID, budgetProfileID uuid.UUID) ([]db.ListCategoriesRow, error)
 	CreateCategory(ctx context.Context, arg db.CreateCategoryParams) (db.CreateCategoryRow, error)
 	UpdateCategory(ctx context.Context, arg db.UpdateCategoryParams) (db.UpdateCategoryRow, error)
 	UpdateSystemCategoryColor(ctx context.Context, arg db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error)
@@ -97,6 +98,24 @@ func (r *transactionRepository) GetCategory(ctx context.Context, id int32) (db.G
 
 func (r *transactionRepository) ListCategories(ctx context.Context, userID uuid.UUID) ([]db.ListCategoriesRow, error) {
 	return r.q.ListCategories(ctx, userID)
+}
+
+func (r *transactionRepository) ListCategoriesForBudget(ctx context.Context, userID uuid.UUID, budgetProfileID uuid.UUID) ([]db.ListCategoriesRow, error) {
+	rows, err := r.q.ListCategoriesForBudget(ctx, db.ListCategoriesForBudgetParams{
+		UserID:          userID,
+		BudgetProfileID: budgetProfileID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ListCategoriesRow, len(rows))
+	for i, r := range rows {
+		result[i] = db.ListCategoriesRow{
+			ID: r.ID, Name: r.Name, TypeID: r.TypeID,
+			IsSystem: r.IsSystem, UserID: r.UserID, Color: r.Color,
+		}
+	}
+	return result, nil
 }
 
 func (r *transactionRepository) CreateCategory(ctx context.Context, arg db.CreateCategoryParams) (db.CreateCategoryRow, error) {

@@ -230,12 +230,20 @@ func (h *BudgetHandler) UnmarkTransactionAsPaid(ctx context.Context, req *connec
 
 // ── Categories ────────────────────────────────────────────────────────────────
 
-func (h *BudgetHandler) ListCategories(ctx context.Context, _ *connect.Request[v1.ListCategoriesRequest]) (*connect.Response[v1.ListCategoriesResponse], error) {
+func (h *BudgetHandler) ListCategories(ctx context.Context, req *connect.Request[v1.ListCategoriesRequest]) (*connect.Response[v1.ListCategoriesResponse], error) {
 	userID, err := h.currentUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	cats, svcErr := h.transactions.ListCategories(ctx, userID)
+	var budgetProfileID *uuid.UUID
+	if req.Msg.BudgetProfileId != "" {
+		id, parseErr := uuid.Parse(req.Msg.BudgetProfileId)
+		if parseErr != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid budget_profile_id"))
+		}
+		budgetProfileID = &id
+	}
+	cats, svcErr := h.transactions.ListCategories(ctx, userID, budgetProfileID)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}

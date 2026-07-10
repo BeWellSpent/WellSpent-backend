@@ -22,6 +22,7 @@ type mockTransactionRepo struct {
 	delete                        func(context.Context, db.DeleteTransactionParams) error
 	getCategory                   func(context.Context, int32) (db.GetCategoryRow, error)
 	listCategories                func(context.Context, uuid.UUID) ([]db.ListCategoriesRow, error)
+	listCategoriesForBudget       func(context.Context, uuid.UUID, uuid.UUID) ([]db.ListCategoriesRow, error)
 	createCategory                func(context.Context, db.CreateCategoryParams) (db.CreateCategoryRow, error)
 	updateCategory                func(context.Context, db.UpdateCategoryParams) (db.UpdateCategoryRow, error)
 	updateSystemCategoryColor     func(context.Context, db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error)
@@ -177,6 +178,12 @@ func (m *mockTransactionRepo) GetCategory(ctx context.Context, id int32) (db.Get
 func (m *mockTransactionRepo) ListCategories(ctx context.Context, userID uuid.UUID) ([]db.ListCategoriesRow, error) {
 	if m.listCategories != nil {
 		return m.listCategories(ctx, userID)
+	}
+	return nil, nil
+}
+func (m *mockTransactionRepo) ListCategoriesForBudget(ctx context.Context, userID uuid.UUID, budgetProfileID uuid.UUID) ([]db.ListCategoriesRow, error) {
+	if m.listCategoriesForBudget != nil {
+		return m.listCategoriesForBudget(ctx, userID, budgetProfileID)
 	}
 	return nil, nil
 }

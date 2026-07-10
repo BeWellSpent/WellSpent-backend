@@ -370,6 +370,73 @@ func (q *Queries) ListCategories(ctx context.Context, dollar_1 uuid.UUID) ([]Lis
 	return items, nil
 }
 
+const listCategoriesForBudget = `-- name: ListCategoriesForBudget :many
+SELECT DISTINCT c.id, c.name, c.type_id, c.is_system, c.user_id, c.color
+FROM category c
+WHERE (
+  (c.user_id = $1::uuid AND c.is_active = TRUE)
+  OR c.user_id IS NULL
+  OR c.id IN (
+    SELECT DISTINCT t.category_id
+    FROM transaction t
+    JOIN budget_period bp ON t.budget_period_id = bp.id
+    WHERE bp.budget_profile_id = $2::uuid
+      AND t.category_id IS NOT NULL
+  )
+  OR c.id IN (
+    SELECT DISTINCT fe.category_id
+    FROM fixed_expense fe
+    WHERE fe.budget_profile_id = $2::uuid
+      AND fe.category_id IS NOT NULL
+  )
+)
+ORDER BY c.name
+`
+
+type ListCategoriesForBudgetParams struct {
+	UserID          uuid.UUID `json:"user_id"`
+	BudgetProfileID uuid.UUID `json:"budget_profile_id"`
+}
+
+type ListCategoriesForBudgetRow struct {
+	ID       int32      `json:"id"`
+	Name     string     `json:"name"`
+	TypeID   *int32     `json:"type_id"`
+	IsSystem bool       `json:"is_system"`
+	UserID   *uuid.UUID `json:"user_id"`
+	Color    string     `json:"color"`
+}
+
+// Returns the same set as ListCategories but also includes categories referenced
+// by transactions or fixed expenses in the given budget, so collaborators/viewers
+// can see categories created by the budget owner.
+func (q *Queries) ListCategoriesForBudget(ctx context.Context, arg ListCategoriesForBudgetParams) ([]ListCategoriesForBudgetRow, error) {
+	rows, err := q.db.Query(ctx, listCategoriesForBudget, arg.UserID, arg.BudgetProfileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCategoriesForBudgetRow
+	for rows.Next() {
+		var i ListCategoriesForBudgetRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.TypeID,
+			&i.IsSystem,
+			&i.UserID,
+			&i.Color,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPaymentMethods = `-- name: ListPaymentMethods :many
 SELECT pm.id, pm.name, pm.payment_type_id, pm.user_id, pt.name AS type_name, pm.budget_person_id, pm.color
 FROM payment_methods pm
