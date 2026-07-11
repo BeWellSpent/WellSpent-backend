@@ -127,11 +127,19 @@ SET color = sqlc.arg('color')
 WHERE id = sqlc.arg('id') AND is_system = TRUE
 RETURNING id, name, type_id, is_system, user_id, color;
 
--- Reassigns all transactions with this category to the replacement, then soft-deletes.
+-- Reassigns all transactions and fixed-expense templates referencing this
+-- category to the replacement, then soft-deletes the category. Fixed expenses
+-- must be reassigned too, not just transactions: otherwise an orphaned
+-- template keeps the "deleted" category alive in ListCategoriesForBudget
+-- (which surfaces any category referenced by a fixed_expense row) and future
+-- transactions spawned from that template would carry the dead category_id.
 -- No budget scoping: categories are user-scoped so reassignment spans all periods.
 -- name: DeleteCategoryAndReassign :exec
-WITH moved AS (
+WITH moved_tx AS (
     UPDATE transaction SET category_id = sqlc.arg('replacement_id')
+    WHERE category_id = sqlc.arg('id')
+), moved_fe AS (
+    UPDATE fixed_expense SET category_id = sqlc.arg('replacement_id')
     WHERE category_id = sqlc.arg('id')
 )
 UPDATE category

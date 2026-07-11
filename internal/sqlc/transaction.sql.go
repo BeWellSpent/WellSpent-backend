@@ -145,8 +145,11 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 }
 
 const deleteCategoryAndReassign = `-- name: DeleteCategoryAndReassign :exec
-WITH moved AS (
+WITH moved_tx AS (
     UPDATE transaction SET category_id = $3
+    WHERE category_id = $1
+), moved_fe AS (
+    UPDATE fixed_expense SET category_id = $3
     WHERE category_id = $1
 )
 UPDATE category
@@ -160,7 +163,12 @@ type DeleteCategoryAndReassignParams struct {
 	ReplacementID *int32    `json:"replacement_id"`
 }
 
-// Reassigns all transactions with this category to the replacement, then soft-deletes.
+// Reassigns all transactions and fixed-expense templates referencing this
+// category to the replacement, then soft-deletes the category. Fixed expenses
+// must be reassigned too, not just transactions: otherwise an orphaned
+// template keeps the "deleted" category alive in ListCategoriesForBudget
+// (which surfaces any category referenced by a fixed_expense row) and future
+// transactions spawned from that template would carry the dead category_id.
 // No budget scoping: categories are user-scoped so reassignment spans all periods.
 func (q *Queries) DeleteCategoryAndReassign(ctx context.Context, arg DeleteCategoryAndReassignParams) error {
 	_, err := q.db.Exec(ctx, deleteCategoryAndReassign, arg.ID, arg.UserID, arg.ReplacementID)
