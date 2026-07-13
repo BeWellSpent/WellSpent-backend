@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/mauro-afa91/spendsense/internal/crypto"
 	"github.com/mauro-afa91/spendsense/internal/db"
 	plaidclient "github.com/mauro-afa91/spendsense/internal/plaid"
 	"github.com/mauro-afa91/spendsense/internal/repository"
@@ -25,8 +26,12 @@ func main() {
 	clientID := os.Getenv("PLAID_CLIENT_ID")
 	secret := os.Getenv("PLAID_SECRET")
 	plaidEnv := os.Getenv("PLAID_ENV")
+	encryptionKey := os.Getenv("ENCRYPTION_KEY")
 	if clientID == "" || secret == "" {
 		log.Fatal("PLAID_CLIENT_ID and PLAID_SECRET are required")
+	}
+	if encryptionKey == "" {
+		log.Fatal("ENCRYPTION_KEY is required")
 	}
 	if plaidEnv == "" {
 		plaidEnv = "sandbox"
@@ -65,7 +70,13 @@ func main() {
 		}
 		isFirstSync := cursor == ""
 
-		added, modified, removedIDs, nextCursor, err := pc.SyncTransactions(ctx, item.AccessToken, cursor)
+		accessToken, err := crypto.Decrypt(item.AccessToken, encryptionKey)
+		if err != nil {
+			log.Printf("item %s: decrypt access token: %v — skipping", item.ID, err)
+			continue
+		}
+
+		added, modified, removedIDs, nextCursor, err := pc.SyncTransactions(ctx, accessToken, cursor)
 		if err != nil {
 			log.Printf("item %s: sync error: %v — marking error", item.ID, err)
 			_, _ = plaidRepo.UpdateStatus(ctx, sqlcdb.UpdatePlaidItemStatusParams{

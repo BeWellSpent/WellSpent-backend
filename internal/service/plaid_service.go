@@ -6,16 +6,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mauro-afa91/spendsense/internal/apperr"
+	"github.com/mauro-afa91/spendsense/internal/crypto"
 	plaidclient "github.com/mauro-afa91/spendsense/internal/plaid"
 	"github.com/mauro-afa91/spendsense/internal/repository"
 	db "github.com/mauro-afa91/spendsense/internal/sqlc"
 )
 
 type PlaidService struct {
-	plaid   plaidclient.Client
-	items   repository.PlaidRepository
-	budgets repository.BudgetProfileRepository
-	users   repository.UserRepository
+	plaid         plaidclient.Client
+	items         repository.PlaidRepository
+	budgets       repository.BudgetProfileRepository
+	users         repository.UserRepository
+	encryptionKey string
 }
 
 func NewPlaidService(
@@ -23,8 +25,9 @@ func NewPlaidService(
 	items repository.PlaidRepository,
 	budgets repository.BudgetProfileRepository,
 	users repository.UserRepository,
+	encryptionKey string,
 ) *PlaidService {
-	return &PlaidService{plaid: plaid, items: items, budgets: budgets, users: users}
+	return &PlaidService{plaid: plaid, items: items, budgets: budgets, users: users, encryptionKey: encryptionKey}
 }
 
 // requireUS returns Forbidden if the user is not a US resident.
@@ -94,6 +97,11 @@ func (s *PlaidService) ExchangePublicToken(ctx context.Context, userID, profileI
 		return db.PlaidItem{}, err
 	}
 
+	encryptedToken, err := crypto.Encrypt(accessToken, s.encryptionKey)
+	if err != nil {
+		return db.PlaidItem{}, fmt.Errorf("plaid: encrypt access token: %w", err)
+	}
+
 	// Fetch institution name; non-fatal if unavailable.
 	var institutionName, institutionID *string
 	// Plaid doesn't return institution_id directly from token exchange — it's on the Item.
@@ -102,7 +110,7 @@ func (s *PlaidService) ExchangePublicToken(ctx context.Context, userID, profileI
 	item, err := s.items.Create(ctx, db.CreatePlaidItemParams{
 		UserID:          userID,
 		BudgetProfileID: profileID,
-		AccessToken:     accessToken,
+		AccessToken:     encryptedToken,
 		ItemID:          itemID,
 		InstitutionID:   institutionID,
 		InstitutionName: institutionName,
@@ -139,7 +147,9 @@ func (s *PlaidService) Disconnect(ctx context.Context, userID, connectionID uuid
 	}
 
 	// Best-effort: notify Plaid that the item is being removed.
-	_ = s.plaid.RemoveItem(ctx, item.AccessToken)
+	if decrypted, err := crypto.Decrypt(item.AccessToken, s.encryptionKey); err == nil {
+		_ = s.plaid.RemoveItem(ctx, decrypted)
+	}
 
 	_, err = s.items.UpdateStatus(ctx, db.UpdatePlaidItemStatusParams{
 		ID:     connectionID,

@@ -24,6 +24,7 @@ type Config struct {
 	PlaidClientID      string   `envconfig:"PLAID_CLIENT_ID"`
 	PlaidSecret        string   `envconfig:"PLAID_SECRET"`
 	PlaidEnv           string   `envconfig:"PLAID_ENV" default:"sandbox"`
+	EncryptionKey      string   `envconfig:"ENCRYPTION_KEY"`
 }
 
 func Load() (*Config, error) {
