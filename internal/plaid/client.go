@@ -146,6 +146,12 @@ func (c *client) SyncTransactions(ctx context.Context, accessToken, cursor strin
 	if cursor != "" {
 		req.SetCursor(cursor)
 	}
+	// Explicitly request personal_finance_category — without this flag some
+	// Plaid integrations return nil PFC, causing the credit-card-payment filter
+	// to silently pass through those transactions.
+	opts := plaidSDK.NewTransactionsSyncRequestOptions()
+	opts.SetIncludePersonalFinanceCategory(true)
+	req.SetOptions(*opts)
 
 	resp, _, err := c.api.PlaidApi.TransactionsSync(ctx).TransactionsSyncRequest(*req).Execute()
 	if err != nil {

@@ -127,6 +127,7 @@ func main() {
 			periodID := period.ID
 
 			categoryName := plaidclient.ResolvePlaidCategory(tx.PFCPrimary, tx.PFCDetailed)
+			log.Printf("item %s: importing tx %q pfc=%s/%s -> category=%q", item.ID, tx.Name, tx.PFCPrimary, tx.PFCDetailed, categoryName)
 			var categoryID *int32
 			if categoryName != "" {
 				if id, ok := categoryIDs[categoryName]; ok {
