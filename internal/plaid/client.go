@@ -169,12 +169,16 @@ func (c *client) SyncTransactions(ctx context.Context, accessToken, cursor strin
 	return added, modified, removedIDs, resp.GetNextCursor(), nil
 }
 
-// isCreditCardPayment returns true for transactions that represent paying a
-// credit card bill — these are fund movements between accounts, not spending.
-// All other loan payments and transfers are kept (they represent real outflows).
+// isCreditCardPayment returns true for transactions that represent a credit
+// card bill payment seen from either account's perspective:
+//   - LOAN_PAYMENTS_CREDIT_CARD_PAYMENT  — outflow from the checking account
+//   - LOAN_DISBURSEMENTS_OTHER_DISBURSEMENT — inflow on the credit card account
+//     ("Payment Thank You" type entries)
 func isCreditCardPayment(t plaidSDK.Transaction) bool {
 	if pfc, ok := t.GetPersonalFinanceCategoryOk(); ok && pfc != nil {
-		return pfc.GetDetailed() == "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"
+		d := pfc.GetDetailed()
+		return d == "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT" ||
+			d == "LOAN_DISBURSEMENTS_OTHER_DISBURSEMENT"
 	}
 	return false
 }
