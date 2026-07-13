@@ -11,6 +11,7 @@ RUN go mod download
 COPY . .
 RUN go build -ldflags="-w -s" -o /bin/server ./cmd/server
 RUN go build -ldflags="-w -s" -o /bin/cycle-budgets ./cmd/jobs/cycle-budgets
+RUN go build -ldflags="-w -s" -o /bin/plaid-sync ./cmd/jobs/plaid-sync
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM alpine:3.20
@@ -21,6 +22,7 @@ WORKDIR /app
 
 COPY --from=builder /bin/server ./server
 COPY --from=builder /bin/cycle-budgets ./cycle-budgets
+COPY --from=builder /bin/plaid-sync ./plaid-sync
 
 EXPOSE 8080
 

@@ -57,10 +57,13 @@ func main() {
 	log.Printf("syncing %d plaid items", len(items))
 
 	for _, item := range items {
+		log.Printf("item %s: starting sync (user %s, budget %s)", item.ID, item.UserID, item.BudgetProfileID)
+
 		cursor := ""
 		if item.Cursor != nil {
 			cursor = *item.Cursor
 		}
+		isFirstSync := cursor == ""
 
 		added, modified, removedIDs, nextCursor, err := pc.SyncTransactions(ctx, item.AccessToken, cursor)
 		if err != nil {
@@ -72,23 +75,29 @@ func main() {
 			continue
 		}
 
+		log.Printf("item %s: plaid returned %d added, %d modified, %d removed (first_sync=%v)",
+			item.ID, len(added), len(modified), len(removedIDs), isFirstSync)
+
 		// Variable transaction type ID = 2 (seeded in 000001_init_schema.sql).
 		// One-off frequency ID = 1.
 		const variableTypeID = 2
 		const oneOffFreqID = 1
 
 		importedAdded := 0
+		skippedNoPeriod := 0
+		skippedDuplicate := 0
 		for _, tx := range added {
 			date := pgtype.Date{Time: tx.Date, Valid: true}
 
 			period, err := budgetRepo.GetPeriodByDate(ctx, item.BudgetProfileID, date)
 			if err != nil {
-				// No budget period covers this date — skip silently.
+				skippedNoPeriod++
 				continue
 			}
 
 			exists, err := txRepo.ExistsTransactionByPlaidID(ctx, &tx.PlaidID)
 			if err != nil || exists {
+				skippedDuplicate++
 				continue
 			}
 
@@ -139,9 +148,8 @@ func main() {
 			log.Printf("item %s: update cursor: %v", item.ID, err)
 		}
 
-		log.Printf("item %s (%s): +%d added, %d modified, %d removed",
-			item.ID, strconv.Quote(nullStr(item.InstitutionName)),
-			importedAdded, len(modified), len(removedIDs))
+		log.Printf("item %s: done — +%d imported, %d modified, %d removed, %d skipped (no period), %d skipped (duplicate)",
+			item.ID, importedAdded, len(modified), len(removedIDs), skippedNoPeriod, skippedDuplicate)
 	}
 }
 
