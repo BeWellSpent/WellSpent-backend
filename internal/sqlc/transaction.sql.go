@@ -619,6 +619,37 @@ func (q *Queries) ListPaymentMethods(ctx context.Context, dollar_1 uuid.UUID) ([
 	return items, nil
 }
 
+const listSystemCategories = `-- name: ListSystemCategories :many
+SELECT id, name FROM category WHERE is_system = TRUE ORDER BY name
+`
+
+type ListSystemCategoriesRow struct {
+	ID   int32  `json:"id"`
+	Name string `json:"name"`
+}
+
+// Returns all system (global) categories. Used by the Plaid sync job to
+// resolve category names to IDs without a user context.
+func (q *Queries) ListSystemCategories(ctx context.Context) ([]ListSystemCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, listSystemCategories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSystemCategoriesRow
+	for rows.Next() {
+		var i ListSystemCategoriesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTransactionFrequencies = `-- name: ListTransactionFrequencies :many
 SELECT id, name FROM transaction_frequency ORDER BY id
 `

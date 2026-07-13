@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/mauro-afa91/spendsense/internal/crypto"
@@ -16,8 +15,8 @@ import (
 )
 
 // plaid-sync fetches incremental transaction changes from Plaid for every active
-// plaid_item that has not been synced in the last 3 days, then writes new/updated/
-// removed Variable transactions into the matching budget period.
+// plaid_item, then writes new/updated/removed Variable transactions into the
+// matching budget period with Plaid-resolved categories.
 func main() {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -48,6 +47,13 @@ func main() {
 	plaidRepo := repository.NewPlaidRepository(queries)
 	budgetRepo := repository.NewBudgetProfileRepository(queries)
 	txRepo := repository.NewTransactionRepository(queries)
+
+	// Pre-load system category IDs once — used by every transaction import.
+	categoryIDs, err := loadCategoryIDs(ctx, queries)
+	if err != nil {
+		log.Fatalf("load system categories: %v", err)
+	}
+	log.Printf("loaded %d system categories", len(categoryIDs))
 
 	pc, err := plaidclient.New(clientID, secret, plaidEnv)
 	if err != nil {
@@ -114,8 +120,16 @@ func main() {
 
 			amount := amountToNumeric(tx.Amount)
 			plaidID := tx.PlaidID
-
 			periodID := period.ID
+
+			categoryName := plaidclient.ResolvePlaidCategory(tx.PFCPrimary, tx.PFCDetailed)
+			var categoryID *int32
+			if categoryName != "" {
+				if id, ok := categoryIDs[categoryName]; ok {
+					categoryID = &id
+				}
+			}
+
 			_, err = txRepo.CreateTransactionFromPlaid(ctx, sqlcdb.CreateTransactionFromPlaidParams{
 				Name:                   &tx.Name,
 				Amount:                 amount,
@@ -123,6 +137,7 @@ func main() {
 				Date:                   date,
 				Recurring:              boolPtr(false),
 				BudgetPeriodID:         &periodID,
+				CategoryID:             categoryID,
 				TransactionFrequencyID: int32Ptr(oneOffFreqID),
 				TransactionTypeID:      int32Ptr(variableTypeID),
 				PlaidTransactionID:     &plaidID,
@@ -164,6 +179,19 @@ func main() {
 	}
 }
 
+// loadCategoryIDs queries all system categories and returns a name→id map.
+func loadCategoryIDs(ctx context.Context, q *sqlcdb.Queries) (map[string]int32, error) {
+	rows, err := q.ListSystemCategories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]int32, len(rows))
+	for _, r := range rows {
+		m[r.Name] = r.ID
+	}
+	return m, nil
+}
+
 func amountToNumeric(f float64) pgtype.Numeric {
 	s := strconv.FormatFloat(f, 'f', 4, 64)
 	var n pgtype.Numeric
@@ -171,15 +199,5 @@ func amountToNumeric(f float64) pgtype.Numeric {
 	return n
 }
 
-func boolPtr(b bool) *bool      { return &b }
-func int32Ptr(i int32) *int32   { return &i }
-func nullStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
-func init() {
-	_ = time.Now() // ensure time import is used
-}
+func boolPtr(b bool) *bool    { return &b }
+func int32Ptr(i int32) *int32 { return &i }

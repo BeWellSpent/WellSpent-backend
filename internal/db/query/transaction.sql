@@ -146,6 +146,11 @@ UPDATE category
 SET is_active = FALSE
 WHERE category.id = sqlc.arg('id') AND category.user_id = sqlc.arg('user_id')::uuid AND category.is_system = FALSE;
 
+-- Returns all system (global) categories. Used by the Plaid sync job to
+-- resolve category names to IDs without a user context.
+-- name: ListSystemCategories :many
+SELECT id, name FROM category WHERE is_system = TRUE ORDER BY name;
+
 -- name: GetPaymentMethod :one
 SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color
 FROM payment_methods

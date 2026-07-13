@@ -10,10 +10,12 @@ import (
 
 // Transaction is a Plaid transaction normalised for import into SpendSense.
 type Transaction struct {
-	PlaidID  string
-	Name     string
-	Amount   float64 // positive = debit (spending), negative = credit (received)
-	Date     time.Time
+	PlaidID      string
+	Name         string
+	Amount       float64 // positive = debit (spending), negative = credit (received)
+	Date         time.Time
+	PFCPrimary   string // personal_finance_category.primary (e.g. "FOOD_AND_DRINK")
+	PFCDetailed  string // personal_finance_category.detailed (e.g. "FOOD_AND_DRINK_GROCERIES")
 }
 
 // Client is a thin, mockable wrapper around the Plaid API.
@@ -115,28 +117,20 @@ func (c *client) SyncTransactions(ctx context.Context, accessToken, cursor strin
 	return added, modified, removedIDs, resp.GetNextCursor(), nil
 }
 
-// paymentPrimaryCategories are Plaid personal_finance_category.primary values
-// that represent payments to financial institutions or inter-account transfers
-// rather than actual spending — we exclude these from import.
-var paymentPrimaryCategories = map[string]bool{
-	"LOAN_PAYMENTS": true, // credit card bill payments, mortgage, auto/student loans
-	"TRANSFER_IN":   true, // incoming bank transfers, direct deposits
-	"TRANSFER_OUT":  true, // outgoing bank transfers, wire transfers
-}
-
-func isPaymentOrTransfer(t plaidSDK.Transaction) bool {
+// isCreditCardPayment returns true for transactions that represent paying a
+// credit card bill — these are fund movements between accounts, not spending.
+// All other loan payments and transfers are kept (they represent real outflows).
+func isCreditCardPayment(t plaidSDK.Transaction) bool {
 	if pfc, ok := t.GetPersonalFinanceCategoryOk(); ok && pfc != nil {
-		return paymentPrimaryCategories[pfc.GetPrimary()]
+		return pfc.GetDetailed() == "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"
 	}
-	// Fallback: deprecated field — "special" covers credit card payments,
-	// loan payments, and bank transfers when personal_finance_category is absent.
-	return t.GetTransactionType() == "special"
+	return false
 }
 
 func toTransactions(ts []plaidSDK.Transaction) []Transaction {
 	out := make([]Transaction, 0, len(ts))
 	for _, t := range ts {
-		if isPaymentOrTransfer(t) {
+		if isCreditCardPayment(t) {
 			continue
 		}
 
@@ -151,11 +145,26 @@ func toTransactions(ts []plaidSDK.Transaction) []Transaction {
 		if err != nil {
 			continue
 		}
+		// Prefer the Plaid-enriched merchant name when available — it's a
+		// cleaner, more human-readable version of the raw bank string.
+		name := t.GetName()
+		if mn := t.GetMerchantName(); mn != "" {
+			name = mn
+		}
+
+		primary, detailed := "", ""
+		if pfc, ok := t.GetPersonalFinanceCategoryOk(); ok && pfc != nil {
+			primary = pfc.GetPrimary()
+			detailed = pfc.GetDetailed()
+		}
+
 		out = append(out, Transaction{
-			PlaidID: t.GetTransactionId(),
-			Name:    t.GetName(),
-			Amount:  t.GetAmount(),
-			Date:    d,
+			PlaidID:     t.GetTransactionId(),
+			Name:        name,
+			Amount:      t.GetAmount(),
+			Date:        d,
+			PFCPrimary:  primary,
+			PFCDetailed: detailed,
 		})
 	}
 	return out
