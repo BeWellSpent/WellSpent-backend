@@ -307,6 +307,32 @@ func (m *mockTransactionRepo) UpdatePaymentMethodPlaidAccountID(_ context.Contex
 	return nil
 }
 
+// ── mockTransactionReviewRepo ─────────────────────────────────────────────────
+
+type mockTransactionReviewRepo struct{}
+
+func (m *mockTransactionReviewRepo) Create(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+	return db.TransactionReview{}, nil
+}
+func (m *mockTransactionReviewRepo) ListPending(_ context.Context, _ uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error) {
+	return nil, nil
+}
+func (m *mockTransactionReviewRepo) GetByID(_ context.Context, id uuid.UUID) (db.TransactionReview, error) {
+	return db.TransactionReview{}, apperr.NotFound("transaction_review", id.String())
+}
+func (m *mockTransactionReviewRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ string) error {
+	return nil
+}
+func (m *mockTransactionReviewRepo) CreateAlias(_ context.Context, _ uuid.UUID, _ string) error {
+	return nil
+}
+func (m *mockTransactionReviewRepo) ListAliases(_ context.Context, _ uuid.UUID) ([]string, error) {
+	return nil, nil
+}
+func (m *mockTransactionReviewRepo) GetFixedExpenseByAlias(_ context.Context, _ string, _ uuid.UUID) (db.GetFixedExpenseByAliasRow, error) {
+	return db.GetFixedExpenseByAliasRow{}, apperr.NotFound("fixed_expense_alias", "")
+}
+
 // ── UpdatePaymentMethod tests ─────────────────────────────────────────────────
 
 func TestUpdatePaymentMethod_Success(t *testing.T) {
@@ -332,6 +358,7 @@ func TestUpdatePaymentMethod_Success(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	result, err := svc.UpdatePaymentMethod(context.Background(), db.UpdatePaymentMethodParams{
@@ -356,6 +383,7 @@ func TestUpdatePaymentMethod_NotFound_WhenUserDoesNotOwnMethod(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	_, err := svc.UpdatePaymentMethod(context.Background(), db.UpdatePaymentMethodParams{
@@ -386,6 +414,7 @@ func TestCreateCategory_Success(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	result, err := svc.CreateCategory(context.Background(), db.CreateCategoryParams{
@@ -419,6 +448,7 @@ func TestUpdateCategory_Success(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	result, err := svc.UpdateCategory(context.Background(), db.UpdateCategoryParams{
@@ -439,6 +469,7 @@ func TestUpdateCategory_NotFound(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	_, err := svc.UpdateCategory(context.Background(), db.UpdateCategoryParams{
@@ -468,6 +499,7 @@ func TestUpdateCategory_SystemColor_Success(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	result, err := svc.UpdateCategory(context.Background(), db.UpdateCategoryParams{
@@ -495,6 +527,7 @@ func TestUpdateCategory_SystemColor_NotFound(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	_, err := svc.UpdateCategory(context.Background(), db.UpdateCategoryParams{
@@ -532,6 +565,7 @@ func TestDeleteCategory_Success(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	err := svc.DeleteCategory(context.Background(), catID, replacementID, userID)
@@ -550,6 +584,7 @@ func TestDeleteCategory_Forbidden_WhenSystemCategory(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	err := svc.DeleteCategory(context.Background(), 1, 2, userID)
@@ -572,6 +607,7 @@ func TestDeleteCategory_Forbidden_WhenNotOwner(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	err := svc.DeleteCategory(context.Background(), catID, 1, userID)
@@ -590,6 +626,7 @@ func TestDeleteCategory_NotFound_WhenCategoryMissing(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	err := svc.DeleteCategory(context.Background(), 99, 1, uuid.New())
@@ -622,6 +659,7 @@ func TestDeletePaymentMethod_Success(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	err := svc.DeletePaymentMethod(context.Background(), methodID, replacementID, profileID, userID)
@@ -642,6 +680,7 @@ func TestDeletePaymentMethod_Forbidden_WhenNotOwner(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	err := svc.DeletePaymentMethod(context.Background(), methodID, uuid.New(), uuid.New(), userID)
@@ -668,6 +707,7 @@ func TestDeletePaymentMethod_Forbidden_WhenReplacementNotOwned(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	err := svc.DeletePaymentMethod(context.Background(), methodID, replacementID, uuid.New(), userID)
@@ -686,6 +726,7 @@ func TestDeletePaymentMethod_NotFound_WhenMethodMissing(t *testing.T) {
 		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	err := svc.DeletePaymentMethod(context.Background(), uuid.New(), uuid.New(), uuid.New(), uuid.New())
@@ -720,6 +761,7 @@ func TestUnmarkTransactionAsPaid_Success(t *testing.T) {
 		},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	tx, err := svc.UnmarkTransactionAsPaid(context.Background(), txID, periodID, userID)
@@ -744,6 +786,7 @@ func TestUnmarkTransactionAsPaid_Forbidden_WhenNotOwner(t *testing.T) {
 		},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	_, err := svc.UnmarkTransactionAsPaid(context.Background(), uuid.New(), periodID, uuid.New())
@@ -778,6 +821,7 @@ func TestListTransactions_CollaboratorAllowed(t *testing.T) {
 		},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	txs, err := svc.List(context.Background(), db.ListTransactionsParams{BudgetPeriodID: periodID}, userID)
@@ -809,6 +853,7 @@ func TestListTransactions_ViewerAllowed(t *testing.T) {
 		},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	_, err := svc.List(context.Background(), db.ListTransactionsParams{BudgetPeriodID: periodID}, userID)
@@ -839,6 +884,7 @@ func TestCreateTransaction_CollaboratorAllowed(t *testing.T) {
 		},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	_, err := svc.Create(context.Background(), db.CreateTransactionParams{BudgetPeriodID: &periodID}, userID)
@@ -865,6 +911,7 @@ func TestCreateTransaction_ViewerForbidden(t *testing.T) {
 		},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
 	)
 
 	_, err := svc.Create(context.Background(), db.CreateTransactionParams{BudgetPeriodID: &periodID}, userID)

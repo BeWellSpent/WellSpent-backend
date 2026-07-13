@@ -15,10 +15,11 @@ type TransactionService struct {
 	profiles      repository.BudgetProfileRepository
 	allocations   repository.ExpenseAllocationRepository
 	fixedExpenses repository.FixedExpenseRepository
+	reviews       repository.TransactionReviewRepository
 }
 
-func NewTransactionService(transactions repository.TransactionRepository, profiles repository.BudgetProfileRepository, allocations repository.ExpenseAllocationRepository, fixedExpenses repository.FixedExpenseRepository) *TransactionService {
-	return &TransactionService{transactions: transactions, profiles: profiles, allocations: allocations, fixedExpenses: fixedExpenses}
+func NewTransactionService(transactions repository.TransactionRepository, profiles repository.BudgetProfileRepository, allocations repository.ExpenseAllocationRepository, fixedExpenses repository.FixedExpenseRepository, reviews repository.TransactionReviewRepository) *TransactionService {
+	return &TransactionService{transactions: transactions, profiles: profiles, allocations: allocations, fixedExpenses: fixedExpenses, reviews: reviews}
 }
 
 // getUserRoleForPeriod returns the caller's effective role for the budget profile
@@ -241,4 +242,62 @@ func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replac
 		ReplacementID:   replacementID,
 		BudgetProfileID: budgetProfileID,
 	})
+}
+
+// ── Transaction review ────────────────────────────────────────────────────────
+
+func (s *TransactionService) ListTransactionReviews(ctx context.Context, userID, periodID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error) {
+	if err := s.assertPeriodMember(ctx, periodID, userID); err != nil {
+		return nil, err
+	}
+	return s.reviews.ListPending(ctx, periodID)
+}
+
+func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userID, reviewID, budgetProfileID uuid.UUID) error {
+	review, err := s.reviews.GetByID(ctx, reviewID)
+	if err != nil {
+		return err
+	}
+	if err := s.assertPeriodMember(ctx, review.BudgetPeriodID, userID); err != nil {
+		return err
+	}
+
+	// Save alias before deleting the transaction so we still have the name.
+	importedTx, txErr := s.transactions.GetByID(ctx, review.TransactionID)
+	if txErr == nil && importedTx.Name != nil {
+		_ = s.reviews.CreateAlias(ctx, review.FixedExpenseID, *importedTx.Name)
+	}
+
+	// Mark the spawned fixed transaction for this period as paid.
+	fixedTx, err := s.fixedExpenses.GetUnpaidTransaction(ctx, db.GetUnpaidTransactionByFixedExpenseParams{
+		FixedExpenseID:  review.FixedExpenseID,
+		BudgetProfileID: budgetProfileID,
+	})
+	if err == nil {
+		_, _ = s.transactions.MarkAsPaid(ctx, db.MarkTransactionAsPaidParams{
+			ID:             fixedTx.ID,
+			BudgetPeriodID: review.BudgetPeriodID,
+			Amount:         fixedTx.PlannedAmount,
+			PaidDate:       fixedTx.Date,
+		})
+	}
+
+	// Delete the Plaid-imported variable transaction.
+	_ = s.transactions.Delete(ctx, db.DeleteTransactionParams{
+		ID:             review.TransactionID,
+		BudgetPeriodID: &review.BudgetPeriodID,
+	})
+
+	return s.reviews.UpdateStatus(ctx, reviewID, "confirmed")
+}
+
+func (s *TransactionService) DismissTransactionReview(ctx context.Context, userID, reviewID uuid.UUID) error {
+	review, err := s.reviews.GetByID(ctx, reviewID)
+	if err != nil {
+		return err
+	}
+	if err := s.assertPeriodMember(ctx, review.BudgetPeriodID, userID); err != nil {
+		return err
+	}
+	return s.reviews.UpdateStatus(ctx, reviewID, "dismissed")
 }

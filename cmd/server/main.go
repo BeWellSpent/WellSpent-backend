@@ -55,6 +55,7 @@ func main() {
 	fixedExpenseRepo := repository.NewFixedExpenseRepository(queries)
 	inviteRepo := repository.NewInviteRepository(queries)
 	plaidRepo := repository.NewPlaidRepository(queries)
+	reviewRepo := repository.NewTransactionReviewRepository(queries)
 
 	// Auth
 	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
@@ -64,7 +65,7 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, jwtSvc, googleOAuth)
 	userSvc := service.NewUserService(userRepo)
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo)
-	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo)
+	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo)
 	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
 	inviteSvc := service.NewInviteService(inviteRepo, budgetProfileRepo, userRepo, cfg, logger)
 

@@ -32,6 +32,7 @@ sql:
       - "internal/db/migrations/000027_plaid.sql"
       - "internal/db/migrations/000028_plaid_transaction_id.sql"
       - "internal/db/migrations/000029_payment_method_plaid_account.sql"
+      - "internal/db/migrations/000030_transaction_review.sql"
     gen:
       go:
         package: "db"

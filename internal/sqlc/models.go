@@ -103,6 +103,13 @@ type FixedExpense struct {
 	DayOfWeek       int16              `json:"day_of_week"`
 }
 
+type FixedExpenseAlias struct {
+	ID             int32              `json:"id"`
+	FixedExpenseID uuid.UUID          `json:"fixed_expense_id"`
+	Alias          string             `json:"alias"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type IncomeEntry struct {
 	ID             int32              `json:"id"`
 	BudgetPeriodID uuid.UUID          `json:"budget_period_id"`
@@ -201,6 +208,16 @@ type Transaction struct {
 type TransactionFrequency struct {
 	ID   int32  `json:"id"`
 	Name string `json:"name"`
+}
+
+type TransactionReview struct {
+	ID             uuid.UUID          `json:"id"`
+	BudgetPeriodID uuid.UUID          `json:"budget_period_id"`
+	TransactionID  uuid.UUID          `json:"transaction_id"`
+	FixedExpenseID uuid.UUID          `json:"fixed_expense_id"`
+	MatchScore     pgtype.Numeric     `json:"match_score"`
+	Status         string             `json:"status"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
 type TransactionType struct {

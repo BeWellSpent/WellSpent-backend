@@ -687,6 +687,81 @@ func (h *BudgetHandler) DeleteExpenseAllocation(ctx context.Context, req *connec
 	return connect.NewResponse(&v1.DeleteExpenseAllocationResponse{}), nil
 }
 
+// ── Transaction review ────────────────────────────────────────────────────────
+
+func (h *BudgetHandler) ListTransactionReviews(ctx context.Context, req *connect.Request[v1.ListTransactionReviewsRequest]) (*connect.Response[v1.ListTransactionReviewsResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	periodID, err := uuid.Parse(req.Msg.BudgetPeriodId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	rows, svcErr := h.transactions.ListTransactionReviews(ctx, userID, periodID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	reviews := make([]*v1.TransactionReview, 0, len(rows))
+	for _, r := range rows {
+		score, _ := r.MatchScore.Float64Value()
+		txName := ""
+		if r.TransactionName != nil {
+			txName = *r.TransactionName
+		}
+		review := &v1.TransactionReview{
+			Id:                r.ID.String(),
+			BudgetPeriodId:    r.BudgetPeriodID.String(),
+			TransactionId:     r.TransactionID.String(),
+			FixedExpenseId:    r.FixedExpenseID.String(),
+			MatchScore:        score.Float64,
+			Status:            r.Status,
+			TransactionName:   txName,
+			FixedExpenseName:  r.FixedExpenseName,
+			TransactionAmount: moneyFromNumeric(r.TransactionAmount),
+		}
+		if r.CreatedAt.Valid {
+			review.CreatedAt = timestamppb.New(r.CreatedAt.Time)
+		}
+		reviews = append(reviews, review)
+	}
+	return connect.NewResponse(&v1.ListTransactionReviewsResponse{Reviews: reviews}), nil
+}
+
+func (h *BudgetHandler) ConfirmTransactionReview(ctx context.Context, req *connect.Request[v1.ConfirmTransactionReviewRequest]) (*connect.Response[v1.ConfirmTransactionReviewResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reviewID, err := uuid.Parse(req.Msg.ReviewId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if svcErr := h.transactions.ConfirmTransactionReview(ctx, userID, reviewID, profileID); svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.ConfirmTransactionReviewResponse{}), nil
+}
+
+func (h *BudgetHandler) DismissTransactionReview(ctx context.Context, req *connect.Request[v1.DismissTransactionReviewRequest]) (*connect.Response[v1.DismissTransactionReviewResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reviewID, err := uuid.Parse(req.Msg.ReviewId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if svcErr := h.transactions.DismissTransactionReview(ctx, userID, reviewID); svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.DismissTransactionReviewResponse{}), nil
+}
+
 func toProtoExpenseAllocation(a db.ExpenseAllocation) *v1.ExpenseAllocation {
 	var personID int64
 	if a.BudgetPersonID != nil {
