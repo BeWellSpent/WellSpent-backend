@@ -101,6 +101,8 @@ type FixedExpense struct {
 	FrequencyUnit   int16              `json:"frequency_unit"`
 	IntervalWeeks   int32              `json:"interval_weeks"`
 	DayOfWeek       int16              `json:"day_of_week"`
+	EndDate         pgtype.Date        `json:"end_date"`
+	TotalPayments   *int32             `json:"total_payments"`
 }
 
 type FixedExpenseAlias struct {

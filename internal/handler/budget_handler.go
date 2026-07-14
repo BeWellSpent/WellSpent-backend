@@ -479,6 +479,12 @@ func toProtoFixedExpense(fe db.FixedExpense) *v1.FixedExpense {
 	if fe.AnchorDate.Valid {
 		proto.AnchorDate = timestamppb.New(fe.AnchorDate.Time)
 	}
+	if fe.EndDate.Valid {
+		proto.EndDate = timestamppb.New(fe.EndDate.Time)
+	}
+	if fe.TotalPayments != nil {
+		proto.TotalPayments = *fe.TotalPayments
+	}
 	return proto
 }
 
@@ -538,6 +544,11 @@ func (h *BudgetHandler) CreateFixedExpense(ctx context.Context, req *connect.Req
 		t := req.Msg.AnchorDate.AsTime()
 		anchorDate = &t
 	}
+	var endDate *time.Time
+	if req.Msg.EndDate != nil {
+		t := req.Msg.EndDate.AsTime()
+		endDate = &t
+	}
 	fe, tx, svcErr := h.profiles.CreateFixedExpense(ctx, profileID, userID, service.FixedExpenseInput{
 		Name:            req.Msg.Name,
 		PlannedAmount:   numericFromMoney(req.Msg.PlannedAmount),
@@ -549,6 +560,8 @@ func (h *BudgetHandler) CreateFixedExpense(ctx context.Context, req *connect.Req
 		FrequencyUnit:   int16(req.Msg.FrequencyUnit),
 		IntervalWeeks:   req.Msg.IntervalWeeks,
 		DayOfWeek:       req.Msg.DayOfWeek,
+		EndDate:         endDate,
+		TotalPayments:   req.Msg.TotalPayments,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -591,6 +604,11 @@ func (h *BudgetHandler) UpdateFixedExpense(ctx context.Context, req *connect.Req
 		t := req.Msg.AnchorDate.AsTime()
 		anchorDate = &t
 	}
+	var endDate *time.Time
+	if req.Msg.EndDate != nil {
+		t := req.Msg.EndDate.AsTime()
+		endDate = &t
+	}
 	fe, svcErr := h.profiles.UpdateFixedExpense(ctx, id, profileID, userID, service.FixedExpenseInput{
 		Name:            req.Msg.Name,
 		PlannedAmount:   numericFromMoney(req.Msg.PlannedAmount),
@@ -602,6 +620,8 @@ func (h *BudgetHandler) UpdateFixedExpense(ctx context.Context, req *connect.Req
 		FrequencyUnit:   int16(req.Msg.FrequencyUnit),
 		IntervalWeeks:   req.Msg.IntervalWeeks,
 		DayOfWeek:       req.Msg.DayOfWeek,
+		EndDate:         endDate,
+		TotalPayments:   req.Msg.TotalPayments,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)

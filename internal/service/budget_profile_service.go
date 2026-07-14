@@ -260,6 +260,14 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 	monthStart := time.Date(startDate.Year(), startDate.Month(), 1, 0, 0, 0, 0, time.UTC)
 	monthEnd := monthStart.AddDate(0, 1, 0)
 	for _, fe := range fixedExpenses {
+		// Auto-deactivate when the plan's end date has passed.
+		if fe.EndDate.Valid && startDate.After(fe.EndDate.Time) {
+			_ = s.fixedExpenses.Deactivate(ctx, db.DeactivateFixedExpenseParams{
+				ID:              fe.ID,
+				BudgetProfileID: profile.ID,
+			})
+			continue
+		}
 		if isFixedExpenseWeekUnit(fe) {
 			s.spawnWeeklyFixedExpenseOccurrences(ctx, fe, period.ID, startDate, endDate)
 			continue
@@ -1075,6 +1083,8 @@ type FixedExpenseInput struct {
 	FrequencyUnit   int16      // 0/1 = MONTH (default), 2 = WEEK
 	IntervalWeeks   int32      // applies when FrequencyUnit = WEEK
 	DayOfWeek       int32      // 1 = Monday ... 7 = Sunday; applies when FrequencyUnit = WEEK
+	EndDate         *time.Time // optional payment plan end date; auto-deactivates template after this date
+	TotalPayments   int32      // informational: total payments in the plan; 0 = unset
 }
 
 // isoWeekday converts a date to ISO 8601 weekday numbering (1=Monday..7=Sunday).
@@ -1116,6 +1126,14 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 	if intervalWeeks < 1 {
 		intervalWeeks = 1
 	}
+	endDate := pgtype.Date{}
+	if inp.EndDate != nil {
+		endDate = pgtype.Date{Time: *inp.EndDate, Valid: true}
+	}
+	var totalPayments *int32
+	if inp.TotalPayments > 0 {
+		totalPayments = &inp.TotalPayments
+	}
 	fe, err := s.fixedExpenses.Create(ctx, db.CreateFixedExpenseParams{
 		BudgetProfileID: profileID,
 		Name:            inp.Name,
@@ -1128,6 +1146,8 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 		FrequencyUnit:   unit,
 		IntervalWeeks:   intervalWeeks,
 		DayOfWeek:       int16(dayOfWeek),
+		EndDate:         endDate,
+		TotalPayments:   totalPayments,
 	})
 	if err != nil {
 		return db.FixedExpense{}, nil, err
@@ -1222,6 +1242,14 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 	if intervalWeeks < 1 {
 		intervalWeeks = 1
 	}
+	endDate := pgtype.Date{}
+	if inp.EndDate != nil {
+		endDate = pgtype.Date{Time: *inp.EndDate, Valid: true}
+	}
+	var totalPayments *int32
+	if inp.TotalPayments > 0 {
+		totalPayments = &inp.TotalPayments
+	}
 	fe, err := s.fixedExpenses.Update(ctx, db.UpdateFixedExpenseParams{
 		ID:              id,
 		BudgetProfileID: profileID,
@@ -1235,6 +1263,8 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 		FrequencyUnit:   unit,
 		IntervalWeeks:   intervalWeeks,
 		DayOfWeek:       int16(dayOfWeek),
+		EndDate:         endDate,
+		TotalPayments:   totalPayments,
 	})
 	if err != nil {
 		return db.FixedExpense{}, err
