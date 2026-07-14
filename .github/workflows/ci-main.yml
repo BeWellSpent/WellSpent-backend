@@ -6,8 +6,8 @@ on:
 
 env:
   REGION: us-central1
-  SERVICE: spendsense-backend
-  IMAGE: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/spendsense/backend
+  SERVICE: wellspent-backend
+  IMAGE: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/wellspent/backend
 
 jobs:
   generate:
