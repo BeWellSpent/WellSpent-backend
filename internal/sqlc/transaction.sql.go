@@ -283,12 +283,16 @@ func (q *Queries) DeleteCategoryAndReassign(ctx context.Context, arg DeleteCateg
 }
 
 const deletePaymentMethodAndReassign = `-- name: DeletePaymentMethodAndReassign :exec
-WITH moved AS (
+WITH moved_tx AS (
     UPDATE transaction SET payment_method_id = $3::uuid
     WHERE payment_method_id = $1::uuid
       AND budget_period_id IN (
         SELECT bp.id FROM budget_period bp WHERE bp.budget_profile_id = $4::uuid
       )
+), moved_savings AS (
+    UPDATE savings_source SET payment_method_id = $3::uuid
+    WHERE payment_method_id = $1::uuid
+      AND budget_profile_id = $4::uuid
 )
 UPDATE payment_methods
 SET is_active = FALSE
@@ -302,7 +306,7 @@ type DeletePaymentMethodAndReassignParams struct {
 	BudgetProfileID uuid.UUID `json:"budget_profile_id"`
 }
 
-// Reassigns all transactions referencing this method within the profile's periods, then soft-deletes.
+// Reassigns all transactions and savings sources referencing this method, then soft-deletes.
 func (q *Queries) DeletePaymentMethodAndReassign(ctx context.Context, arg DeletePaymentMethodAndReassignParams) error {
 	_, err := q.db.Exec(ctx, deletePaymentMethodAndReassign,
 		arg.ID,
@@ -797,6 +801,10 @@ FROM transaction
 WHERE budget_period_id = $1::uuid
   AND ($2::int IS NULL OR category_id = $2)
   AND ($3::int IS NULL OR transaction_type_id = $3)
+  AND NOT EXISTS (
+    SELECT 1 FROM transaction_review tr
+    WHERE tr.transaction_id = id AND tr.status = 'confirmed'
+  )
 ORDER BY date DESC NULLS LAST
 `
 

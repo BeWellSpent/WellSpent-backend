@@ -246,10 +246,27 @@ func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uui
 	if err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
 		return db.Transaction{}, err
 	}
-	return s.transactions.UnmarkAsPaid(ctx, db.UnmarkTransactionAsPaidParams{
+	tx, err := s.transactions.UnmarkAsPaid(ctx, db.UnmarkTransactionAsPaidParams{
 		ID:             id,
 		BudgetPeriodID: periodID,
 	})
+	if err != nil {
+		return db.Transaction{}, err
+	}
+
+	// If this was a fixed expense transaction, undo any confirmed review so the
+	// variable counterpart reappears in the transaction list.
+	if tx.FixedExpenseID != nil {
+		review, rErr := s.reviews.GetConfirmedByFixedExpenseAndPeriod(ctx, *tx.FixedExpenseID, periodID)
+		if rErr == nil {
+			if varTx, txErr := s.transactions.GetByID(ctx, review.TransactionID); txErr == nil && varTx.Name != nil {
+				_ = s.reviews.DeleteAlias(ctx, review.FixedExpenseID, *varTx.Name)
+			}
+			_ = s.reviews.ResetByFixedExpenseAndPeriod(ctx, *tx.FixedExpenseID, periodID)
+		}
+	}
+
+	return tx, nil
 }
 
 func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replacementID, budgetProfileID, userID uuid.UUID) error {
@@ -317,7 +334,7 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 		return err
 	}
 
-	// Save alias before deleting the transaction so we still have the name.
+	// Save alias so future Plaid imports of the same merchant name auto-confirm.
 	importedTx, txErr := s.transactions.GetByID(ctx, review.TransactionID)
 	if txErr == nil && importedTx.Name != nil {
 		_ = s.reviews.CreateAlias(ctx, review.FixedExpenseID, *importedTx.Name)
@@ -337,12 +354,8 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 		})
 	}
 
-	// Delete the Plaid-imported variable transaction.
-	_ = s.transactions.Delete(ctx, db.DeleteTransactionParams{
-		ID:             review.TransactionID,
-		BudgetPeriodID: &review.BudgetPeriodID,
-	})
-
+	// Mark the review confirmed — the variable transaction stays in the DB but
+	// ListTransactions filters it out while status = 'confirmed'.
 	return s.reviews.UpdateStatus(ctx, reviewID, "confirmed")
 }
 

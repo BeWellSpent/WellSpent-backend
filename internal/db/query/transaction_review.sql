@@ -46,6 +46,25 @@ ON CONFLICT (fixed_expense_id, alias) DO NOTHING;
 -- name: ListFixedExpenseAliases :many
 SELECT alias FROM fixed_expense_alias WHERE fixed_expense_id = $1;
 
+-- name: GetConfirmedReviewByFixedExpense :one
+SELECT id, budget_period_id, transaction_id, fixed_expense_id, match_score, status, created_at
+FROM transaction_review
+WHERE fixed_expense_id = $1
+  AND budget_period_id = $2
+  AND status = 'confirmed'
+LIMIT 1;
+
+-- name: DeleteFixedExpenseAlias :exec
+DELETE FROM fixed_expense_alias
+WHERE fixed_expense_id = $1 AND alias = $2;
+
+-- name: ResetConfirmedReviewByFixedExpense :exec
+UPDATE transaction_review
+SET status = 'pending'
+WHERE fixed_expense_id = $1
+  AND budget_period_id = $2
+  AND status = 'confirmed';
+
 -- name: GetFixedExpenseByAlias :one
 SELECT fe.id, fe.budget_profile_id, fe.name, fe.planned_amount, fe.category_id,
        fe.payment_method_id, fe.day_of_month, fe.is_active, fe.created_at

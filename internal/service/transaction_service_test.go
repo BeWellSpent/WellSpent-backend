@@ -323,7 +323,16 @@ func (m *mockTransactionReviewRepo) GetByID(_ context.Context, id uuid.UUID) (db
 func (m *mockTransactionReviewRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ string) error {
 	return nil
 }
+func (m *mockTransactionReviewRepo) GetConfirmedByFixedExpenseAndPeriod(_ context.Context, _, _ uuid.UUID) (db.TransactionReview, error) {
+	return db.TransactionReview{}, apperr.NotFound("transaction_review", "")
+}
+func (m *mockTransactionReviewRepo) ResetByFixedExpenseAndPeriod(_ context.Context, _, _ uuid.UUID) error {
+	return nil
+}
 func (m *mockTransactionReviewRepo) CreateAlias(_ context.Context, _ uuid.UUID, _ string) error {
+	return nil
+}
+func (m *mockTransactionReviewRepo) DeleteAlias(_ context.Context, _ uuid.UUID, _ string) error {
 	return nil
 }
 func (m *mockTransactionReviewRepo) ListAliases(_ context.Context, _ uuid.UUID) ([]string, error) {

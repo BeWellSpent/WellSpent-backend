@@ -17,7 +17,10 @@ type TransactionReviewRepository interface {
 	ListPending(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error)
 	GetByID(ctx context.Context, id uuid.UUID) (db.TransactionReview, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	GetConfirmedByFixedExpenseAndPeriod(ctx context.Context, fixedExpenseID, periodID uuid.UUID) (db.TransactionReview, error)
+	ResetByFixedExpenseAndPeriod(ctx context.Context, fixedExpenseID, periodID uuid.UUID) error
 	CreateAlias(ctx context.Context, fixedExpenseID uuid.UUID, alias string) error
+	DeleteAlias(ctx context.Context, fixedExpenseID uuid.UUID, alias string) error
 	ListAliases(ctx context.Context, fixedExpenseID uuid.UUID) ([]string, error)
 	GetFixedExpenseByAlias(ctx context.Context, alias string, budgetProfileID uuid.UUID) (db.GetFixedExpenseByAliasRow, error)
 }
@@ -95,4 +98,29 @@ func (r *transactionReviewRepository) GetFixedExpenseByAlias(ctx context.Context
 		return db.GetFixedExpenseByAliasRow{}, apperr.NotFound("fixed_expense_alias", alias)
 	}
 	return row, err
+}
+
+func (r *transactionReviewRepository) GetConfirmedByFixedExpenseAndPeriod(ctx context.Context, fixedExpenseID, periodID uuid.UUID) (db.TransactionReview, error) {
+	row, err := r.q.GetConfirmedReviewByFixedExpense(ctx, db.GetConfirmedReviewByFixedExpenseParams{
+		FixedExpenseID: fixedExpenseID,
+		BudgetPeriodID: periodID,
+	})
+	if err == pgx.ErrNoRows {
+		return db.TransactionReview{}, apperr.NotFound("transaction_review", fixedExpenseID.String())
+	}
+	return row, err
+}
+
+func (r *transactionReviewRepository) ResetByFixedExpenseAndPeriod(ctx context.Context, fixedExpenseID, periodID uuid.UUID) error {
+	return r.q.ResetConfirmedReviewByFixedExpense(ctx, db.ResetConfirmedReviewByFixedExpenseParams{
+		FixedExpenseID: fixedExpenseID,
+		BudgetPeriodID: periodID,
+	})
+}
+
+func (r *transactionReviewRepository) DeleteAlias(ctx context.Context, fixedExpenseID uuid.UUID, alias string) error {
+	return r.q.DeleteFixedExpenseAlias(ctx, db.DeleteFixedExpenseAliasParams{
+		FixedExpenseID: fixedExpenseID,
+		Alias:          alias,
+	})
 }

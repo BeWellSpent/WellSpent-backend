@@ -217,6 +217,11 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 		return db.BudgetPeriod{}, err
 	}
 
+	// Archive the period that just ended now that the new one is live.
+	if latest.ID != (uuid.UUID{}) {
+		_ = s.profiles.ArchivePeriod(ctx, latest.ID)
+	}
+
 	// Pre-fill recurring income sources as entries.
 	sources, _ := s.profiles.ListIncomeSources(ctx, profile.ID)
 	for _, src := range sources {

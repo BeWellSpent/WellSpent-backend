@@ -287,9 +287,9 @@ func scoreBestMatch(tx plaidclient.Transaction, categoryID *int32, pmID *uuid.UU
 			score += 40
 		}
 
-		// Name: 20pts — case-insensitive substring
+		// Name: 20pts — any significant word (≥4 chars) shared between names
 		feLower := strings.ToLower(fe.Name)
-		if strings.Contains(txNameLower, feLower) || strings.Contains(feLower, txNameLower) {
+		if nameWordsOverlap(txNameLower, feLower) {
 			score += 20
 		}
 
@@ -309,4 +309,25 @@ func scoreBestMatch(tx plaidclient.Transaction, categoryID *int32, pmID *uuid.UU
 		}
 	}
 	return best, bestFE
+}
+
+// nameWordsOverlap returns true if the two lowercased names share at least one
+// word of 4+ characters, catching cases like "RENEWAL MEMBERSHIP FEE" vs "Amex Renewal".
+func nameWordsOverlap(a, b string) bool {
+	words := func(s string) map[string]struct{} {
+		m := make(map[string]struct{})
+		for _, w := range strings.FieldsFunc(s, func(r rune) bool { return !('a' <= r && r <= 'z') }) {
+			if len(w) >= 4 {
+				m[w] = struct{}{}
+			}
+		}
+		return m
+	}
+	aw := words(a)
+	for w := range words(b) {
+		if _, ok := aw[w]; ok {
+			return true
+		}
+	}
+	return false
 }

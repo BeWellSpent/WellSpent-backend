@@ -28,6 +28,7 @@ type BudgetProfileRepository interface {
 	GetPeriodByDate(ctx context.Context, profileID uuid.UUID, date pgtype.Date) (db.BudgetPeriod, error)
 	ListPeriods(ctx context.Context, profileID uuid.UUID) ([]db.BudgetPeriod, error)
 	GetLatestPeriod(ctx context.Context, profileID uuid.UUID) (db.BudgetPeriod, error)
+	ArchivePeriod(ctx context.Context, id uuid.UUID) error
 	ListProfileIDsWithExpiredPeriod(ctx context.Context, date pgtype.Date) ([]uuid.UUID, error)
 
 	// People
@@ -145,6 +146,10 @@ func (r *budgetProfileRepository) GetLatestPeriod(ctx context.Context, profileID
 		return db.BudgetPeriod{}, apperr.NotFound("budget_period", "latest for "+profileID.String())
 	}
 	return p, err
+}
+
+func (r *budgetProfileRepository) ArchivePeriod(ctx context.Context, id uuid.UUID) error {
+	return r.q.ArchiveBudgetPeriod(ctx, id)
 }
 
 func (r *budgetProfileRepository) ListProfileIDsWithExpiredPeriod(ctx context.Context, date pgtype.Date) ([]uuid.UUID, error) {

@@ -6,6 +6,10 @@ FROM transaction
 WHERE budget_period_id = sqlc.arg('budget_period_id')::uuid
   AND (sqlc.narg('category_id')::int IS NULL OR category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('transaction_type_id')::int IS NULL OR transaction_type_id = sqlc.narg('transaction_type_id'))
+  AND NOT EXISTS (
+    SELECT 1 FROM transaction_review tr
+    WHERE tr.transaction_id = id AND tr.status = 'confirmed'
+  )
 ORDER BY date DESC NULLS LAST;
 
 -- name: GetTransactionByID :one
@@ -178,14 +182,18 @@ SET name = sqlc.arg('name'), color = sqlc.arg('color')
 WHERE id = sqlc.arg('id') AND user_id = sqlc.arg('user_id')::uuid
 RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id;
 
--- Reassigns all transactions referencing this method within the profile's periods, then soft-deletes.
+-- Reassigns all transactions and savings sources referencing this method, then soft-deletes.
 -- name: DeletePaymentMethodAndReassign :exec
-WITH moved AS (
+WITH moved_tx AS (
     UPDATE transaction SET payment_method_id = sqlc.arg('replacement_id')::uuid
     WHERE payment_method_id = sqlc.arg('id')::uuid
       AND budget_period_id IN (
         SELECT bp.id FROM budget_period bp WHERE bp.budget_profile_id = sqlc.arg('budget_profile_id')::uuid
       )
+), moved_savings AS (
+    UPDATE savings_source SET payment_method_id = sqlc.arg('replacement_id')::uuid
+    WHERE payment_method_id = sqlc.arg('id')::uuid
+      AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid
 )
 UPDATE payment_methods
 SET is_active = FALSE

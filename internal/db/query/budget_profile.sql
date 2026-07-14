@@ -89,6 +89,9 @@ WHERE bp.end_date = $1::date
       AND bp2.start_date > bp.start_date
   );
 
+-- name: ArchiveBudgetPeriod :exec
+UPDATE budget_period SET is_archived = TRUE WHERE id = $1;
+
 -- ── People ────────────────────────────────────────────────────────────────────
 
 -- name: AddBudgetPersonToProfile :one

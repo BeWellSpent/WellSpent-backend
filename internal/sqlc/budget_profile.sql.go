@@ -141,6 +141,15 @@ func (q *Queries) AddSavingsSource(ctx context.Context, arg AddSavingsSourcePara
 	return i, err
 }
 
+const archiveBudgetPeriod = `-- name: ArchiveBudgetPeriod :exec
+UPDATE budget_period SET is_archived = TRUE WHERE id = $1
+`
+
+func (q *Queries) ArchiveBudgetPeriod(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, archiveBudgetPeriod, id)
+	return err
+}
+
 const createBudgetPeriod = `-- name: CreateBudgetPeriod :one
 
 INSERT INTO budget_period (budget_profile_id, start_date, end_date)

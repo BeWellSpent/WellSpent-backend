@@ -131,6 +131,11 @@ func (m *mockBudgetProfileRepo) ListProfileIDsWithExpiredPeriod(ctx context.Cont
 	}
 	return nil, nil
 }
+
+func (m *mockBudgetProfileRepo) ArchivePeriod(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
 func (m *mockBudgetProfileRepo) ListPeople(ctx context.Context, profileID uuid.UUID) ([]db.BudgetToProfileMapping, error) {
 	if m.listPeople != nil {
 		return m.listPeople(ctx, profileID)

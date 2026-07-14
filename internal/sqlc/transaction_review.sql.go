@@ -62,6 +62,50 @@ func (q *Queries) CreateTransactionReview(ctx context.Context, arg CreateTransac
 	return i, err
 }
 
+const deleteFixedExpenseAlias = `-- name: DeleteFixedExpenseAlias :exec
+DELETE FROM fixed_expense_alias
+WHERE fixed_expense_id = $1 AND alias = $2
+`
+
+type DeleteFixedExpenseAliasParams struct {
+	FixedExpenseID uuid.UUID `json:"fixed_expense_id"`
+	Alias          string    `json:"alias"`
+}
+
+func (q *Queries) DeleteFixedExpenseAlias(ctx context.Context, arg DeleteFixedExpenseAliasParams) error {
+	_, err := q.db.Exec(ctx, deleteFixedExpenseAlias, arg.FixedExpenseID, arg.Alias)
+	return err
+}
+
+const getConfirmedReviewByFixedExpense = `-- name: GetConfirmedReviewByFixedExpense :one
+SELECT id, budget_period_id, transaction_id, fixed_expense_id, match_score, status, created_at
+FROM transaction_review
+WHERE fixed_expense_id = $1
+  AND budget_period_id = $2
+  AND status = 'confirmed'
+LIMIT 1
+`
+
+type GetConfirmedReviewByFixedExpenseParams struct {
+	FixedExpenseID uuid.UUID `json:"fixed_expense_id"`
+	BudgetPeriodID uuid.UUID `json:"budget_period_id"`
+}
+
+func (q *Queries) GetConfirmedReviewByFixedExpense(ctx context.Context, arg GetConfirmedReviewByFixedExpenseParams) (TransactionReview, error) {
+	row := q.db.QueryRow(ctx, getConfirmedReviewByFixedExpense, arg.FixedExpenseID, arg.BudgetPeriodID)
+	var i TransactionReview
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetPeriodID,
+		&i.TransactionID,
+		&i.FixedExpenseID,
+		&i.MatchScore,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getFixedExpenseByAlias = `-- name: GetFixedExpenseByAlias :one
 SELECT fe.id, fe.budget_profile_id, fe.name, fe.planned_amount, fe.category_id,
        fe.payment_method_id, fe.day_of_month, fe.is_active, fe.created_at
@@ -212,6 +256,24 @@ func (q *Queries) ListPendingTransactionReviews(ctx context.Context, budgetProfi
 		return nil, err
 	}
 	return items, nil
+}
+
+const resetConfirmedReviewByFixedExpense = `-- name: ResetConfirmedReviewByFixedExpense :exec
+UPDATE transaction_review
+SET status = 'pending'
+WHERE fixed_expense_id = $1
+  AND budget_period_id = $2
+  AND status = 'confirmed'
+`
+
+type ResetConfirmedReviewByFixedExpenseParams struct {
+	FixedExpenseID uuid.UUID `json:"fixed_expense_id"`
+	BudgetPeriodID uuid.UUID `json:"budget_period_id"`
+}
+
+func (q *Queries) ResetConfirmedReviewByFixedExpense(ctx context.Context, arg ResetConfirmedReviewByFixedExpenseParams) error {
+	_, err := q.db.Exec(ctx, resetConfirmedReviewByFixedExpense, arg.FixedExpenseID, arg.BudgetPeriodID)
+	return err
 }
 
 const updateTransactionReviewStatus = `-- name: UpdateTransactionReviewStatus :exec
