@@ -156,13 +156,13 @@ WHERE category.id = sqlc.arg('id') AND category.user_id = sqlc.arg('user_id')::u
 SELECT id, name FROM category WHERE is_system = TRUE ORDER BY name;
 
 -- name: GetPaymentMethod :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
 FROM payment_methods
 WHERE id = $1
 LIMIT 1;
 
 -- name: ListPaymentMethods :many
-SELECT pm.id, pm.name, pm.payment_type_id, pm.user_id, pt.name AS type_name, pm.budget_person_id, pm.color
+SELECT pm.id, pm.name, pm.payment_type_id, pm.user_id, pt.name AS type_name, pm.budget_person_id, pm.color, pm.alias
 FROM payment_methods pm
 LEFT JOIN payment_type pt ON pm.payment_type_id = pt.id
 WHERE pm.budget_person_id IN (
@@ -174,13 +174,13 @@ ORDER BY pm.name;
 -- name: CreatePaymentMethod :one
 INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, color)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id;
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias;
 
 -- name: UpdatePaymentMethod :one
 UPDATE payment_methods
-SET name = sqlc.arg('name'), color = sqlc.arg('color')
+SET name = sqlc.arg('name'), color = sqlc.arg('color'), alias = sqlc.narg('alias')
 WHERE payment_methods.id = sqlc.arg('id')
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id;
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias;
 
 -- Reassigns all transactions and savings sources referencing this method, then soft-deletes.
 -- name: DeletePaymentMethodAndReassign :exec
@@ -204,16 +204,16 @@ WHERE payment_methods.id = sqlc.arg('id')::uuid;
 -- name: CreatePaymentMethodFromPlaid :one
 INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, plaid_account_id)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id;
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias;
 
 -- name: GetPaymentMethodByPlaidAccountID :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
 FROM payment_methods
 WHERE plaid_account_id = $1 AND is_active = TRUE
 LIMIT 1;
 
 -- name: GetPaymentMethodByUserAndName :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
 FROM payment_methods
 WHERE user_id = $1 AND name = $2 AND is_active = TRUE
 LIMIT 1;

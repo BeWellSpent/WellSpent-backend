@@ -329,7 +329,11 @@ func (h *BudgetHandler) ListPaymentMethods(ctx context.Context, req *connect.Req
 		if m.BudgetPersonID != nil {
 			personID = int64(*m.BudgetPersonID)
 		}
-		protos[i] = &v1.PaymentMethod{Id: m.ID.String(), Name: m.Name, Type: typeVal, BudgetPersonId: personID, Color: m.Color}
+		alias := ""
+		if m.Alias != nil {
+			alias = *m.Alias
+		}
+		protos[i] = &v1.PaymentMethod{Id: m.ID.String(), Name: m.Name, Type: typeVal, BudgetPersonId: personID, Color: m.Color, Alias: alias}
 	}
 	return connect.NewResponse(&v1.ListPaymentMethodsResponse{Methods: protos}), nil
 }
@@ -359,6 +363,10 @@ func (h *BudgetHandler) CreatePaymentMethod(ctx context.Context, req *connect.Re
 	if method.BudgetPersonID != nil {
 		retPersonID = int64(*method.BudgetPersonID)
 	}
+	var createAlias string
+	if method.Alias != nil {
+		createAlias = *method.Alias
+	}
 	return connect.NewResponse(&v1.CreatePaymentMethodResponse{
 		Method: &v1.PaymentMethod{
 			Id:             method.ID.String(),
@@ -366,6 +374,7 @@ func (h *BudgetHandler) CreatePaymentMethod(ctx context.Context, req *connect.Re
 			Type:           req.Msg.Type,
 			BudgetPersonId: retPersonID,
 			Color:          method.Color,
+			Alias:          createAlias,
 		},
 	}), nil
 }
@@ -379,10 +388,16 @@ func (h *BudgetHandler) UpdatePaymentMethod(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, toConnectError(apperr.Invalid("invalid payment method id"))
 	}
+	var aliasPtr *string
+	if req.Msg.Alias != "" {
+		a := req.Msg.Alias
+		aliasPtr = &a
+	}
 	method, svcErr := h.transactions.UpdatePaymentMethod(ctx, db.UpdatePaymentMethodParams{
 		ID:    id,
 		Name:  req.Msg.Name,
 		Color: req.Msg.Color,
+		Alias: aliasPtr,
 	}, userID)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -395,6 +410,10 @@ func (h *BudgetHandler) UpdatePaymentMethod(ctx context.Context, req *connect.Re
 	if method.BudgetPersonID != nil {
 		personID = int64(*method.BudgetPersonID)
 	}
+	var updateAlias string
+	if method.Alias != nil {
+		updateAlias = *method.Alias
+	}
 	return connect.NewResponse(&v1.UpdatePaymentMethodResponse{
 		Method: &v1.PaymentMethod{
 			Id:             method.ID.String(),
@@ -402,6 +421,7 @@ func (h *BudgetHandler) UpdatePaymentMethod(ctx context.Context, req *connect.Re
 			Type:           typeVal,
 			BudgetPersonId: personID,
 			Color:          method.Color,
+			Alias:          updateAlias,
 		},
 	}), nil
 }
