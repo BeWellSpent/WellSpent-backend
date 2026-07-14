@@ -273,14 +273,14 @@ func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replac
 	if err != nil {
 		return err
 	}
-	if method.UserID == nil || *method.UserID != userID {
+	if !s.paymentMethodInBudget(ctx, method, budgetProfileID, userID) {
 		return apperr.Forbidden("access denied")
 	}
 	replacement, err := s.transactions.GetPaymentMethod(ctx, replacementID)
 	if err != nil {
 		return err
 	}
-	if replacement.UserID == nil || *replacement.UserID != userID {
+	if !s.paymentMethodInBudget(ctx, replacement, budgetProfileID, userID) {
 		return apperr.Forbidden("replacement payment method is not accessible")
 	}
 	return s.transactions.DeletePaymentMethodAndReassign(ctx, db.DeletePaymentMethodAndReassignParams{
@@ -289,6 +289,17 @@ func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replac
 		ReplacementID:   replacementID,
 		BudgetProfileID: budgetProfileID,
 	})
+}
+
+// paymentMethodInBudget returns true when pm belongs to the given budget profile
+// (via its budget_person_id) or, for unattributed methods, when the requester
+// owns it directly. Used to authorise cross-collaborator delete/update operations.
+func (s *TransactionService) paymentMethodInBudget(ctx context.Context, pm db.PaymentMethod, budgetProfileID uuid.UUID, userID uuid.UUID) bool {
+	if pm.BudgetPersonID != nil {
+		_, err := s.profiles.GetPerson(ctx, *pm.BudgetPersonID, budgetProfileID)
+		return err == nil
+	}
+	return pm.UserID != nil && *pm.UserID == userID
 }
 
 // ── Transaction review ────────────────────────────────────────────────────────
