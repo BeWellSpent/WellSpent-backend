@@ -178,16 +178,17 @@ func (s *PlaidService) ExchangePublicToken(ctx context.Context, userID, profileI
 					BudgetPersonID: &personID,
 					PlaidAccountID: &plaidAcctID,
 				}); pmErr == nil {
+					log.Printf("plaid: created payment method %q (account %s)", name, plaidAcctID)
 					pmCreated++
 				}
 			}
 		}
 	}
-	if pmCreated > 0 {
-		log.Printf("plaid: %d payment method(s) created for user %s", pmCreated, userID)
-	} else {
-		log.Printf("plaid: no payment methods created for user %s", userID)
+	instName := ""
+	if instNamePtr != nil {
+		instName = *instNamePtr
 	}
+	log.Printf("plaid: item %s connected — institution=%q user=%s %d payment method(s) created", item.ItemID, instName, userID, pmCreated)
 
 	// Trigger an immediate sync so transactions appear right after connecting.
 	go func() {
