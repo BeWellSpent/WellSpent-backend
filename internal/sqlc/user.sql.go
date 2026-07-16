@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createOAuthAccount = `-- name: CreateOAuthAccount :one
@@ -46,7 +47,8 @@ const createUser = `-- name: CreateUser :one
 INSERT INTO users (email, hashed_password, first_name, last_name, country_code, state_code, language, currency)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-          country_code, state_code, filing_status, tax_payment_frequency, language, currency
+          country_code, state_code, filing_status, tax_payment_frequency, language, currency,
+          email_verification_token, email_verification_expires_at, email_verification_last_sent_at
 `
 
 type CreateUserParams struct {
@@ -88,6 +90,9 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.TaxPaymentFrequency,
 		&i.Language,
 		&i.Currency,
+		&i.EmailVerificationToken,
+		&i.EmailVerificationExpiresAt,
+		&i.EmailVerificationLastSentAt,
 	)
 	return i, err
 }
@@ -129,7 +134,8 @@ func (q *Queries) GetOAuthAccount(ctx context.Context, arg GetOAuthAccountParams
 
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-       country_code, state_code, filing_status, tax_payment_frequency, language, currency
+       country_code, state_code, filing_status, tax_payment_frequency, language, currency,
+       email_verification_token, email_verification_expires_at, email_verification_last_sent_at
 FROM users
 WHERE email = $1
 LIMIT 1
@@ -154,13 +160,17 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.TaxPaymentFrequency,
 		&i.Language,
 		&i.Currency,
+		&i.EmailVerificationToken,
+		&i.EmailVerificationExpiresAt,
+		&i.EmailVerificationLastSentAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-       country_code, state_code, filing_status, tax_payment_frequency, language, currency
+       country_code, state_code, filing_status, tax_payment_frequency, language, currency,
+       email_verification_token, email_verification_expires_at, email_verification_last_sent_at
 FROM users
 WHERE id = $1
 LIMIT 1
@@ -185,6 +195,44 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.TaxPaymentFrequency,
 		&i.Language,
 		&i.Currency,
+		&i.EmailVerificationToken,
+		&i.EmailVerificationExpiresAt,
+		&i.EmailVerificationLastSentAt,
+	)
+	return i, err
+}
+
+const getUserByVerificationToken = `-- name: GetUserByVerificationToken :one
+SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
+       country_code, state_code, filing_status, tax_payment_frequency, language, currency,
+       email_verification_token, email_verification_expires_at, email_verification_last_sent_at
+FROM users
+WHERE email_verification_token = $1
+LIMIT 1
+`
+
+func (q *Queries) GetUserByVerificationToken(ctx context.Context, token *uuid.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByVerificationToken, token)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.HashedPassword,
+		&i.FirstName,
+		&i.LastName,
+		&i.IsActive,
+		&i.IsSuperuser,
+		&i.IsVerified,
+		&i.CreatedAt,
+		&i.CountryCode,
+		&i.StateCode,
+		&i.FilingStatus,
+		&i.TaxPaymentFrequency,
+		&i.Language,
+		&i.Currency,
+		&i.EmailVerificationToken,
+		&i.EmailVerificationExpiresAt,
+		&i.EmailVerificationLastSentAt,
 	)
 	return i, err
 }
@@ -248,6 +296,68 @@ func (q *Queries) ListEnabledCountries(ctx context.Context) ([]ListEnabledCountr
 	return items, nil
 }
 
+const markUserVerified = `-- name: MarkUserVerified :exec
+UPDATE users
+SET is_verified = TRUE,
+    email_verification_token = NULL,
+    email_verification_expires_at = NULL
+WHERE id = $1
+`
+
+func (q *Queries) MarkUserVerified(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markUserVerified, id)
+	return err
+}
+
+const setEmailVerificationToken = `-- name: SetEmailVerificationToken :one
+UPDATE users
+SET email_verification_token = $1,
+    email_verification_expires_at = $2,
+    email_verification_last_sent_at = $3
+WHERE id = $4
+RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
+          country_code, state_code, filing_status, tax_payment_frequency, language, currency,
+          email_verification_token, email_verification_expires_at, email_verification_last_sent_at
+`
+
+type SetEmailVerificationTokenParams struct {
+	Token      *uuid.UUID         `json:"token"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	LastSentAt pgtype.Timestamptz `json:"last_sent_at"`
+	ID         uuid.UUID          `json:"id"`
+}
+
+func (q *Queries) SetEmailVerificationToken(ctx context.Context, arg SetEmailVerificationTokenParams) (User, error) {
+	row := q.db.QueryRow(ctx, setEmailVerificationToken,
+		arg.Token,
+		arg.ExpiresAt,
+		arg.LastSentAt,
+		arg.ID,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.HashedPassword,
+		&i.FirstName,
+		&i.LastName,
+		&i.IsActive,
+		&i.IsSuperuser,
+		&i.IsVerified,
+		&i.CreatedAt,
+		&i.CountryCode,
+		&i.StateCode,
+		&i.FilingStatus,
+		&i.TaxPaymentFrequency,
+		&i.Language,
+		&i.Currency,
+		&i.EmailVerificationToken,
+		&i.EmailVerificationExpiresAt,
+		&i.EmailVerificationLastSentAt,
+	)
+	return i, err
+}
+
 const updateUser = `-- name: UpdateUser :one
 UPDATE users
 SET first_name            = $1,
@@ -260,7 +370,8 @@ SET first_name            = $1,
     currency              = $8
 WHERE id = $9
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
-          country_code, state_code, filing_status, tax_payment_frequency, language, currency
+          country_code, state_code, filing_status, tax_payment_frequency, language, currency,
+          email_verification_token, email_verification_expires_at, email_verification_last_sent_at
 `
 
 type UpdateUserParams struct {
@@ -304,6 +415,9 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.TaxPaymentFrequency,
 		&i.Language,
 		&i.Currency,
+		&i.EmailVerificationToken,
+		&i.EmailVerificationExpiresAt,
+		&i.EmailVerificationLastSentAt,
 	)
 	return i, err
 }

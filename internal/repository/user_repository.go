@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type UserRepository interface {
@@ -21,6 +21,9 @@ type UserRepository interface {
 	CreateOAuthAccount(ctx context.Context, arg db.CreateOAuthAccountParams) (db.OauthAccount, error)
 	ListEnabledCountries(ctx context.Context) ([]db.ListEnabledCountriesRow, error)
 	ListCountryFeatures(ctx context.Context) ([]db.CountryFeature, error)
+	SetEmailVerificationToken(ctx context.Context, arg db.SetEmailVerificationTokenParams) (db.User, error)
+	GetByVerificationToken(ctx context.Context, token uuid.UUID) (db.User, error)
+	MarkVerified(ctx context.Context, id uuid.UUID) error
 }
 
 type userRepository struct {
@@ -81,4 +84,20 @@ func (r *userRepository) ListEnabledCountries(ctx context.Context) ([]db.ListEna
 
 func (r *userRepository) ListCountryFeatures(ctx context.Context) ([]db.CountryFeature, error) {
 	return r.q.ListCountryFeatures(ctx)
+}
+
+func (r *userRepository) SetEmailVerificationToken(ctx context.Context, arg db.SetEmailVerificationTokenParams) (db.User, error) {
+	return r.q.SetEmailVerificationToken(ctx, arg)
+}
+
+func (r *userRepository) GetByVerificationToken(ctx context.Context, token uuid.UUID) (db.User, error) {
+	u, err := r.q.GetUserByVerificationToken(ctx, &token)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.User{}, apperr.NotFound("user", "verification_token")
+	}
+	return u, err
+}
+
+func (r *userRepository) MarkVerified(ctx context.Context, id uuid.UUID) error {
+	return r.q.MarkUserVerified(ctx, id)
 }

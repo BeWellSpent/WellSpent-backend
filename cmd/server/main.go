@@ -62,7 +62,7 @@ func main() {
 	googleOAuth := auth.NewGoogleOAuth(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURI)
 
 	// Services
-	authSvc := service.NewAuthService(userRepo, jwtSvc, googleOAuth)
+	authSvc := service.NewAuthService(userRepo, jwtSvc, googleOAuth, cfg, logger)
 	userSvc := service.NewUserService(userRepo)
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo)
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo)
@@ -80,12 +80,14 @@ func main() {
 
 	// Procedures that don't require authentication
 	bypass := map[string]bool{
-		wellspentv1connect.AuthServiceRegisterProcedure:           true,
-		wellspentv1connect.AuthServiceLoginProcedure:              true,
-		wellspentv1connect.AuthServiceGetGoogleAuthURLProcedure:   true,
-		wellspentv1connect.AuthServiceExchangeGoogleCodeProcedure: true,
-		wellspentv1connect.UserServiceListCountriesProcedure:      true,
-		wellspentv1connect.InviteServiceGetBudgetInviteProcedure:  true,
+		wellspentv1connect.AuthServiceRegisterProcedure:                true,
+		wellspentv1connect.AuthServiceLoginProcedure:                   true,
+		wellspentv1connect.AuthServiceGetGoogleAuthURLProcedure:        true,
+		wellspentv1connect.AuthServiceExchangeGoogleCodeProcedure:      true,
+		wellspentv1connect.AuthServiceVerifyEmailProcedure:             true,
+		wellspentv1connect.AuthServiceResendVerificationEmailProcedure: true,
+		wellspentv1connect.UserServiceListCountriesProcedure:           true,
+		wellspentv1connect.InviteServiceGetBudgetInviteProcedure:       true,
 	}
 
 	interceptors := connect.WithInterceptors(

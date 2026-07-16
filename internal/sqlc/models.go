@@ -229,19 +229,22 @@ type TransactionType struct {
 }
 
 type User struct {
-	ID                  uuid.UUID          `json:"id"`
-	Email               string             `json:"email"`
-	HashedPassword      *string            `json:"hashed_password"`
-	FirstName           *string            `json:"first_name"`
-	LastName            *string            `json:"last_name"`
-	IsActive            bool               `json:"is_active"`
-	IsSuperuser         bool               `json:"is_superuser"`
-	IsVerified          bool               `json:"is_verified"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	CountryCode         *string            `json:"country_code"`
-	StateCode           *string            `json:"state_code"`
-	FilingStatus        string             `json:"filing_status"`
-	TaxPaymentFrequency int32              `json:"tax_payment_frequency"`
-	Language            string             `json:"language"`
-	Currency            string             `json:"currency"`
+	ID                          uuid.UUID          `json:"id"`
+	Email                       string             `json:"email"`
+	HashedPassword              *string            `json:"hashed_password"`
+	FirstName                   *string            `json:"first_name"`
+	LastName                    *string            `json:"last_name"`
+	IsActive                    bool               `json:"is_active"`
+	IsSuperuser                 bool               `json:"is_superuser"`
+	IsVerified                  bool               `json:"is_verified"`
+	CreatedAt                   pgtype.Timestamptz `json:"created_at"`
+	CountryCode                 *string            `json:"country_code"`
+	StateCode                   *string            `json:"state_code"`
+	FilingStatus                string             `json:"filing_status"`
+	TaxPaymentFrequency         int32              `json:"tax_payment_frequency"`
+	Language                    string             `json:"language"`
+	Currency                    string             `json:"currency"`
+	EmailVerificationToken      *uuid.UUID         `json:"email_verification_token"`
+	EmailVerificationExpiresAt  pgtype.Timestamptz `json:"email_verification_expires_at"`
+	EmailVerificationLastSentAt pgtype.Timestamptz `json:"email_verification_last_sent_at"`
 }
