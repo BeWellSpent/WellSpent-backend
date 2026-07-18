@@ -37,6 +37,7 @@ sql:
       - "internal/db/migrations/000032_fixed_expense_payment_plan.sql"
       - "internal/db/migrations/000033_payment_method_alias.sql"
       - "internal/db/migrations/000034_email_verification.sql"
+      - "internal/db/migrations/000035_payment_method_plaid_item.sql"
     gen:
       go:
         package: "db"

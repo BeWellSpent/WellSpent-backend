@@ -50,7 +50,7 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 const createPaymentMethod = `-- name: CreatePaymentMethod :one
 INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, color)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
 `
 
 type CreatePaymentMethodParams struct {
@@ -80,14 +80,15 @@ func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMeth
 		&i.Color,
 		&i.PlaidAccountID,
 		&i.Alias,
+		&i.PlaidItemID,
 	)
 	return i, err
 }
 
 const createPaymentMethodFromPlaid = `-- name: CreatePaymentMethodFromPlaid :one
-INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, plaid_account_id)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
+INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, plaid_account_id, plaid_item_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
 `
 
 type CreatePaymentMethodFromPlaidParams struct {
@@ -96,10 +97,15 @@ type CreatePaymentMethodFromPlaidParams struct {
 	UserID         *uuid.UUID `json:"user_id"`
 	BudgetPersonID *int32     `json:"budget_person_id"`
 	PlaidAccountID *string    `json:"plaid_account_id"`
+	PlaidItemID    *uuid.UUID `json:"plaid_item_id"`
 }
 
 // Creates a payment method linked to a Plaid account. plaid_account_id is
-// stored so the sync job can route imported transactions to the right method.
+// stored so the sync job can route imported transactions to the right
+// method; plaid_item_id records which connection it came from, so
+// RefreshPlaidAccounts can tell which payment methods to deactivate when an
+// account is removed from that specific connection (a user may have
+// multiple Plaid connections, so plaid_account_id alone isn't enough scope).
 func (q *Queries) CreatePaymentMethodFromPlaid(ctx context.Context, arg CreatePaymentMethodFromPlaidParams) (PaymentMethod, error) {
 	row := q.db.QueryRow(ctx, createPaymentMethodFromPlaid,
 		arg.Name,
@@ -107,6 +113,7 @@ func (q *Queries) CreatePaymentMethodFromPlaid(ctx context.Context, arg CreatePa
 		arg.UserID,
 		arg.BudgetPersonID,
 		arg.PlaidAccountID,
+		arg.PlaidItemID,
 	)
 	var i PaymentMethod
 	err := row.Scan(
@@ -119,6 +126,7 @@ func (q *Queries) CreatePaymentMethodFromPlaid(ctx context.Context, arg CreatePa
 		&i.Color,
 		&i.PlaidAccountID,
 		&i.Alias,
+		&i.PlaidItemID,
 	)
 	return i, err
 }
@@ -251,6 +259,22 @@ func (q *Queries) CreateTransactionFromPlaid(ctx context.Context, arg CreateTran
 		&i.PlaidTransactionID,
 	)
 	return i, err
+}
+
+const deactivatePaymentMethod = `-- name: DeactivatePaymentMethod :exec
+UPDATE payment_methods
+SET is_active = FALSE
+WHERE id = $1
+`
+
+// Deactivates a payment method without reassigning its transactions —
+// used when an account is removed from a Plaid connection via update mode.
+// Unlike DeletePaymentMethodAndReassign, there's no user-chosen replacement
+// here, so existing transactions simply keep pointing at the now-inactive
+// method (consistent with how soft-deleted categories/methods already work).
+func (q *Queries) DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deactivatePaymentMethod, id)
+	return err
 }
 
 const deleteCategoryAndReassign = `-- name: DeleteCategoryAndReassign :exec
@@ -412,7 +436,7 @@ func (q *Queries) GetCategory(ctx context.Context, id int32) (GetCategoryRow, er
 }
 
 const getPaymentMethod = `-- name: GetPaymentMethod :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
 FROM payment_methods
 WHERE id = $1
 LIMIT 1
@@ -431,12 +455,13 @@ func (q *Queries) GetPaymentMethod(ctx context.Context, id uuid.UUID) (PaymentMe
 		&i.Color,
 		&i.PlaidAccountID,
 		&i.Alias,
+		&i.PlaidItemID,
 	)
 	return i, err
 }
 
 const getPaymentMethodByPlaidAccountID = `-- name: GetPaymentMethodByPlaidAccountID :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
 FROM payment_methods
 WHERE plaid_account_id = $1 AND is_active = TRUE
 LIMIT 1
@@ -455,12 +480,13 @@ func (q *Queries) GetPaymentMethodByPlaidAccountID(ctx context.Context, plaidAcc
 		&i.Color,
 		&i.PlaidAccountID,
 		&i.Alias,
+		&i.PlaidItemID,
 	)
 	return i, err
 }
 
 const getPaymentMethodByUserAndName = `-- name: GetPaymentMethodByUserAndName :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
 FROM payment_methods
 WHERE user_id = $1 AND name = $2 AND is_active = TRUE
 LIMIT 1
@@ -484,6 +510,7 @@ func (q *Queries) GetPaymentMethodByUserAndName(ctx context.Context, arg GetPaym
 		&i.Color,
 		&i.PlaidAccountID,
 		&i.Alias,
+		&i.PlaidItemID,
 	)
 	return i, err
 }
@@ -552,6 +579,43 @@ func (q *Queries) GetTransactionByPlaidID(ctx context.Context, plaidTransactionI
 		&i.PlaidTransactionID,
 	)
 	return i, err
+}
+
+const listActivePaymentMethodsByPlaidItem = `-- name: ListActivePaymentMethodsByPlaidItem :many
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
+FROM payment_methods
+WHERE plaid_item_id = $1 AND is_active = TRUE
+`
+
+func (q *Queries) ListActivePaymentMethodsByPlaidItem(ctx context.Context, plaidItemID *uuid.UUID) ([]PaymentMethod, error) {
+	rows, err := q.db.Query(ctx, listActivePaymentMethodsByPlaidItem, plaidItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentMethod
+	for rows.Next() {
+		var i PaymentMethod
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.PaymentTypeID,
+			&i.UserID,
+			&i.IsActive,
+			&i.BudgetPersonID,
+			&i.Color,
+			&i.PlaidAccountID,
+			&i.Alias,
+			&i.PlaidItemID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCategories = `-- name: ListCategories :many
@@ -987,7 +1051,7 @@ const updatePaymentMethod = `-- name: UpdatePaymentMethod :one
 UPDATE payment_methods
 SET name = $1, color = $2, alias = $3
 WHERE payment_methods.id = $4
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
 `
 
 type UpdatePaymentMethodParams struct {
@@ -1015,6 +1079,7 @@ func (q *Queries) UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMeth
 		&i.Color,
 		&i.PlaidAccountID,
 		&i.Alias,
+		&i.PlaidItemID,
 	)
 	return i, err
 }

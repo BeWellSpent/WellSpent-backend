@@ -156,7 +156,7 @@ WHERE category.id = sqlc.arg('id') AND category.user_id = sqlc.arg('user_id')::u
 SELECT id, name FROM category WHERE is_system = TRUE ORDER BY name;
 
 -- name: GetPaymentMethod :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
 FROM payment_methods
 WHERE id = $1
 LIMIT 1;
@@ -174,13 +174,13 @@ ORDER BY pm.name;
 -- name: CreatePaymentMethod :one
 INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, color)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias;
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id;
 
 -- name: UpdatePaymentMethod :one
 UPDATE payment_methods
 SET name = sqlc.arg('name'), color = sqlc.arg('color'), alias = sqlc.narg('alias')
 WHERE payment_methods.id = sqlc.arg('id')
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias;
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id;
 
 -- Reassigns all transactions and savings sources referencing this method, then soft-deletes.
 -- name: DeletePaymentMethodAndReassign :exec
@@ -200,20 +200,24 @@ SET is_active = FALSE
 WHERE payment_methods.id = sqlc.arg('id')::uuid;
 
 -- Creates a payment method linked to a Plaid account. plaid_account_id is
--- stored so the sync job can route imported transactions to the right method.
+-- stored so the sync job can route imported transactions to the right
+-- method; plaid_item_id records which connection it came from, so
+-- RefreshPlaidAccounts can tell which payment methods to deactivate when an
+-- account is removed from that specific connection (a user may have
+-- multiple Plaid connections, so plaid_account_id alone isn't enough scope).
 -- name: CreatePaymentMethodFromPlaid :one
-INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, plaid_account_id)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias;
+INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, plaid_account_id, plaid_item_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id;
 
 -- name: GetPaymentMethodByPlaidAccountID :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
 FROM payment_methods
 WHERE plaid_account_id = $1 AND is_active = TRUE
 LIMIT 1;
 
 -- name: GetPaymentMethodByUserAndName :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
 FROM payment_methods
 WHERE user_id = $1 AND name = $2 AND is_active = TRUE
 LIMIT 1;
@@ -222,6 +226,21 @@ LIMIT 1;
 UPDATE payment_methods
 SET plaid_account_id = $1
 WHERE id = $2;
+
+-- name: ListActivePaymentMethodsByPlaidItem :many
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id
+FROM payment_methods
+WHERE plaid_item_id = $1 AND is_active = TRUE;
+
+-- Deactivates a payment method without reassigning its transactions —
+-- used when an account is removed from a Plaid connection via update mode.
+-- Unlike DeletePaymentMethodAndReassign, there's no user-chosen replacement
+-- here, so existing transactions simply keep pointing at the now-inactive
+-- method (consistent with how soft-deleted categories/methods already work).
+-- name: DeactivatePaymentMethod :exec
+UPDATE payment_methods
+SET is_active = FALSE
+WHERE id = $1;
 
 -- name: ListTransactionTypes :many
 SELECT id, name FROM transaction_type ORDER BY id;

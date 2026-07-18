@@ -86,14 +86,34 @@ type CreateLinkTokenResult struct {
 	Expiration string
 }
 
-func (s *PlaidService) CreateLinkToken(ctx context.Context, userID, profileID uuid.UUID) (CreateLinkTokenResult, error) {
+// CreateLinkToken creates a Link token. If connectionID is non-nil, it
+// requests update mode (account selection) for that existing connection
+// instead of a fresh connect flow — the caller must own the connection.
+func (s *PlaidService) CreateLinkToken(ctx context.Context, userID, profileID uuid.UUID, connectionID *uuid.UUID) (CreateLinkTokenResult, error) {
 	if err := s.requireUS(ctx, userID); err != nil {
 		return CreateLinkTokenResult{}, err
 	}
 	if err := s.requireProfileOwnerOrMember(ctx, profileID, userID); err != nil {
 		return CreateLinkTokenResult{}, err
 	}
-	tok, exp, err := s.plaid.CreateLinkToken(ctx, userID.String())
+
+	updateAccessToken := ""
+	if connectionID != nil {
+		item, err := s.items.GetByID(ctx, *connectionID)
+		if err != nil {
+			return CreateLinkTokenResult{}, err
+		}
+		if item.UserID != userID {
+			return CreateLinkTokenResult{}, apperr.Forbidden("access denied")
+		}
+		decrypted, err := crypto.Decrypt(item.AccessToken, s.encryptionKey)
+		if err != nil {
+			return CreateLinkTokenResult{}, fmt.Errorf("plaid: decrypt access token: %w", err)
+		}
+		updateAccessToken = decrypted
+	}
+
+	tok, exp, err := s.plaid.CreateLinkToken(ctx, userID.String(), updateAccessToken)
 	if err != nil {
 		return CreateLinkTokenResult{}, fmt.Errorf("plaid: create link token: %w", err)
 	}
@@ -149,41 +169,7 @@ func (s *PlaidService) ExchangePublicToken(ctx context.Context, userID, profileI
 
 	// Create one payment method per linked account, attributed to this user's
 	// budget person row. Non-fatal: item is already stored above.
-	pmCreated := 0
-	if len(accounts) > 0 {
-		person, personErr := s.budgets.GetPersonByUserID(ctx, profileID, userID)
-		if personErr == nil {
-			personID := int32(person.ID)
-			for _, acct := range accounts {
-				name := plaidclient.PlaidAccountName(acct.Name, acct.Mask)
-				plaidAcctID := acct.PlaidAccountID
-
-				// Exact match by plaid_account_id — same connection or stable ID.
-				if _, existsErr := s.transactions.GetPaymentMethodByPlaidAccountID(ctx, plaidAcctID); existsErr == nil {
-					continue
-				}
-				// Name-based fallback — Plaid issues new account_ids on reconnect.
-				// If a method with the same name exists, update its plaid_account_id
-				// so future reconnects dedup correctly, then skip creation.
-				if existing, existsErr := s.transactions.GetPaymentMethodByUserAndName(ctx, userID, name); existsErr == nil {
-					_ = s.transactions.UpdatePaymentMethodPlaidAccountID(ctx, existing.ID, plaidAcctID)
-					continue
-				}
-
-				typeID := plaidclient.PlaidPaymentTypeID(acct.Type, acct.Subtype)
-				if _, pmErr := s.transactions.CreatePaymentMethodFromPlaid(ctx, db.CreatePaymentMethodFromPlaidParams{
-					Name:           name,
-					PaymentTypeID:  &typeID,
-					UserID:         &userID,
-					BudgetPersonID: &personID,
-					PlaidAccountID: &plaidAcctID,
-				}); pmErr == nil {
-					log.Printf("plaid: created payment method %q (account %s)", name, plaidAcctID)
-					pmCreated++
-				}
-			}
-		}
-	}
+	pmCreated := s.createMissingPaymentMethods(ctx, item, userID, accounts)
 	instName := ""
 	if instNamePtr != nil {
 		instName = *instNamePtr
@@ -235,4 +221,104 @@ func (s *PlaidService) Disconnect(ctx context.Context, userID, connectionID uuid
 		Status: "disconnected",
 	})
 	return err
+}
+
+// createMissingPaymentMethods creates a payment method for any account not
+// already represented (by plaid_account_id, or by a name-match fallback
+// for accounts Plaid re-IDs on reconnect). Non-fatal per-account — the
+// caller's item/connection is already persisted regardless of outcome here.
+// Returns the number of methods actually created.
+func (s *PlaidService) createMissingPaymentMethods(ctx context.Context, item db.PlaidItem, userID uuid.UUID, accounts []plaidclient.Account) int {
+	if len(accounts) == 0 {
+		return 0
+	}
+	person, err := s.budgets.GetPersonByUserID(ctx, item.BudgetProfileID, userID)
+	if err != nil {
+		return 0
+	}
+	personID := int32(person.ID)
+
+	created := 0
+	for _, acct := range accounts {
+		name := plaidclient.PlaidAccountName(acct.Name, acct.Mask)
+		plaidAcctID := acct.PlaidAccountID
+
+		// Exact match by plaid_account_id — same connection or stable ID.
+		if _, existsErr := s.transactions.GetPaymentMethodByPlaidAccountID(ctx, plaidAcctID); existsErr == nil {
+			continue
+		}
+		// Name-based fallback — Plaid issues new account_ids on reconnect.
+		// If a method with the same name exists, update its plaid_account_id
+		// so future reconnects dedup correctly, then skip creation.
+		if existing, existsErr := s.transactions.GetPaymentMethodByUserAndName(ctx, userID, name); existsErr == nil {
+			_ = s.transactions.UpdatePaymentMethodPlaidAccountID(ctx, existing.ID, plaidAcctID)
+			continue
+		}
+
+		typeID := plaidclient.PlaidPaymentTypeID(acct.Type, acct.Subtype)
+		if _, pmErr := s.transactions.CreatePaymentMethodFromPlaid(ctx, db.CreatePaymentMethodFromPlaidParams{
+			Name:           name,
+			PaymentTypeID:  &typeID,
+			UserID:         &userID,
+			BudgetPersonID: &personID,
+			PlaidAccountID: &plaidAcctID,
+			PlaidItemID:    &item.ID,
+		}); pmErr == nil {
+			log.Printf("plaid: created payment method %q (account %s)", name, plaidAcctID)
+			created++
+		}
+	}
+	return created
+}
+
+// RefreshAccounts re-fetches a connection's current account list from Plaid
+// and reconciles payment_methods: creates one for any newly-added account,
+// and deactivates any existing payment method for this connection whose
+// account is no longer present. Called after a Link update-mode session
+// completes (e.g. account selection) — update mode doesn't return a
+// public_token, so there's nothing to exchange, only accounts to re-sync.
+func (s *PlaidService) RefreshAccounts(ctx context.Context, userID, connectionID uuid.UUID) (db.PlaidItem, error) {
+	if err := s.requireUS(ctx, userID); err != nil {
+		return db.PlaidItem{}, err
+	}
+	item, err := s.items.GetByID(ctx, connectionID)
+	if err != nil {
+		return db.PlaidItem{}, err
+	}
+	if item.UserID != userID {
+		return db.PlaidItem{}, apperr.Forbidden("access denied")
+	}
+
+	accessToken, err := crypto.Decrypt(item.AccessToken, s.encryptionKey)
+	if err != nil {
+		return db.PlaidItem{}, fmt.Errorf("plaid: decrypt access token: %w", err)
+	}
+
+	accounts, _, err := s.plaid.GetAccounts(ctx, accessToken)
+	if err != nil {
+		return db.PlaidItem{}, fmt.Errorf("plaid: get accounts: %w", err)
+	}
+
+	created := s.createMissingPaymentMethods(ctx, item, userID, accounts)
+
+	stillPresent := make(map[string]bool, len(accounts))
+	for _, acct := range accounts {
+		stillPresent[acct.PlaidAccountID] = true
+	}
+	deactivated := 0
+	existingMethods, err := s.transactions.ListActivePaymentMethodsByPlaidItem(ctx, item.ID)
+	if err == nil {
+		for _, pm := range existingMethods {
+			if pm.PlaidAccountID == nil || stillPresent[*pm.PlaidAccountID] {
+				continue
+			}
+			if deactivateErr := s.transactions.DeactivatePaymentMethod(ctx, pm.ID); deactivateErr == nil {
+				log.Printf("plaid: refresh — deactivated payment method %q (account removed)", pm.Name)
+				deactivated++
+			}
+		}
+	}
+
+	log.Printf("plaid: item %s refreshed — %d payment method(s) created, %d deactivated", item.ItemID, created, deactivated)
+	return item, nil
 }

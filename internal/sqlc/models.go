@@ -153,6 +153,7 @@ type PaymentMethod struct {
 	Color          string     `json:"color"`
 	PlaidAccountID *string    `json:"plaid_account_id"`
 	Alias          *string    `json:"alias"`
+	PlaidItemID    *uuid.UUID `json:"plaid_item_id"`
 }
 
 type PaymentType struct {

@@ -41,7 +41,15 @@ func (h *PlaidHandler) CreateLinkToken(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	result, svcErr := h.svc.CreateLinkToken(ctx, userID, profileID)
+	var connectionID *uuid.UUID
+	if req.Msg.ConnectionId != "" {
+		id, parseErr := uuid.Parse(req.Msg.ConnectionId)
+		if parseErr != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, parseErr)
+		}
+		connectionID = &id
+	}
+	result, svcErr := h.svc.CreateLinkToken(ctx, userID, profileID, connectionID)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
@@ -106,6 +114,24 @@ func (h *PlaidHandler) DisconnectPlaid(ctx context.Context, req *connect.Request
 		return nil, toConnectError(svcErr)
 	}
 	return connect.NewResponse(&v1.DisconnectPlaidResponse{}), nil
+}
+
+func (h *PlaidHandler) RefreshPlaidAccounts(ctx context.Context, req *connect.Request[v1.RefreshPlaidAccountsRequest]) (*connect.Response[v1.RefreshPlaidAccountsResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	connID, err := uuid.Parse(req.Msg.ConnectionId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	item, svcErr := h.svc.RefreshAccounts(ctx, userID, connID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.RefreshPlaidAccountsResponse{
+		Connection: toProtoPlaidConnection(item),
+	}), nil
 }
 
 func toProtoPlaidConnection(item db.PlaidItem) *v1.PlaidConnection {

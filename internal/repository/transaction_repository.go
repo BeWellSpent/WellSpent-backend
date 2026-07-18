@@ -46,6 +46,8 @@ type TransactionRepository interface {
 	GetPaymentMethodByPlaidAccountID(ctx context.Context, plaidAccountID string) (db.PaymentMethod, error)
 	GetPaymentMethodByUserAndName(ctx context.Context, userID uuid.UUID, name string) (db.PaymentMethod, error)
 	UpdatePaymentMethodPlaidAccountID(ctx context.Context, id uuid.UUID, plaidAccountID string) error
+	ListActivePaymentMethodsByPlaidItem(ctx context.Context, plaidItemID uuid.UUID) ([]db.PaymentMethod, error)
+	DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) error
 }
 
 type transactionRepository struct {
@@ -242,4 +244,12 @@ func (r *transactionRepository) UpdatePaymentMethodPlaidAccountID(ctx context.Co
 		PlaidAccountID: &plaidAccountID,
 		ID:             id,
 	})
+}
+
+func (r *transactionRepository) ListActivePaymentMethodsByPlaidItem(ctx context.Context, plaidItemID uuid.UUID) ([]db.PaymentMethod, error) {
+	return r.q.ListActivePaymentMethodsByPlaidItem(ctx, &plaidItemID)
+}
+
+func (r *transactionRepository) DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) error {
+	return r.q.DeactivatePaymentMethod(ctx, id)
 }

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,27 +14,33 @@ import (
 // ── Mock transaction repo ─────────────────────────────────────────────────────
 
 type mockTransactionRepo struct {
-	list                            func(context.Context, db.ListTransactionsParams) ([]db.Transaction, error)
-	listFixedRecurring              func(context.Context, uuid.UUID) ([]db.Transaction, error)
-	getByID                         func(context.Context, uuid.UUID) (db.Transaction, error)
-	create                          func(context.Context, db.CreateTransactionParams) (db.Transaction, error)
-	update                          func(context.Context, db.UpdateTransactionParams) (db.Transaction, error)
-	delete                          func(context.Context, db.DeleteTransactionParams) error
-	getCategory                     func(context.Context, int32) (db.GetCategoryRow, error)
-	listCategories                  func(context.Context, uuid.UUID) ([]db.ListCategoriesRow, error)
-	listCategoriesForBudget         func(context.Context, uuid.UUID, uuid.UUID) ([]db.ListCategoriesRow, error)
-	createCategory                  func(context.Context, db.CreateCategoryParams) (db.CreateCategoryRow, error)
-	updateCategory                  func(context.Context, db.UpdateCategoryParams) (db.UpdateCategoryRow, error)
-	updateSystemCategoryColor       func(context.Context, db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error)
-	deleteCategoryAndReassign       func(context.Context, db.DeleteCategoryAndReassignParams) error
-	listPaymentMethods              func(context.Context, uuid.UUID) ([]db.ListPaymentMethodsRow, error)
-	createPaymentMethod             func(context.Context, db.CreatePaymentMethodParams) (db.PaymentMethod, error)
-	updatePaymentMethod             func(context.Context, db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
-	getPaymentMethod                func(context.Context, uuid.UUID) (db.PaymentMethod, error)
-	deletePaymentMethodAndReassign  func(context.Context, db.DeletePaymentMethodAndReassignParams) error
-	deleteSavingsSourceTransactions func(context.Context, db.DeleteSavingsSourceTransactionsParams) error
-	markAsPaid                      func(context.Context, db.MarkTransactionAsPaidParams) (db.Transaction, error)
-	unmarkAsPaid                    func(context.Context, db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
+	list                                func(context.Context, db.ListTransactionsParams) ([]db.Transaction, error)
+	listFixedRecurring                  func(context.Context, uuid.UUID) ([]db.Transaction, error)
+	getByID                             func(context.Context, uuid.UUID) (db.Transaction, error)
+	create                              func(context.Context, db.CreateTransactionParams) (db.Transaction, error)
+	update                              func(context.Context, db.UpdateTransactionParams) (db.Transaction, error)
+	delete                              func(context.Context, db.DeleteTransactionParams) error
+	getCategory                         func(context.Context, int32) (db.GetCategoryRow, error)
+	listCategories                      func(context.Context, uuid.UUID) ([]db.ListCategoriesRow, error)
+	listCategoriesForBudget             func(context.Context, uuid.UUID, uuid.UUID) ([]db.ListCategoriesRow, error)
+	createCategory                      func(context.Context, db.CreateCategoryParams) (db.CreateCategoryRow, error)
+	updateCategory                      func(context.Context, db.UpdateCategoryParams) (db.UpdateCategoryRow, error)
+	updateSystemCategoryColor           func(context.Context, db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error)
+	deleteCategoryAndReassign           func(context.Context, db.DeleteCategoryAndReassignParams) error
+	listPaymentMethods                  func(context.Context, uuid.UUID) ([]db.ListPaymentMethodsRow, error)
+	createPaymentMethod                 func(context.Context, db.CreatePaymentMethodParams) (db.PaymentMethod, error)
+	updatePaymentMethod                 func(context.Context, db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
+	getPaymentMethod                    func(context.Context, uuid.UUID) (db.PaymentMethod, error)
+	deletePaymentMethodAndReassign      func(context.Context, db.DeletePaymentMethodAndReassignParams) error
+	deleteSavingsSourceTransactions     func(context.Context, db.DeleteSavingsSourceTransactionsParams) error
+	markAsPaid                          func(context.Context, db.MarkTransactionAsPaidParams) (db.Transaction, error)
+	unmarkAsPaid                        func(context.Context, db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
+	createPaymentMethodFromPlaid        func(context.Context, db.CreatePaymentMethodFromPlaidParams) (db.PaymentMethod, error)
+	getPaymentMethodByPlaidAccountID    func(context.Context, string) (db.PaymentMethod, error)
+	getPaymentMethodByUserAndName       func(context.Context, uuid.UUID, string) (db.PaymentMethod, error)
+	updatePaymentMethodPlaidAccountID   func(context.Context, uuid.UUID, string) error
+	listActivePaymentMethodsByPlaidItem func(context.Context, uuid.UUID) ([]db.PaymentMethod, error)
+	deactivatePaymentMethod             func(context.Context, uuid.UUID) error
 }
 
 // ── Mock fixed expense repo ───────────────────────────────────────────────────
@@ -292,18 +298,44 @@ func (m *mockTransactionRepo) DeleteTransactionByPlaidID(ctx context.Context, pl
 }
 
 func (m *mockTransactionRepo) CreatePaymentMethodFromPlaid(ctx context.Context, arg db.CreatePaymentMethodFromPlaidParams) (db.PaymentMethod, error) {
+	if m.createPaymentMethodFromPlaid != nil {
+		return m.createPaymentMethodFromPlaid(ctx, arg)
+	}
 	return db.PaymentMethod{}, nil
 }
 
 func (m *mockTransactionRepo) GetPaymentMethodByPlaidAccountID(ctx context.Context, plaidAccountID string) (db.PaymentMethod, error) {
+	if m.getPaymentMethodByPlaidAccountID != nil {
+		return m.getPaymentMethodByPlaidAccountID(ctx, plaidAccountID)
+	}
 	return db.PaymentMethod{}, apperr.NotFound("payment_method", plaidAccountID)
 }
 
-func (m *mockTransactionRepo) GetPaymentMethodByUserAndName(_ context.Context, _ uuid.UUID, _ string) (db.PaymentMethod, error) {
+func (m *mockTransactionRepo) GetPaymentMethodByUserAndName(ctx context.Context, userID uuid.UUID, name string) (db.PaymentMethod, error) {
+	if m.getPaymentMethodByUserAndName != nil {
+		return m.getPaymentMethodByUserAndName(ctx, userID, name)
+	}
 	return db.PaymentMethod{}, apperr.NotFound("payment_method", "name")
 }
 
-func (m *mockTransactionRepo) UpdatePaymentMethodPlaidAccountID(_ context.Context, _ uuid.UUID, _ string) error {
+func (m *mockTransactionRepo) UpdatePaymentMethodPlaidAccountID(ctx context.Context, id uuid.UUID, plaidAccountID string) error {
+	if m.updatePaymentMethodPlaidAccountID != nil {
+		return m.updatePaymentMethodPlaidAccountID(ctx, id, plaidAccountID)
+	}
+	return nil
+}
+
+func (m *mockTransactionRepo) ListActivePaymentMethodsByPlaidItem(ctx context.Context, plaidItemID uuid.UUID) ([]db.PaymentMethod, error) {
+	if m.listActivePaymentMethodsByPlaidItem != nil {
+		return m.listActivePaymentMethodsByPlaidItem(ctx, plaidItemID)
+	}
+	return nil, nil
+}
+
+func (m *mockTransactionRepo) DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) error {
+	if m.deactivatePaymentMethod != nil {
+		return m.deactivatePaymentMethod(ctx, id)
+	}
 	return nil
 }
 
