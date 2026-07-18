@@ -136,7 +136,7 @@ jobs:
           ARGS=(
             http plaid-sync-trigger
             --location=${{ env.REGION }}
-            --schedule="0 9 * * 1,3,5"
+            --schedule="0 9 * * *"
             --uri="$URI"
             --message-body=""
             --oauth-service-account-email="$SA"
