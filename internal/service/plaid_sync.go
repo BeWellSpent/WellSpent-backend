@@ -122,6 +122,7 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 			log.Printf("plaid item %s: insert tx %s: %v", item.ID, tx.PlaidID, err)
 			continue
 		}
+		log.Printf("plaid item %s: imported %q  %s  $%.2f  category=%q", item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount, categoryName)
 		importedAdded++
 
 		bestScore, bestFE, bestAliasHit, bestAmountOK := syncScoreBestMatch(tx, categoryID, paymentMethodID, fixedExpenses, aliasesByFE)

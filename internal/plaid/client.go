@@ -3,9 +3,11 @@ package plaid
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	plaidSDK "github.com/plaid/plaid-go/v20/plaid"
+	"go.uber.org/zap"
 )
 
 // Account is a Plaid-linked bank account normalised for SpendSense.
@@ -50,9 +52,24 @@ type client struct {
 	api *plaidSDK.APIClient
 }
 
+// Options configures the HTTP-level behavior of a live Plaid client — request/
+// response logging and retry-on-failure. MaxRetries/RetryDelay fall back to
+// NewLoggingRetryTransport's defaults (3 retries, 5s apart) when zero.
+// RedactSensitive has no implicit default here — callers should resolve it
+// from config (PLAID_LOG_REDACT_SENSITIVE, default "true" — see
+// internal/config) before constructing Options, since these are bank-account
+// credentials and "safe by default" shouldn't depend on remembering to set a
+// field.
+type Options struct {
+	Logger          *zap.Logger
+	RedactSensitive bool
+	MaxRetries      int
+	RetryDelay      time.Duration
+}
+
 // New builds a live Plaid API client.
 // env must be "sandbox" or "production".
-func New(clientID, secret, env string) (Client, error) {
+func New(clientID, secret, env string, opts Options) (Client, error) {
 	cfg := plaidSDK.NewConfiguration()
 	cfg.AddDefaultHeader("PLAID-CLIENT-ID", clientID)
 	cfg.AddDefaultHeader("PLAID-SECRET", secret)
@@ -62,6 +79,15 @@ func New(clientID, secret, env string) (Client, error) {
 		cfg.UseEnvironment(plaidSDK.Production)
 	default:
 		cfg.UseEnvironment(plaidSDK.Sandbox)
+	}
+
+	cfg.HTTPClient = &http.Client{
+		Transport: NewLoggingRetryTransport(nil, TransportConfig{
+			Logger:          opts.Logger,
+			RedactSensitive: opts.RedactSensitive,
+			MaxRetries:      opts.MaxRetries,
+			RetryDelay:      opts.RetryDelay,
+		}),
 	}
 
 	return &client{api: plaidSDK.NewAPIClient(cfg)}, nil

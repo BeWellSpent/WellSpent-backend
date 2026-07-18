@@ -121,11 +121,11 @@ SELECT id, user_id, budget_profile_id, access_token, item_id, institution_id, in
        status, cursor, last_synced_at, created_at
 FROM plaid_item
 WHERE status = 'active'
-  AND (last_synced_at IS NULL OR last_synced_at < NOW() - INTERVAL '3 days')
+  AND (last_synced_at IS NULL OR last_synced_at < NOW() - INTERVAL '1 day')
 ORDER BY last_synced_at ASC NULLS FIRST
 `
 
-// Returns all active items due for a sync (never synced, or last sync older than 3 days).
+// Returns all active items due for a sync (never synced, or last sync older than 1 day).
 func (q *Queries) ListActivePlaidItemsForSync(ctx context.Context) ([]PlaidItem, error) {
 	rows, err := q.db.Query(ctx, listActivePlaidItemsForSync)
 	if err != nil {

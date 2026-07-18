@@ -69,3 +69,17 @@ func (h *AuthHandler) ExchangeGoogleCode(ctx context.Context, req *connect.Reque
 		Currency:    result.Currency,
 	}), nil
 }
+
+func (h *AuthHandler) VerifyEmail(ctx context.Context, req *connect.Request[v1.VerifyEmailRequest]) (*connect.Response[v1.VerifyEmailResponse], error) {
+	if err := h.svc.VerifyEmail(ctx, req.Msg.Token); err != nil {
+		return nil, toConnectError(err)
+	}
+	return connect.NewResponse(&v1.VerifyEmailResponse{Success: true}), nil
+}
+
+func (h *AuthHandler) ResendVerificationEmail(ctx context.Context, req *connect.Request[v1.ResendVerificationEmailRequest]) (*connect.Response[v1.ResendVerificationEmailResponse], error) {
+	if err := h.svc.ResendVerificationEmail(ctx, req.Msg.Email); err != nil {
+		return nil, toConnectError(err)
+	}
+	return connect.NewResponse(&v1.ResendVerificationEmailResponse{}), nil
+}
