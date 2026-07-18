@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -182,6 +183,18 @@ const transactionsSyncMutationDuringPagination = "TRANSACTIONS_SYNC_MUTATION_DUR
 func (c *client) SyncTransactions(ctx context.Context, accessToken, cursor string) ([]Transaction, []Transaction, []string, string, error) {
 	var err error
 	for attempt := 0; attempt <= maxSyncPaginationRestarts; attempt++ {
+		if attempt > 0 {
+			// Plaid data is still mutating — wait before retrying so the
+			// underlying changes have time to settle. Without this pause the
+			// restarts hammer the same in-flux data and fail identically.
+			delay := time.Duration(attempt) * 2 * time.Second
+			log.Printf("plaid: TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION (attempt %d/%d) — waiting %s before restart", attempt, maxSyncPaginationRestarts, delay)
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, nil, nil, "", ctx.Err()
+			}
+		}
 		var added, modified []Transaction
 		var removedIDs []string
 		var nextCursor string
@@ -193,6 +206,7 @@ func (c *client) SyncTransactions(ctx context.Context, accessToken, cursor strin
 			return nil, nil, nil, "", err
 		}
 	}
+	log.Printf("plaid: TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION: all %d restart attempts exhausted", maxSyncPaginationRestarts+1)
 	return nil, nil, nil, "", err
 }
 
