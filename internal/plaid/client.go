@@ -2,6 +2,7 @@ package plaid
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -167,32 +168,82 @@ func (c *client) GetAccounts(ctx context.Context, accessToken string) ([]Account
 	return accounts, institutionID, nil
 }
 
+// maxSyncPaginationRestarts bounds how many times SyncTransactions will
+// restart a full paginated fetch after a TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION
+// error, Plaid's documented recovery for that error.
+const maxSyncPaginationRestarts = 3
+
+// transactionsSyncMutationDuringPagination is returned by Plaid when the
+// underlying transaction data changes while a multi-page /transactions/sync
+// fetch is in progress. Plaid's guidance: discard the in-progress pages and
+// restart the whole fetch from the cursor you started with.
+const transactionsSyncMutationDuringPagination = "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION"
+
 func (c *client) SyncTransactions(ctx context.Context, accessToken, cursor string) ([]Transaction, []Transaction, []string, string, error) {
-	req := plaidSDK.NewTransactionsSyncRequest(accessToken)
-	if cursor != "" {
-		req.SetCursor(cursor)
+	var err error
+	for attempt := 0; attempt <= maxSyncPaginationRestarts; attempt++ {
+		var added, modified []Transaction
+		var removedIDs []string
+		var nextCursor string
+		added, modified, removedIDs, nextCursor, err = c.syncTransactionsAllPages(ctx, accessToken, cursor)
+		if err == nil {
+			return added, modified, removedIDs, nextCursor, nil
+		}
+		if !isMutationDuringPagination(err) {
+			return nil, nil, nil, "", err
+		}
 	}
-	// Explicitly request personal_finance_category — without this flag some
-	// Plaid integrations return nil PFC, causing the credit-card-payment filter
-	// to silently pass through those transactions.
-	opts := plaidSDK.NewTransactionsSyncRequestOptions()
-	opts.SetIncludePersonalFinanceCategory(true)
-	req.SetOptions(*opts)
+	return nil, nil, nil, "", err
+}
 
-	resp, _, err := c.api.PlaidApi.TransactionsSync(ctx).TransactionsSyncRequest(*req).Execute()
-	if err != nil {
-		return nil, nil, nil, "", fmt.Errorf("plaid: sync transactions: %w", err)
-	}
-
-	added := toTransactions(resp.GetAdded())
-	modified := toTransactions(resp.GetModified())
-
+// syncTransactionsAllPages drains every page of a single logical sync
+// starting at cursor, following has_more until Plaid reports no more pages.
+// Persisting an intermediate (has_more=true) cursor is unsafe — per Plaid's
+// docs, only the cursor returned once has_more is false is guaranteed
+// stable/durable, and stopping early both silently drops any changes beyond
+// the first page and risks a MUTATION_DURING_PAGINATION error on the next
+// scheduled sync.
+func (c *client) syncTransactionsAllPages(ctx context.Context, accessToken, cursor string) ([]Transaction, []Transaction, []string, string, error) {
+	var added, modified []Transaction
 	var removedIDs []string
-	for _, r := range resp.GetRemoved() {
-		removedIDs = append(removedIDs, r.GetTransactionId())
-	}
 
-	return added, modified, removedIDs, resp.GetNextCursor(), nil
+	for {
+		req := plaidSDK.NewTransactionsSyncRequest(accessToken)
+		if cursor != "" {
+			req.SetCursor(cursor)
+		}
+		// Explicitly request personal_finance_category — without this flag some
+		// Plaid integrations return nil PFC, causing the credit-card-payment filter
+		// to silently pass through those transactions.
+		opts := plaidSDK.NewTransactionsSyncRequestOptions()
+		opts.SetIncludePersonalFinanceCategory(true)
+		req.SetOptions(*opts)
+
+		resp, _, err := c.api.PlaidApi.TransactionsSync(ctx).TransactionsSyncRequest(*req).Execute()
+		if err != nil {
+			return nil, nil, nil, "", fmt.Errorf("plaid: sync transactions: %w", err)
+		}
+
+		added = append(added, toTransactions(resp.GetAdded())...)
+		modified = append(modified, toTransactions(resp.GetModified())...)
+		for _, r := range resp.GetRemoved() {
+			removedIDs = append(removedIDs, r.GetTransactionId())
+		}
+
+		cursor = resp.GetNextCursor()
+		if !resp.GetHasMore() {
+			return added, modified, removedIDs, cursor, nil
+		}
+	}
+}
+
+func isMutationDuringPagination(err error) bool {
+	var apiErr plaidSDK.GenericOpenAPIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	plaidErr, ok := apiErr.Model().(plaidSDK.PlaidError)
+	return ok && plaidErr.GetErrorCode() == transactionsSyncMutationDuringPagination
 }
 
 // isCreditCardPayment returns true for transactions that represent a credit
