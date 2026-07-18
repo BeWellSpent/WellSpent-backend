@@ -71,7 +71,12 @@ func main() {
 
 	var plaidSvc *service.PlaidService
 	if cfg.PlaidClientID != "" && cfg.PlaidSecret != "" {
-		pc, pcErr := plaidclient.New(cfg.PlaidClientID, cfg.PlaidSecret, cfg.PlaidEnv)
+		pc, pcErr := plaidclient.New(cfg.PlaidClientID, cfg.PlaidSecret, cfg.PlaidEnv, plaidclient.Options{
+			Logger:          logger,
+			RedactSensitive: cfg.PlaidLogRedactSensitive,
+			MaxRetries:      cfg.PlaidHTTPMaxRetries,
+			RetryDelay:      cfg.PlaidHTTPRetryDelay,
+		})
 		if pcErr != nil {
 			log.Fatalf("plaid: init client: %v", pcErr)
 		}

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
@@ -25,6 +26,17 @@ type Config struct {
 	PlaidSecret        string   `envconfig:"PLAID_SECRET"`
 	PlaidEnv           string   `envconfig:"PLAID_ENV" default:"sandbox"`
 	EncryptionKey      string   `envconfig:"ENCRYPTION_KEY"`
+
+	// PlaidHTTPMaxRetries/PlaidHTTPRetryDelay configure the Plaid API HTTP
+	// transport's retry-on-failure (network errors, 429, 5xx — not 4xx,
+	// which won't succeed on retry).
+	PlaidHTTPMaxRetries int           `envconfig:"PLAID_HTTP_MAX_RETRIES" default:"3"`
+	PlaidHTTPRetryDelay time.Duration `envconfig:"PLAID_HTTP_RETRY_DELAY" default:"5s"`
+	// PlaidLogRedactSensitive scrubs client_id/secret/access_token/
+	// public_token/link_token from logged Plaid request/response bodies.
+	// Defaults to true — these are bank-account credentials. The
+	// PLAID-CLIENT-ID/PLAID-SECRET headers are always redacted regardless.
+	PlaidLogRedactSensitive bool `envconfig:"PLAID_LOG_REDACT_SENSITIVE" default:"true"`
 }
 
 func Load() (*Config, error) {
