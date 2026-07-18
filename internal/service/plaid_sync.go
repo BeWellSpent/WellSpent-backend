@@ -70,12 +70,16 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 		period, err := s.budgets.GetPeriodByDate(ctx, item.BudgetProfileID, date)
 		if err != nil {
 			skippedNoPeriod++
+			log.Printf("plaid item %s: skipped %q  %s  $%.2f — no budget period covers this date (plaid_id=%s)",
+				item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount, tx.PlaidID)
 			continue
 		}
 
 		exists, err := s.transactions.ExistsTransactionByPlaidID(ctx, &tx.PlaidID)
 		if err != nil || exists {
 			skippedDuplicate++
+			log.Printf("plaid item %s: skipped %q  %s  $%.2f — already imported (plaid_id=%s)",
+				item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount, tx.PlaidID)
 			continue
 		}
 
@@ -167,13 +171,17 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 			Amount:             amount,
 		}); err != nil {
 			log.Printf("plaid item %s: update tx %s: %v", item.ID, tx.PlaidID, err)
+			continue
 		}
+		log.Printf("plaid item %s: updated %q  %s  $%.2f", item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount)
 	}
 
 	for _, pid := range removedIDs {
 		if err := s.transactions.DeleteTransactionByPlaidID(ctx, &pid); err != nil {
 			log.Printf("plaid item %s: delete tx %s: %v", item.ID, pid, err)
+			continue
 		}
+		log.Printf("plaid item %s: removed tx %s", item.ID, pid)
 	}
 
 	_, err = s.items.UpdateSync(ctx, db.UpdatePlaidItemSyncParams{
