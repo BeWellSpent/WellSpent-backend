@@ -1,10 +1,13 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	plaidclient "github.com/BeWellSpent/wellspent-backend/internal/plaid"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/stretchr/testify/assert"
@@ -107,4 +110,36 @@ func TestSyncResolveCategory_PayrollNameOverridesPFCCategory(t *testing.T) {
 func TestSyncResolveCategory_NonPayrollFallsBackToPFCMapping(t *testing.T) {
 	assert.Equal(t, "Groceries", syncResolveCategory("WHOLE FOODS", "FOOD_AND_DRINK", "FOOD_AND_DRINK_GROCERIES"))
 	assert.Equal(t, "", syncResolveCategory("UNKNOWN MERCHANT", "", ""))
+}
+
+func TestSyncItem_ReturnsErrorWhenCursorPersistFails(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	encrypted, err := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, err)
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return nil, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{
+			updateSync: func(_ context.Context, _ db.UpdatePlaidItemSyncParams) (db.PlaidItem, error) {
+				return db.PlaidItem{}, errors.New("connection reset")
+			},
+		},
+		nil, // budgets — unreached: SyncTransactions returns no added transactions
+		nil, // users — unreached: only used by SyncItem's callers, not SyncItem itself
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+		testEncKey,
+	)
+
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	syncErr := svc.SyncItem(context.Background(), item)
+
+	require.Error(t, syncErr, "a failure to persist the new cursor must surface as a sync failure, not be silently swallowed")
+	assert.Contains(t, syncErr.Error(), "persist cursor")
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math"
 	"strconv"
@@ -195,6 +196,14 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 	log.Printf("plaid item %s: done — +%d imported, %d auto-confirmed, %d queued for review, %d modified, %d removed, %d skipped (no period), %d skipped (duplicate)",
 		item.ID, importedAdded, autoConfirmed, queued, len(modified), len(removedIDs), skippedNoPeriod, skippedDuplicate)
 
+	// A failure here means the transactions above were imported/updated/removed
+	// successfully but the item's cursor wasn't advanced to reflect it — the
+	// next run will re-fetch the same batch from Plaid (harmless, since
+	// plaid_transaction_id dedup skips re-imports) but should still surface as
+	// a failure so it isn't silently retried forever without anyone noticing.
+	if err != nil {
+		return fmt.Errorf("plaid item %s: persist cursor: %w", item.ID, err)
+	}
 	return nil
 }
 
