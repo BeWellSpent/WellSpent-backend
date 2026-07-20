@@ -108,7 +108,7 @@ jobs:
             --image=${{ env.IMAGE }}:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --command=./plaid-sync \
-            --set-env-vars=^|^PLAID_ENV=production|PLAID_SYNC_ALERT_EMAIL=${{ secrets.PLAID_SYNC_ALERT_EMAIL }} \
+            --set-env-vars=PLAID_ENV=production,PLAID_SYNC_ALERT_EMAIL=${{ secrets.PLAID_SYNC_ALERT_EMAIL }} \
             --set-secrets=DATABASE_URL=DATABASE_URL:latest,PLAID_CLIENT_ID=PLAID_CLIENT_ID:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest,RESEND_FROM_EMAIL=RESEND_FROM_EMAIL:latest \
             --max-retries=1 \
             --project=${{ secrets.GCP_PROJECT_ID }}
