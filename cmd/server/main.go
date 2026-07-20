@@ -116,7 +116,12 @@ func main() {
 		AllowCredentials: true,
 	})
 
+	rateLimiter := middleware.NewIPRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
+	cleanupDone := make(chan struct{})
+	defer close(cleanupDone)
+	go rateLimiter.StartCleanup(cleanupDone)
+
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
 	logger.Info("starting server", zap.String("addr", addr), zap.String("env", cfg.Env))
-	log.Fatal(http.ListenAndServe(addr, h2c.NewHandler(corsHandler.Handler(mux), &http2.Server{})))
+	log.Fatal(http.ListenAndServe(addr, h2c.NewHandler(rateLimiter.Middleware(corsHandler.Handler(mux)), &http2.Server{})))
 }

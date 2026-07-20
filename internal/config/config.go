@@ -37,6 +37,13 @@ type Config struct {
 	// Defaults to true — these are bank-account credentials. The
 	// PLAID-CLIENT-ID/PLAID-SECRET headers are always redacted regardless.
 	PlaidLogRedactSensitive bool `envconfig:"PLAID_LOG_REDACT_SENSITIVE" default:"true"`
+
+	// RateLimitRPS/RateLimitBurst configure the per-IP token-bucket applied
+	// to every incoming request, ahead of CORS and routing. Defaults are
+	// generous enough for a single browser session's burst of RPCs on page
+	// load (10+ concurrent list calls) while still bounding flood/scan traffic.
+	RateLimitRPS   float64 `envconfig:"RATE_LIMIT_RPS" default:"10"`
+	RateLimitBurst int     `envconfig:"RATE_LIMIT_BURST" default:"30"`
 }
 
 func Load() (*Config, error) {

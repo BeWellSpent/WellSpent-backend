@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"html"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/BeWellSpent/wellspent-backend/internal/db"
@@ -12,6 +15,7 @@ import (
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	"github.com/BeWellSpent/wellspent-backend/internal/service"
 	sqlcdb "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	resend "github.com/resend/resend-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -81,11 +85,65 @@ func main() {
 
 	log.Printf("syncing %d plaid items", len(items))
 
+	var failures []syncFailure
 	for _, item := range items {
 		if err := svc.SyncItem(ctx, item); err != nil {
 			log.Printf("item %s: sync failed: %v", item.ID, err)
+			failures = append(failures, syncFailure{ItemID: item.ID.String(), Err: err})
 		}
 	}
+
+	if len(failures) == 0 {
+		return
+	}
+
+	resendAPIKey := os.Getenv("RESEND_API_KEY")
+	resendFromEmail := os.Getenv("RESEND_FROM_EMAIL")
+	if resendFromEmail == "" {
+		resendFromEmail = "WellSpent <noreply@wellspent.app>"
+	}
+	alertEmail := os.Getenv("PLAID_SYNC_ALERT_EMAIL")
+
+	if resendAPIKey == "" || alertEmail == "" {
+		log.Printf("plaid-sync: %d item(s) failed but no failure notification sent — set RESEND_API_KEY and PLAID_SYNC_ALERT_EMAIL to enable it", len(failures))
+		return
+	}
+	if err := sendFailureEmail(resendAPIKey, resendFromEmail, alertEmail, failures); err != nil {
+		log.Printf("plaid-sync: failed to send failure notification email: %v", err)
+	} else {
+		log.Printf("plaid-sync: sent failure notification email to %s for %d item(s)", alertEmail, len(failures))
+	}
+}
+
+type syncFailure struct {
+	ItemID string
+	Err    error
+}
+
+// buildFailureEmail renders a plain summary of every item that failed to
+// sync in this run, so an ops recipient can see what broke without digging
+// through Cloud Run logs.
+func buildFailureEmail(failures []syncFailure) (subject, body string) {
+	subject = fmt.Sprintf("WellSpent Plaid sync: %d item(s) failed", len(failures))
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("<p>%d Plaid sync item(s) failed during this run:</p><ul>", len(failures)))
+	for _, f := range failures {
+		sb.WriteString(fmt.Sprintf("<li><code>%s</code>: %s</li>", html.EscapeString(f.ItemID), html.EscapeString(f.Err.Error())))
+	}
+	sb.WriteString("</ul>")
+	return subject, sb.String()
+}
+
+func sendFailureEmail(apiKey, fromEmail, toEmail string, failures []syncFailure) error {
+	subject, body := buildFailureEmail(failures)
+	client := resend.NewClient(apiKey)
+	_, err := client.Emails.Send(&resend.SendEmailRequest{
+		From:    fromEmail,
+		To:      []string{toEmail},
+		Subject: subject,
+		Html:    body,
+	})
+	return err
 }
 
 func envIntDefault(key string, def int) int {
