@@ -58,6 +58,23 @@ jobs:
         with:
           name: gen
           path: gen/
+      - name: Decrypt prod config
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          SOPS_VERSION=3.9.4
+          curl -fsSL -o /tmp/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          sudo install -m 755 /tmp/sops /usr/local/bin/sops
+          mkdir -p ~/.config/sops/age
+          printf '%s\n' "${SOPS_AGE_KEY}" > ~/.config/sops/age/keys.txt
+          sops --decrypt .env.prod.enc > .env.prod
+          set -a; source .env.prod; set +a
+          printf 'FRONTEND_URL=%s\n'           "${FRONTEND_URL}"           >> $GITHUB_ENV
+          printf 'GOOGLE_REDIRECT_URI=%s\n'    "${GOOGLE_REDIRECT_URI}"    >> $GITHUB_ENV
+          printf 'GOOGLE_CLIENT_ID=%s\n'       "${GOOGLE_CLIENT_ID}"       >> $GITHUB_ENV
+          printf 'PLAID_CLIENT_ID=%s\n'        "${PLAID_CLIENT_ID}"        >> $GITHUB_ENV
+          printf 'RESEND_FROM_EMAIL=%s\n'      "${RESEND_FROM_EMAIL}"      >> $GITHUB_ENV
+          printf 'PLAID_SYNC_ALERT_EMAIL=%s\n' "${PLAID_SYNC_ALERT_EMAIL}" >> $GITHUB_ENV
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -79,16 +96,17 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ env.IMAGE }}:${{ github.sha }}
           flags: --allow-unauthenticated --update-env-vars ^|^ENV=prod|CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}|PLAID_ENV=production|RATE_LIMIT_RPS=10|RATE_LIMIT_BURST=30
+          env_vars: |
+            FRONTEND_URL=${{ env.FRONTEND_URL }}
+            GOOGLE_REDIRECT_URI=${{ env.GOOGLE_REDIRECT_URI }}
+            GOOGLE_CLIENT_ID=${{ env.GOOGLE_CLIENT_ID }}
+            PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }}
+            RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }}
           secrets: |
             DATABASE_URL=DATABASE_URL:latest
             JWT_SECRET=JWT_SECRET:latest
-            GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest
             GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
-            GOOGLE_REDIRECT_URI=GOOGLE_REDIRECT_URI:latest
             RESEND_API_KEY=RESEND_API_KEY:latest
-            RESEND_FROM_EMAIL=RESEND_FROM_EMAIL:latest
-            FRONTEND_URL=FRONTEND_URL:latest
-            PLAID_CLIENT_ID=PLAID_CLIENT_ID:latest
             PLAID_SECRET=PLAID_SECRET:latest
             ENCRYPTION_KEY=ENCRYPTION_KEY:latest
 
@@ -108,8 +126,8 @@ jobs:
             --image=${{ env.IMAGE }}:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --command=./plaid-sync \
-            --set-env-vars=PLAID_ENV=production,PLAID_SYNC_ALERT_EMAIL=${{ secrets.PLAID_SYNC_ALERT_EMAIL }} \
-            --set-secrets=DATABASE_URL=DATABASE_URL:latest,PLAID_CLIENT_ID=PLAID_CLIENT_ID:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest,RESEND_FROM_EMAIL=RESEND_FROM_EMAIL:latest \
+            --set-env-vars=PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},PLAID_SYNC_ALERT_EMAIL=${{ env.PLAID_SYNC_ALERT_EMAIL }} \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest \
             --max-retries=1 \
             --project=${{ secrets.GCP_PROJECT_ID }}
 
