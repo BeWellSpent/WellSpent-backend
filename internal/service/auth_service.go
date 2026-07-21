@@ -152,6 +152,13 @@ func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI, lan
 			}
 			isNew = true
 		}
+		if !isNew {
+			// Existing email/password user linking Google for the first time.
+			// Google proved ownership of this address — auto-verify the account.
+			if verifyErr := s.users.MarkVerified(ctx, user.ID); verifyErr != nil {
+				return GoogleExchangeResult{}, fmt.Errorf("auth: mark verified: %w", verifyErr)
+			}
+		}
 		userID = user.ID
 		userLang = user.Language
 		userCurrency = user.Currency
