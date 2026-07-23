@@ -25,6 +25,11 @@ var plaidDetailedToCategory = map[string]string{
 	// TRANSPORTATION — only gas and tolls map to Gas; everything else is Misc
 	"TRANSPORTATION_GAS":   "Gas",
 	"TRANSPORTATION_TOLLS": "Gas",
+
+	// LOAN_PAYMENTS / LOAN_DISBURSEMENTS — credit card payments seen from both
+	// sides of the ledger (outflow from checking, inflow on the card account)
+	"LOAN_PAYMENTS_CREDIT_CARD_PAYMENT":      "Payment",
+	"LOAN_DISBURSEMENTS_OTHER_DISBURSEMENT": "Payment",
 }
 
 // plaidPrimaryToCategory maps Plaid personal_finance_category.primary values
@@ -51,13 +56,15 @@ var plaidPrimaryToCategory = map[string]string{
 	// name-based override, kept as a fallback for accounts where Plaid
 	// doesn't return personal_finance_category data at all).
 	"INCOME": "Income",
-	// TRANSFER_OUT and LOAN_PAYMENTS are intentionally left unmapped — credit
-	// card bill payments are filtered separately (see isCreditCardPayment in
-	// client.go); other transfers/loan payments fall through to uncategorized
-	// rather than being guessed at. TRANSFER_IN is also left unmapped since it
-	// covers ordinary transfers between the user's own accounts, not just
-	// income, and mislabeling those as Income would incorrectly exclude real
-	// inbound transfers from spend totals.
+	// TRANSFER_IN / TRANSFER_OUT map to the Transfer category. Direction
+	// (inbound vs outbound) is captured by positive/negative amount, so a
+	// single category covers both sides.
+	"TRANSFER_IN":  "Transfer",
+	"TRANSFER_OUT": "Transfer",
+	// LOAN_PAYMENTS primary is left unmapped — specific subtypes (credit card
+	// payments) are handled in plaidDetailedToCategory above. Other loan
+	// payments (student loans, car loans) fall through to uncategorized rather
+	// than being guessed at.
 }
 
 // ResolvePlaidCategory returns the SpendSense system category name for a Plaid

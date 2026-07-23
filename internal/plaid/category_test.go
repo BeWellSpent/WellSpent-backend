@@ -12,11 +12,16 @@ func TestResolvePlaidCategory_IncomePrimaryMapsToIncome(t *testing.T) {
 	assert.Equal(t, "Income", ResolvePlaidCategory("INCOME", "INCOME_OTHER_INCOME"))
 }
 
-func TestResolvePlaidCategory_TransferInIsIntentionallyUnmapped(t *testing.T) {
-	// TRANSFER_IN covers ordinary transfers between the user's own accounts,
-	// not just income — mapping it to Income would wrongly exclude real
-	// inbound transfers from spend totals, so it stays uncategorized.
-	assert.Equal(t, "", ResolvePlaidCategory("TRANSFER_IN", "TRANSFER_IN_ACCOUNT_TRANSFER"))
+func TestResolvePlaidCategory_TransfersMappedToTransfer(t *testing.T) {
+	assert.Equal(t, "Transfer", ResolvePlaidCategory("TRANSFER_IN", "TRANSFER_IN_ACCOUNT_TRANSFER"))
+	assert.Equal(t, "Transfer", ResolvePlaidCategory("TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER"))
+}
+
+func TestResolvePlaidCategory_CreditCardPaymentsMappedToPayment(t *testing.T) {
+	// Outflow from checking account
+	assert.Equal(t, "Payment", ResolvePlaidCategory("LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"))
+	// Inflow on the credit card account ("Payment Thank You" entries)
+	assert.Equal(t, "Payment", ResolvePlaidCategory("LOAN_DISBURSEMENTS", "LOAN_DISBURSEMENTS_OTHER_DISBURSEMENT"))
 }
 
 func TestResolvePlaidCategory_DetailedOverridesPrimary(t *testing.T) {
