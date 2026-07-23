@@ -7,6 +7,7 @@ import (
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1181,6 +1182,178 @@ func TestCreateTransaction_ViewerForbidden(t *testing.T) {
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	require.ErrorAs(t, err, &forbidden)
+}
+
+// ── CreateTransaction review-queueing tests ───────────────────────────────────
+
+func TestCreateTransaction_QueuesReview_WhenScoreOver80(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	feID := uuid.New()
+	unpaidTxID := uuid.New()
+	variableType := int32(2)
+	txName := "Netflix"
+	catID := int32(3)
+	pmID := uuid.New()
+
+	var upsertCalled bool
+
+	feAmount := pgtype.Numeric{}
+	_ = feAmount.Scan("15.99")
+	txAmount := pgtype.Numeric{}
+	_ = txAmount.Scan("15.99")
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{
+					ID:              uuid.New(),
+					Name:            &txName,
+					Amount:          txAmount,
+					CategoryID:      &catID,
+					PaymentMethodID: &pmID,
+					BudgetPeriodID:  &periodID,
+				}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				fe := db.FixedExpense{
+					ID:              feID,
+					Name:            "Netflix",
+					PlannedAmount:   feAmount,
+					CategoryID:      &catID,
+					PaymentMethodID: &pmID,
+				}
+				return []db.FixedExpense{fe}, nil
+			},
+			getUnpaidTransaction: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error) {
+				return db.Transaction{ID: unpaidTxID, BudgetPeriodID: &periodID}, nil
+			},
+		},
+		&mockTransactionReviewRepo{
+			upsert: func(_ context.Context, pID, tID, mID uuid.UUID, score float64) (db.TransactionReview, error) {
+				assert.Equal(t, periodID, pID)
+				assert.Equal(t, unpaidTxID, mID)
+				assert.GreaterOrEqual(t, score, 80.0)
+				upsertCalled = true
+				return db.TransactionReview{}, nil
+			},
+		},
+	)
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{
+		BudgetPeriodID:    &periodID,
+		TransactionTypeID: &variableType,
+	}, userID)
+	require.NoError(t, err)
+	assert.True(t, upsertCalled, "expected Upsert to be called for high-scoring match")
+}
+
+func TestCreateTransaction_NoReview_WhenScoreUnder80(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	variableType := int32(2)
+	txName := "Coffee Shop"
+
+	var upsertCalled bool
+
+	feAmount := pgtype.Numeric{}
+	_ = feAmount.Scan("200.00")
+	txAmount := pgtype.Numeric{}
+	_ = txAmount.Scan("5.00")
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{
+					ID:             uuid.New(),
+					Name:           &txName,
+					Amount:         txAmount,
+					BudgetPeriodID: &periodID,
+				}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				fe := db.FixedExpense{ID: uuid.New(), Name: "Rent", PlannedAmount: feAmount}
+				return []db.FixedExpense{fe}, nil
+			},
+		},
+		&mockTransactionReviewRepo{
+			upsert: func(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+				upsertCalled = true
+				return db.TransactionReview{}, nil
+			},
+		},
+	)
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{
+		BudgetPeriodID:    &periodID,
+		TransactionTypeID: &variableType,
+	}, userID)
+	require.NoError(t, err)
+	assert.False(t, upsertCalled, "expected Upsert NOT to be called for low-scoring match")
+}
+
+func TestCreateTransaction_NoReview_ForFixedType(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	fixedType := int32(1)
+
+	var upsertCalled bool
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New(), BudgetPeriodID: &periodID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{
+			upsert: func(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+				upsertCalled = true
+				return db.TransactionReview{}, nil
+			},
+		},
+	)
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{
+		BudgetPeriodID:    &periodID,
+		TransactionTypeID: &fixedType,
+	}, userID)
+	require.NoError(t, err)
+	assert.False(t, upsertCalled, "expected Upsert NOT to be called for fixed transactions")
 }
 
 // ── MarkTransactionForReview tests ────────────────────────────────────────────

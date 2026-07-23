@@ -273,6 +273,44 @@ func syncAmountWithinTolerance(txAmount float64, fe *db.FixedExpense) bool {
 	return err == nil && feAmt.Valid && math.Abs(txAmount-feAmt.Float64) <= syncAmountTolerance
 }
 
+// scoreBestMatch is the generic scoring core shared by both the Plaid sync
+// path and manual CreateTransaction. It scores a transaction (name, amount,
+// category, payment method) against each active fixed expense and returns the
+// best score and the matching expense.
+func scoreBestMatch(name string, amount float64, categoryID *int32, pmID *uuid.UUID, expenses []db.FixedExpense, aliasesByFE map[uuid.UUID][]string) (float64, *db.FixedExpense) {
+	best := 0.0
+	var bestFE *db.FixedExpense
+	nameLower := strings.ToLower(name)
+	for i := range expenses {
+		fe := &expenses[i]
+		score := 0.0
+		if syncAmountWithinTolerance(amount, fe) {
+			score += 40
+		}
+		aliasHit := false
+		for _, alias := range aliasesByFE[fe.ID] {
+			if strings.EqualFold(alias, name) {
+				aliasHit = true
+				break
+			}
+		}
+		if aliasHit || syncNameWordsOverlap(nameLower, strings.ToLower(fe.Name)) {
+			score += 20
+		}
+		if pmID != nil && fe.PaymentMethodID != nil && *pmID == *fe.PaymentMethodID {
+			score += 20
+		}
+		if categoryID != nil && fe.CategoryID != nil && *categoryID == *fe.CategoryID {
+			score += 20
+		}
+		if score > best {
+			best = score
+			bestFE = fe
+		}
+	}
+	return best, bestFE
+}
+
 func syncScoreBestMatch(tx plaidclient.Transaction, categoryID *int32, pmID *uuid.UUID, expenses []db.FixedExpense, aliasesByFE map[uuid.UUID][]string) (float64, *db.FixedExpense, bool, bool) {
 	best := 0.0
 	var bestFE *db.FixedExpense

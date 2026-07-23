@@ -107,7 +107,56 @@ func (s *TransactionService) Create(ctx context.Context, arg db.CreateTransactio
 			return db.Transaction{}, err
 		}
 	}
-	return s.transactions.Create(ctx, arg)
+	tx, err := s.transactions.Create(ctx, arg)
+	if err != nil {
+		return db.Transaction{}, err
+	}
+	isVariable := arg.TransactionTypeID != nil && *arg.TransactionTypeID == 2
+	if isVariable && arg.BudgetPeriodID != nil {
+		s.maybeQueueReview(ctx, tx, *arg.BudgetPeriodID)
+	}
+	return tx, nil
+}
+
+// maybeQueueReview scores a newly-created variable transaction against all
+// active fixed expenses in the budget. If the best match scores ≥ 80 and
+// there is an unpaid fixed transaction for that expense in the period, a
+// review entry is upserted so the user can confirm or dismiss it from the
+// To Review tab. All failures are silently ignored — the transaction has
+// already been saved successfully and review queueing is best-effort.
+func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transaction, periodID uuid.UUID) {
+	if tx.Name == nil {
+		return
+	}
+	period, err := s.profiles.GetPeriodByID(ctx, periodID)
+	if err != nil {
+		return
+	}
+	fixedExpenses, err := s.fixedExpenses.List(ctx, period.BudgetProfileID)
+	if err != nil || len(fixedExpenses) == 0 {
+		return
+	}
+	aliasesByFE := make(map[uuid.UUID][]string, len(fixedExpenses))
+	for _, fe := range fixedExpenses {
+		aliases, _ := s.reviews.ListAliases(ctx, fe.ID)
+		aliasesByFE[fe.ID] = aliases
+	}
+	amountF64 := 0.0
+	if v, vErr := tx.Amount.Float64Value(); vErr == nil && v.Valid {
+		amountF64 = v.Float64
+	}
+	bestScore, bestFE := scoreBestMatch(*tx.Name, amountF64, tx.CategoryID, tx.PaymentMethodID, fixedExpenses, aliasesByFE)
+	if bestScore < 80 || bestFE == nil {
+		return
+	}
+	unpaid, upErr := s.fixedExpenses.GetUnpaidTransaction(ctx, db.GetUnpaidTransactionByFixedExpenseParams{
+		FixedExpenseID:  bestFE.ID,
+		BudgetProfileID: period.BudgetProfileID,
+	})
+	if upErr != nil || unpaid.BudgetPeriodID == nil {
+		return
+	}
+	_, _ = s.reviews.Upsert(ctx, periodID, tx.ID, unpaid.ID, bestScore)
 }
 
 func (s *TransactionService) Update(ctx context.Context, arg db.UpdateTransactionParams, userID uuid.UUID) (db.Transaction, error) {
