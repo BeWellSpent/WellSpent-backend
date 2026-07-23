@@ -140,7 +140,7 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 			_, _ = s.transactions.MarkAsPaid(ctx, db.MarkTransactionAsPaidParams{
 				ID:             unpaid.ID,
 				BudgetPeriodID: *unpaid.BudgetPeriodID,
-				Amount:         unpaid.PlannedAmount,
+				Amount:         amount, // use actual Plaid amount, not template planned amount
 				PaidDate:       unpaid.Date,
 			})
 			// Record the auto-match as a confirmed review — same as a user
