@@ -256,9 +256,8 @@ func (c *client) syncTransactionsAllPages(ctx context.Context, accessToken, curs
 		// number of round trips gives underlying transaction data less time to
 		// change mid-fetch.
 		req.SetCount(maxSyncPageSize)
-		// Explicitly request personal_finance_category — without this flag some
-		// Plaid integrations return nil PFC, causing the credit-card-payment filter
-		// to silently pass through those transactions.
+		// Explicitly request personal_finance_category — needed for category
+		// resolution (Transfer, Payment, Income, etc.) in the sync pipeline.
 		opts := plaidSDK.NewTransactionsSyncRequestOptions()
 		opts.SetIncludePersonalFinanceCategory(true)
 		req.SetOptions(*opts)
@@ -290,27 +289,9 @@ func isMutationDuringPagination(err error) bool {
 	return ok && plaidErr.GetErrorCode() == transactionsSyncMutationDuringPagination
 }
 
-// isCreditCardPayment returns true for transactions that represent a credit
-// card bill payment seen from either account's perspective:
-//   - LOAN_PAYMENTS_CREDIT_CARD_PAYMENT  — outflow from the checking account
-//   - LOAN_DISBURSEMENTS_OTHER_DISBURSEMENT — inflow on the credit card account
-//     ("Payment Thank You" type entries)
-func isCreditCardPayment(t plaidSDK.Transaction) bool {
-	if pfc, ok := t.GetPersonalFinanceCategoryOk(); ok && pfc != nil {
-		d := pfc.GetDetailed()
-		return d == "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT" ||
-			d == "LOAN_DISBURSEMENTS_OTHER_DISBURSEMENT"
-	}
-	return false
-}
-
 func toTransactions(ts []plaidSDK.Transaction) []Transaction {
 	out := make([]Transaction, 0, len(ts))
 	for _, t := range ts {
-		if isCreditCardPayment(t) {
-			continue
-		}
-
 		// Prefer authorized_date (when the user made the purchase) over date
 		// (when the bank settled it). The posted date can be 1–3 days later,
 		// which would mis-route boundary transactions to the wrong period.

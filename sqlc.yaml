@@ -39,6 +39,7 @@ sql:
       - "internal/db/migrations/000034_email_verification.sql"
       - "internal/db/migrations/000035_payment_method_plaid_item.sql"
       - "internal/db/migrations/000036_income_category_and_exclude.sql"
+      - "internal/db/migrations/000037_payment_transfer_categories.sql"
     gen:
       go:
         package: "db"
