@@ -1496,7 +1496,11 @@ func TestConfirmTransactionReview_FixedExpenseMatch_MarksPaidAndSavesAlias(t *te
 	feID := uuid.New()
 	importedName := "NETFLIX.COM"
 
+	importedAmount := pgtype.Numeric{}
+	_ = importedAmount.Scan("800.00")
+
 	var markedPaidID uuid.UUID
+	var markedPaidAmount pgtype.Numeric
 	var aliasFEID uuid.UUID
 	var aliasText string
 	var confirmedStatus string
@@ -1509,10 +1513,11 @@ func TestConfirmTransactionReview_FixedExpenseMatch_MarksPaidAndSavesAlias(t *te
 				if id == matchedTxID {
 					return db.Transaction{ID: matchedTxID, IsPaid: false, BudgetPeriodID: &periodID, FixedExpenseID: &feID}, nil
 				}
-				return db.Transaction{ID: importedTxID, Name: &importedName}, nil
+				return db.Transaction{ID: importedTxID, Name: &importedName, Amount: importedAmount}, nil
 			},
 			markAsPaid: func(_ context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
 				markedPaidID = arg.ID
+				markedPaidAmount = arg.Amount
 				return db.Transaction{ID: arg.ID}, nil
 			},
 			setExcluded: func(_ context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
@@ -1550,6 +1555,9 @@ func TestConfirmTransactionReview_FixedExpenseMatch_MarksPaidAndSavesAlias(t *te
 	err := svc.ConfirmTransactionReview(context.Background(), userID, reviewID, profileID)
 	require.NoError(t, err)
 	assert.Equal(t, matchedTxID, markedPaidID, "should mark the matched transaction paid, not the imported one")
+	paidF, _ := markedPaidAmount.Float64Value()
+	importedF, _ := importedAmount.Float64Value()
+	assert.Equal(t, importedF.Float64, paidF.Float64, "should use the imported tx's actual amount, not the fixed expense planned amount")
 	assert.Equal(t, feID, aliasFEID)
 	assert.Equal(t, importedName, aliasText)
 	assert.Equal(t, "confirmed", confirmedStatus)

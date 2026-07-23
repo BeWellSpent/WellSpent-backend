@@ -428,22 +428,29 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 
 	matchedTx, mErr := s.transactions.GetByID(ctx, review.MatchedTransactionID)
 	if mErr == nil {
+		importedTx, importedTxErr := s.transactions.GetByID(ctx, review.TransactionID)
+
 		// Save alias so future Plaid imports of the same merchant name
 		// auto-confirm — only meaningful when the match target was spawned
 		// from a FixedExpense template; savings-derived transactions have no
 		// template to alias against.
-		if matchedTx.FixedExpenseID != nil {
-			if importedTx, txErr := s.transactions.GetByID(ctx, review.TransactionID); txErr == nil && importedTx.Name != nil {
-				_ = s.reviews.CreateAlias(ctx, *matchedTx.FixedExpenseID, *importedTx.Name)
-			}
+		if importedTxErr == nil && matchedTx.FixedExpenseID != nil && importedTx.Name != nil {
+			_ = s.reviews.CreateAlias(ctx, *matchedTx.FixedExpenseID, *importedTx.Name)
 		}
 
-		// Mark the matched transaction paid if it isn't already.
+		// Mark the matched transaction paid if it isn't already. Use the
+		// imported variable transaction's actual amount (what was really
+		// charged) rather than the planned amount so the overview reflects
+		// the true spend.
 		if !matchedTx.IsPaid && matchedTx.BudgetPeriodID != nil {
+			paidAmount := matchedTx.PlannedAmount
+			if importedTxErr == nil {
+				paidAmount = importedTx.Amount
+			}
 			_, _ = s.transactions.MarkAsPaid(ctx, db.MarkTransactionAsPaidParams{
 				ID:             matchedTx.ID,
 				BudgetPeriodID: *matchedTx.BudgetPeriodID,
-				Amount:         matchedTx.PlannedAmount,
+				Amount:         paidAmount,
 				PaidDate:       matchedTx.Date,
 			})
 		}
