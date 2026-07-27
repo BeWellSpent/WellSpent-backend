@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"log"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/BeWellSpent/wellspent-backend/internal/config"
 	"github.com/BeWellSpent/wellspent-backend/internal/db"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	"github.com/BeWellSpent/wellspent-backend/internal/service"
@@ -17,13 +17,13 @@ import (
 // has ended (end_date < today) and creates the next period, pre-filling recurring
 // income entries and carrying forward fixed+recurring transactions.
 func main() {
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL is required")
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("[FATAL] load config: %v", err)
 	}
 
 	ctx := context.Background()
-	pool, err := db.NewPool(ctx, dbURL)
+	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}
