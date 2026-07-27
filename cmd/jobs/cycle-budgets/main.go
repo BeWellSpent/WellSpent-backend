@@ -43,22 +43,39 @@ func main() {
 
 	profileIDs, err := profileRepo.ListProfileIDsWithExpiredPeriod(ctx, cutoff)
 	if err != nil {
-		log.Fatalf("list expired: %v", err)
+		log.Fatalf("[FATAL] list expired profiles: %v", err)
 	}
 
-	log.Printf("cycling %d profiles", len(profileIDs))
+	log.Printf("[START] found %d profile(s) with an expired period to cycle", len(profileIDs))
+
+	succeeded, failed := 0, 0
 	for _, id := range profileIDs {
-		// CreateBudgetPeriod needs an owner check — use the profile directly.
 		profile, err := profileRepo.GetByID(ctx, id)
 		if err != nil {
-			log.Printf("skip %s: get profile: %v", id, err)
+			log.Printf("[ERROR] %s: failed to load profile: %v", id, err)
+			failed++
 			continue
 		}
-		_, err = svc.CreateBudgetPeriod(ctx, id, profile.UserID)
+
+		log.Printf("[PICK]  %s — %q (%s cycle): starting cycle", id, profile.Name, profile.Cycle)
+
+		period, err := svc.CreateBudgetPeriod(ctx, id, profile.UserID)
 		if err != nil {
-			log.Printf("skip %s: create period: %v", id, err)
+			log.Printf("[ERROR] %s — %q: failed to create next period: %v", id, profile.Name, err)
+			failed++
 			continue
 		}
-		log.Printf("cycled %s", id)
+
+		log.Printf("[OK]    %s — %q: new period %s → %s",
+			id, profile.Name,
+			period.StartDate.Time.Format("2006-01-02"),
+			period.EndDate.Time.Format("2006-01-02"),
+		)
+		succeeded++
+	}
+
+	log.Printf("[DONE]  %d cycled, %d failed", succeeded, failed)
+	if failed > 0 {
+		log.Printf("[WARN]  %d profile(s) failed to cycle — check errors above", failed)
 	}
 }
