@@ -1,4 +1,4 @@
-.PHONY: generate run test build tidy secrets-encrypt secrets-decrypt migrate migrate-down
+.PHONY: generate run cycle test build tidy secrets-encrypt secrets-decrypt migrate migrate-down
 
 ENV ?= dev
 
@@ -8,6 +8,9 @@ generate:
 
 run:
 	ENV=$(ENV) go run ./cmd/server
+
+cycle:
+	ENV=$(ENV) go run ./cmd/jobs/cycle-budgets
 
 build:
 	go build -o bin/server ./cmd/server

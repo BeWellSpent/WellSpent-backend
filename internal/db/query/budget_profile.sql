@@ -78,11 +78,12 @@ WHERE budget_profile_id = $1
 ORDER BY start_date DESC
 LIMIT 1;
 
--- Used by the cycling job to find profiles whose current period just ended.
+-- Used by the cycling job to find profiles whose current period has ended.
+-- Uses <= so budgets that missed one or more cycles are always caught.
 -- name: ListProfileIDsWithLatestPeriodEndingOn :many
 SELECT budget_profile_id
 FROM budget_period bp
-WHERE bp.end_date = $1::date
+WHERE bp.end_date <= $1::date
   AND NOT EXISTS (
     SELECT 1 FROM budget_period bp2
     WHERE bp2.budget_profile_id = bp.budget_profile_id

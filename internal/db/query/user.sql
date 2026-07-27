@@ -1,7 +1,8 @@
 -- name: GetUserByID :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
        country_code, state_code, filing_status, tax_payment_frequency, language, currency,
-       email_verification_token, email_verification_expires_at, email_verification_last_sent_at
+       email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
+       status, active_until
 FROM users
 WHERE id = $1
 LIMIT 1;
@@ -9,7 +10,8 @@ LIMIT 1;
 -- name: GetUserByEmail :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
        country_code, state_code, filing_status, tax_payment_frequency, language, currency,
-       email_verification_token, email_verification_expires_at, email_verification_last_sent_at
+       email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
+       status, active_until
 FROM users
 WHERE email = $1
 LIMIT 1;
@@ -19,7 +21,8 @@ INSERT INTO users (email, hashed_password, first_name, last_name, country_code, 
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
           country_code, state_code, filing_status, tax_payment_frequency, language, currency,
-          email_verification_token, email_verification_expires_at, email_verification_last_sent_at;
+          email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
+          status, active_until;
 
 -- name: UpdateUser :one
 UPDATE users
@@ -34,7 +37,8 @@ SET first_name            = sqlc.arg('first_name'),
 WHERE id = sqlc.arg('id')
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
           country_code, state_code, filing_status, tax_payment_frequency, language, currency,
-          email_verification_token, email_verification_expires_at, email_verification_last_sent_at;
+          email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
+          status, active_until;
 
 -- name: UpdateUserPassword :exec
 UPDATE users
@@ -53,15 +57,24 @@ SET email_verification_token = sqlc.arg('token'),
 WHERE id = sqlc.arg('id')
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
           country_code, state_code, filing_status, tax_payment_frequency, language, currency,
-          email_verification_token, email_verification_expires_at, email_verification_last_sent_at;
+          email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
+          status, active_until;
 
 -- name: GetUserByVerificationToken :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
        country_code, state_code, filing_status, tax_payment_frequency, language, currency,
-       email_verification_token, email_verification_expires_at, email_verification_last_sent_at
+       email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
+       status, active_until
 FROM users
 WHERE email_verification_token = sqlc.arg('token')
 LIMIT 1;
+
+-- name: SoftDeleteUser :exec
+UPDATE users
+SET status       = 'disabled',
+    is_active    = FALSE,
+    active_until = NOW() + INTERVAL '30 days'
+WHERE id = $1;
 
 -- name: MarkUserVerified :exec
 UPDATE users

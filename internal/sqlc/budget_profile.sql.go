@@ -799,7 +799,7 @@ func (q *Queries) ListIncomeSources(ctx context.Context, budgetProfileID uuid.UU
 const listProfileIDsWithLatestPeriodEndingOn = `-- name: ListProfileIDsWithLatestPeriodEndingOn :many
 SELECT budget_profile_id
 FROM budget_period bp
-WHERE bp.end_date = $1::date
+WHERE bp.end_date <= $1::date
   AND NOT EXISTS (
     SELECT 1 FROM budget_period bp2
     WHERE bp2.budget_profile_id = bp.budget_profile_id
@@ -807,7 +807,8 @@ WHERE bp.end_date = $1::date
   )
 `
 
-// Used by the cycling job to find profiles whose current period just ended.
+// Used by the cycling job to find profiles whose current period has ended.
+// Uses <= so budgets that missed one or more cycles are always caught.
 func (q *Queries) ListProfileIDsWithLatestPeriodEndingOn(ctx context.Context, dollar_1 pgtype.Date) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, listProfileIDsWithLatestPeriodEndingOn, dollar_1)
 	if err != nil {
