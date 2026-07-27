@@ -164,6 +164,9 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 			if _, rErr := s.reviews.Create(ctx, periodID, inserted.ID, unpaid.ID, bestScore); rErr == nil {
 				queued++
 				log.Printf("plaid item %s: queued review for %q (score=%.0f, fixed=%q)", item.ID, tx.Name, bestScore, bestFE.Name)
+				if s.notifs != nil {
+					s.notifs.HandleReviewPending(ctx, item.BudgetProfileID, tx.Name)
+				}
 			}
 		}
 	}

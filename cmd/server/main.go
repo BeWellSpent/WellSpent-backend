@@ -56,6 +56,7 @@ func main() {
 	inviteRepo := repository.NewInviteRepository(queries)
 	plaidRepo := repository.NewPlaidRepository(queries)
 	reviewRepo := repository.NewTransactionReviewRepository(queries)
+	notifRepo := repository.NewNotificationRepository(queries)
 
 	// Auth
 	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
@@ -64,8 +65,9 @@ func main() {
 	// Services
 	authSvc := service.NewAuthService(userRepo, jwtSvc, googleOAuth, cfg, logger)
 	userSvc := service.NewUserService(userRepo)
-	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo)
-	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo)
+	notifSvc := service.NewNotificationService(notifRepo, transactionRepo, budgetProfileRepo, allocationRepo, userRepo, cfg, logger)
+	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo).WithNotifications(notifSvc)
+	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo).WithNotifications(notifSvc)
 	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
 	inviteSvc := service.NewInviteService(inviteRepo, budgetProfileRepo, userRepo, cfg, logger)
 
@@ -80,7 +82,7 @@ func main() {
 		if pcErr != nil {
 			log.Fatalf("plaid: init client: %v", pcErr)
 		}
-		plaidSvc = service.NewPlaidService(pc, plaidRepo, budgetProfileRepo, userRepo, transactionRepo, fixedExpenseRepo, reviewRepo, cfg.EncryptionKey)
+		plaidSvc = service.NewPlaidService(pc, plaidRepo, budgetProfileRepo, userRepo, transactionRepo, fixedExpenseRepo, reviewRepo, cfg.EncryptionKey).WithNotifications(notifSvc)
 	}
 
 	// Procedures that don't require authentication

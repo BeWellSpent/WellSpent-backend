@@ -41,6 +41,7 @@ sql:
       - "internal/db/migrations/000036_income_category_and_exclude.sql"
       - "internal/db/migrations/000037_payment_transfer_categories.sql"
       - "internal/db/migrations/000038_account_deletion.sql"
+      - "internal/db/migrations/000039_notifications.sql"
     gen:
       go:
         package: "db"

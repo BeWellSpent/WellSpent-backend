@@ -22,6 +22,12 @@ type PlaidService struct {
 	fixedExpenses repository.FixedExpenseRepository
 	reviews       repository.TransactionReviewRepository
 	encryptionKey string
+	notifs        *NotificationService
+}
+
+func (s *PlaidService) WithNotifications(ns *NotificationService) *PlaidService {
+	s.notifs = ns
+	return s
 }
 
 func NewPlaidService(

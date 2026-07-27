@@ -22,6 +22,7 @@ type BudgetProfileService struct {
 	transactions  repository.TransactionRepository
 	fixedExpenses repository.FixedExpenseRepository
 	users         repository.UserRepository
+	notifs        *NotificationService
 }
 
 func NewBudgetProfileService(
@@ -31,6 +32,11 @@ func NewBudgetProfileService(
 	users repository.UserRepository,
 ) *BudgetProfileService {
 	return &BudgetProfileService{profiles: profiles, transactions: transactions, fixedExpenses: fixedExpenses, users: users}
+}
+
+func (s *BudgetProfileService) WithNotifications(ns *NotificationService) *BudgetProfileService {
+	s.notifs = ns
+	return s
 }
 
 // ── Access helpers ────────────────────────────────────────────────────────────
@@ -297,6 +303,10 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 			TransactionTypeID: &txTypeFixed,
 			FixedExpenseID:    &feID,
 		})
+	}
+
+	if s.notifs != nil {
+		s.notifs.HandlePeriodCreated(ctx, period)
 	}
 
 	return period, nil
