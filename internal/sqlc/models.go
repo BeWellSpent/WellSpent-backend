@@ -9,6 +9,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AlertSubscription struct {
+	ID               uuid.UUID          `json:"id"`
+	UserID           uuid.UUID          `json:"user_id"`
+	BudgetProfileID  uuid.UUID          `json:"budget_profile_id"`
+	AlertType        string             `json:"alert_type"`
+	Channel          string             `json:"channel"`
+	ThresholdPct     pgtype.Numeric     `json:"threshold_pct"`
+	ThresholdScope   *string            `json:"threshold_scope"`
+	CategoryID       *int32             `json:"category_id"`
+	NotifyAllMembers bool               `json:"notify_all_members"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
 type BudgetInvite struct {
 	ID              uuid.UUID          `json:"id"`
 	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
@@ -133,6 +146,17 @@ type IncomeSource struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	PaymentFrequency string             `json:"payment_frequency"`
 	BeforeTax        bool               `json:"before_tax"`
+}
+
+type Notification struct {
+	ID              uuid.UUID          `json:"id"`
+	UserID          uuid.UUID          `json:"user_id"`
+	BudgetProfileID *uuid.UUID         `json:"budget_profile_id"`
+	AlertType       string             `json:"alert_type"`
+	Title           string             `json:"title"`
+	Body            string             `json:"body"`
+	IsRead          bool               `json:"is_read"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
 type OauthAccount struct {

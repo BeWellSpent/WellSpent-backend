@@ -16,10 +16,16 @@ type TransactionService struct {
 	allocations   repository.ExpenseAllocationRepository
 	fixedExpenses repository.FixedExpenseRepository
 	reviews       repository.TransactionReviewRepository
+	notifs        *NotificationService
 }
 
 func NewTransactionService(transactions repository.TransactionRepository, profiles repository.BudgetProfileRepository, allocations repository.ExpenseAllocationRepository, fixedExpenses repository.FixedExpenseRepository, reviews repository.TransactionReviewRepository) *TransactionService {
 	return &TransactionService{transactions: transactions, profiles: profiles, allocations: allocations, fixedExpenses: fixedExpenses, reviews: reviews}
+}
+
+func (s *TransactionService) WithNotifications(ns *NotificationService) *TransactionService {
+	s.notifs = ns
+	return s
 }
 
 // getUserRoleForPeriod returns the caller's effective role for the budget profile
@@ -114,6 +120,9 @@ func (s *TransactionService) Create(ctx context.Context, arg db.CreateTransactio
 	isVariable := arg.TransactionTypeID != nil && *arg.TransactionTypeID == 2
 	if isVariable && arg.BudgetPeriodID != nil {
 		s.maybeQueueReview(ctx, tx, *arg.BudgetPeriodID)
+		if s.notifs != nil {
+			s.notifs.HandleNewTransaction(ctx, tx, *arg.BudgetPeriodID, userID)
+		}
 	}
 	return tx, nil
 }
@@ -157,6 +166,9 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 		return
 	}
 	_, _ = s.reviews.Upsert(ctx, periodID, tx.ID, unpaid.ID, bestScore)
+	if s.notifs != nil && tx.Name != nil {
+		s.notifs.HandleReviewPending(ctx, period.BudgetProfileID, *tx.Name)
+	}
 }
 
 func (s *TransactionService) Update(ctx context.Context, arg db.UpdateTransactionParams, userID uuid.UUID) (db.Transaction, error) {
