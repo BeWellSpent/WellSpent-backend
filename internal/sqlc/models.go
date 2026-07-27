@@ -249,4 +249,6 @@ type User struct {
 	EmailVerificationToken      *uuid.UUID         `json:"email_verification_token"`
 	EmailVerificationExpiresAt  pgtype.Timestamptz `json:"email_verification_expires_at"`
 	EmailVerificationLastSentAt pgtype.Timestamptz `json:"email_verification_last_sent_at"`
+	Status                      string             `json:"status"`
+	ActiveUntil                 pgtype.Timestamptz `json:"active_until"`
 }

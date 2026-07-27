@@ -70,6 +70,9 @@ func (s *AuthService) Login(ctx context.Context, email, password string, remembe
 		return LoginResult{}, apperr.Invalid("invalid email or password")
 	}
 	if !user.IsActive {
+		if user.Status == "disabled" {
+			return LoginResult{}, apperr.Forbidden("account is deactivated — contact support to recover your account")
+		}
 		return LoginResult{}, apperr.Forbidden("account is inactive")
 	}
 	if user.HashedPassword == nil {

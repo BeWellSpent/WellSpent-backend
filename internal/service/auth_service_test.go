@@ -77,6 +77,10 @@ func (m *mockUserRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (m *mockUserRepo) SoftDelete(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
+
 func (m *mockUserRepo) GetOAuthAccount(ctx context.Context, arg db.GetOAuthAccountParams) (db.OauthAccount, error) {
 	if m.getOAuth != nil {
 		return m.getOAuth(ctx, arg)

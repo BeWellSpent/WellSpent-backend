@@ -17,6 +17,7 @@ type UserRepository interface {
 	Update(ctx context.Context, arg db.UpdateUserParams) (db.User, error)
 	UpdatePassword(ctx context.Context, arg db.UpdateUserPasswordParams) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	SoftDelete(ctx context.Context, id uuid.UUID) error
 	GetOAuthAccount(ctx context.Context, arg db.GetOAuthAccountParams) (db.OauthAccount, error)
 	CreateOAuthAccount(ctx context.Context, arg db.CreateOAuthAccountParams) (db.OauthAccount, error)
 	ListEnabledCountries(ctx context.Context) ([]db.ListEnabledCountriesRow, error)
@@ -64,6 +65,10 @@ func (r *userRepository) UpdatePassword(ctx context.Context, arg db.UpdateUserPa
 
 func (r *userRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return r.q.DeleteUser(ctx, id)
+}
+
+func (r *userRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
+	return r.q.SoftDeleteUser(ctx, id)
 }
 
 func (r *userRepository) GetOAuthAccount(ctx context.Context, arg db.GetOAuthAccountParams) (db.OauthAccount, error) {

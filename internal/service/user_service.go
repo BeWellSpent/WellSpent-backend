@@ -88,5 +88,5 @@ func (s *UserService) ChangePassword(ctx context.Context, id uuid.UUID, currentP
 }
 
 func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.users.Delete(ctx, id)
+	return s.users.SoftDelete(ctx, id)
 }
