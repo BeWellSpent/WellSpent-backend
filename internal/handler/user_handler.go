@@ -128,5 +128,17 @@ func toProtoUser(u db.User) *v1.User {
 		TaxPaymentFrequency: v1.TaxPaymentFrequency(u.TaxPaymentFrequency),
 		Language:            u.Language,
 		Currency:            u.Currency,
+		Plan:                accountPlanFromString(u.Plan),
+	}
+}
+
+func accountPlanFromString(plan string) v1.AccountPlan {
+	switch plan {
+	case "pro":
+		return v1.AccountPlan_ACCOUNT_PLAN_PRO
+	case "lifetime":
+		return v1.AccountPlan_ACCOUNT_PLAN_LIFETIME
+	default:
+		return v1.AccountPlan_ACCOUNT_PLAN_FREE
 	}
 }

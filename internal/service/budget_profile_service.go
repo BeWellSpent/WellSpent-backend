@@ -540,6 +540,21 @@ func (s *BudgetProfileService) AddPeople(ctx context.Context, profileID, userID 
 	if err != nil {
 		return nil, err
 	}
+	// Free tier: max 2 active people per budget.
+	if owner, ownerErr := s.users.GetByID(ctx, profile.UserID); ownerErr == nil && owner.Plan == "free" {
+		existing, listErr := s.profiles.ListPeople(ctx, profileID)
+		if listErr == nil {
+			active := 0
+			for _, p := range existing {
+				if p.IsActive {
+					active++
+				}
+			}
+			if active+len(people) > 2 {
+				return nil, apperr.Invalid("free tier: budget is limited to 2 people; upgrade to Pro for unlimited members")
+			}
+		}
+	}
 	var results []db.BudgetToProfileMapping
 	for _, p := range people {
 		// Country constraint: if the person being added is a registered user,
@@ -650,8 +665,26 @@ type IncomeSourceInput struct {
 }
 
 func (s *BudgetProfileService) AddIncomeSource(ctx context.Context, profileID, userID uuid.UUID, inp IncomeSourceInput) (db.IncomeSource, error) {
-	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
+	profile, err := s.assertCollaboratorOrAbove(ctx, profileID, userID)
+	if err != nil {
 		return db.IncomeSource{}, err
+	}
+	// Free tier: max 2 income sources per person.
+	if owner, ownerErr := s.users.GetByID(ctx, profile.UserID); ownerErr == nil && owner.Plan == "free" {
+		existing, listErr := s.profiles.ListIncomeSources(ctx, profileID)
+		if listErr == nil {
+			count := 0
+			for _, src := range existing {
+				sameP := (inp.BudgetPersonID == nil && src.BudgetPersonID == nil) ||
+					(inp.BudgetPersonID != nil && src.BudgetPersonID != nil && *inp.BudgetPersonID == *src.BudgetPersonID)
+				if sameP {
+					count++
+				}
+			}
+			if count >= 2 {
+				return db.IncomeSource{}, apperr.Invalid("free tier: income sources are limited to 2 per person; upgrade to Pro for unlimited")
+			}
+		}
 	}
 	src, err := s.profiles.AddIncomeSource(ctx, db.AddIncomeSourceParams{
 		BudgetProfileID:  profileID,

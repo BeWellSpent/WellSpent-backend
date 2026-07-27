@@ -275,4 +275,5 @@ type User struct {
 	EmailVerificationLastSentAt pgtype.Timestamptz `json:"email_verification_last_sent_at"`
 	Status                      string             `json:"status"`
 	ActiveUntil                 pgtype.Timestamptz `json:"active_until"`
+	Plan                        string             `json:"plan"`
 }
