@@ -49,7 +49,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
           country_code, state_code, filing_status, tax_payment_frequency, language, currency,
           email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-          status, active_until
+          status, active_until, plan
 `
 
 type CreateUserParams struct {
@@ -96,6 +96,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.EmailVerificationLastSentAt,
 		&i.Status,
 		&i.ActiveUntil,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -139,7 +140,7 @@ const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
        country_code, state_code, filing_status, tax_payment_frequency, language, currency,
        email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-       status, active_until
+       status, active_until, plan
 FROM users
 WHERE email = $1
 LIMIT 1
@@ -169,6 +170,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.EmailVerificationLastSentAt,
 		&i.Status,
 		&i.ActiveUntil,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -177,7 +179,7 @@ const getUserByID = `-- name: GetUserByID :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
        country_code, state_code, filing_status, tax_payment_frequency, language, currency,
        email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-       status, active_until
+       status, active_until, plan
 FROM users
 WHERE id = $1
 LIMIT 1
@@ -207,6 +209,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.EmailVerificationLastSentAt,
 		&i.Status,
 		&i.ActiveUntil,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -215,7 +218,7 @@ const getUserByVerificationToken = `-- name: GetUserByVerificationToken :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
        country_code, state_code, filing_status, tax_payment_frequency, language, currency,
        email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-       status, active_until
+       status, active_until, plan
 FROM users
 WHERE email_verification_token = $1
 LIMIT 1
@@ -245,6 +248,7 @@ func (q *Queries) GetUserByVerificationToken(ctx context.Context, token *uuid.UU
 		&i.EmailVerificationLastSentAt,
 		&i.Status,
 		&i.ActiveUntil,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -330,7 +334,7 @@ WHERE id = $4
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
           country_code, state_code, filing_status, tax_payment_frequency, language, currency,
           email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-          status, active_until
+          status, active_until, plan
 `
 
 type SetEmailVerificationTokenParams struct {
@@ -369,6 +373,7 @@ func (q *Queries) SetEmailVerificationToken(ctx context.Context, arg SetEmailVer
 		&i.EmailVerificationLastSentAt,
 		&i.Status,
 		&i.ActiveUntil,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -400,7 +405,7 @@ WHERE id = $9
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
           country_code, state_code, filing_status, tax_payment_frequency, language, currency,
           email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-          status, active_until
+          status, active_until, plan
 `
 
 type UpdateUserParams struct {
@@ -449,6 +454,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.EmailVerificationLastSentAt,
 		&i.Status,
 		&i.ActiveUntil,
+		&i.Plan,
 	)
 	return i, err
 }

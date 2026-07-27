@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/config"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
@@ -89,12 +90,20 @@ func (m *mockNotifRepo) GetUnreadCount(ctx context.Context, userID uuid.UUID) (i
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
 func newTestNotifSvc(notifRepo repository.NotificationRepository, profileRepo repository.BudgetProfileRepository) *NotificationService {
+	return newTestNotifSvcWithUser(notifRepo, profileRepo, &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+			return db.User{Plan: "pro"}, nil
+		},
+	})
+}
+
+func newTestNotifSvcWithUser(notifRepo repository.NotificationRepository, profileRepo repository.BudgetProfileRepository, userRepo *mockUserRepo) *NotificationService {
 	return NewNotificationService(
 		notifRepo,
 		&mockTransactionRepo{},
 		profileRepo,
 		&mockExpenseAllocationRepo{},
-		&mockUserRepo{},
+		userRepo,
 		&config.Config{},
 		zap.NewNop(),
 	)
@@ -262,4 +271,103 @@ func TestNotificationService_GetUnreadCount_Success(t *testing.T) {
 	count, err := svc.GetUnreadCount(context.Background(), userID)
 	require.NoError(t, err)
 	assert.Equal(t, int32(7), count)
+}
+
+func TestUpsertSubscription_FreeTier_BlocksNewTransaction(t *testing.T) {
+	profileID := uuid.New()
+	userID := uuid.New()
+
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: id, UserID: userID}, nil
+		},
+	}
+	userRepo := &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+			return db.User{Plan: "free"}, nil
+		},
+	}
+	svc := newTestNotifSvcWithUser(&mockNotifRepo{}, profileRepo, userRepo)
+
+	_, err := svc.UpsertSubscription(context.Background(), userID, UpsertSubscriptionInput{
+		ProfileID: profileID,
+		AlertType: "new_transaction",
+		Channel:   "in_app",
+	})
+	require.Error(t, err)
+	var valErr *apperr.ValidationError
+	require.ErrorAs(t, err, &valErr)
+}
+
+func TestUpsertSubscription_FreeTier_BlocksThirdSubscription(t *testing.T) {
+	profileID := uuid.New()
+	userID := uuid.New()
+
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: id, UserID: userID}, nil
+		},
+	}
+	userRepo := &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+			return db.User{Plan: "free"}, nil
+		},
+	}
+	notifRepo := &mockNotifRepo{
+		listSubscriptions: func(_ context.Context, _, _ uuid.UUID) ([]db.AlertSubscription, error) {
+			return []db.AlertSubscription{
+				{ID: uuid.New(), AlertType: "spending_threshold"},
+				{ID: uuid.New(), AlertType: "period_created"},
+			}, nil
+		},
+	}
+	svc := newTestNotifSvcWithUser(notifRepo, profileRepo, userRepo)
+
+	_, err := svc.UpsertSubscription(context.Background(), userID, UpsertSubscriptionInput{
+		ProfileID: profileID,
+		AlertType: "review_pending",
+		Channel:   "in_app",
+	})
+	require.Error(t, err)
+	var valErr *apperr.ValidationError
+	require.ErrorAs(t, err, &valErr)
+}
+
+func TestUpsertSubscription_FreeTier_AllowsUpdateExisting(t *testing.T) {
+	profileID := uuid.New()
+	userID := uuid.New()
+	subID := uuid.New()
+
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: id, UserID: userID}, nil
+		},
+	}
+	userRepo := &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+			return db.User{Plan: "free"}, nil
+		},
+	}
+	notifRepo := &mockNotifRepo{
+		listSubscriptions: func(_ context.Context, _, _ uuid.UUID) ([]db.AlertSubscription, error) {
+			return []db.AlertSubscription{
+				{ID: uuid.New(), AlertType: "spending_threshold"},
+				{ID: uuid.New(), AlertType: "period_created"},
+			}, nil
+		},
+		upsertSubscription: func(_ context.Context, _ db.UpsertAlertSubscriptionParams) (db.AlertSubscription, error) {
+			return db.AlertSubscription{ID: subID, AlertType: "spending_threshold"}, nil
+		},
+	}
+	svc := newTestNotifSvcWithUser(notifRepo, profileRepo, userRepo)
+
+	// Updating an existing subscription type should succeed even at the 2-sub limit.
+	sub, err := svc.UpsertSubscription(context.Background(), userID, UpsertSubscriptionInput{
+		ProfileID:    profileID,
+		AlertType:    "spending_threshold",
+		Channel:      "email",
+		ThresholdPct: 80,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, subID, sub.ID)
 }

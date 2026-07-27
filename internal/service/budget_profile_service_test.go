@@ -1620,3 +1620,144 @@ func TestCreateBudgetPeriod_FixedExpense_WeekUnit_SpawnsMultipleDueWeeksWithDedu
 		assert.False(t, d.Equal(alreadySpawned), "already-spawned date should be deduped")
 	}
 }
+
+// ── Free-tier limit tests ─────────────────────────────────────────────────────
+
+func TestAddPeople_FreeTier_RejectsWhenAtLimit(t *testing.T) {
+	ownerID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			},
+			listPeople: func(_ context.Context, _ uuid.UUID) ([]db.BudgetToProfileMapping, error) {
+				return []db.BudgetToProfileMapping{
+					{ID: 1, IsActive: true},
+					{ID: 2, IsActive: true},
+				}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{ID: ownerID, Plan: "free"}, nil
+			},
+		},
+	)
+
+	_, err := svc.AddPeople(context.Background(), profileID, ownerID, []ProfilePersonInput{
+		{UserName: "Alice"},
+	})
+	require.Error(t, err)
+	var inv *apperr.ValidationError
+	assert.True(t, errors.As(err, &inv), "expected ValidationError for free-tier limit")
+}
+
+func TestAddPeople_ProTier_AllowsMoreThanTwo(t *testing.T) {
+	ownerID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			},
+			listPeople: func(_ context.Context, _ uuid.UUID) ([]db.BudgetToProfileMapping, error) {
+				return []db.BudgetToProfileMapping{
+					{ID: 1, IsActive: true},
+					{ID: 2, IsActive: true},
+				}, nil
+			},
+			existsPerson: func(_ context.Context, _ uuid.UUID, _ string) (bool, error) {
+				return false, nil
+			},
+			addPerson: func(_ context.Context, arg db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{ID: 3, UserName: arg.UserName}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{ID: ownerID, Plan: "pro"}, nil
+			},
+		},
+	)
+
+	result, err := svc.AddPeople(context.Background(), profileID, ownerID, []ProfilePersonInput{
+		{UserName: "Alice"},
+	})
+	require.NoError(t, err)
+	assert.Len(t, result, 1)
+}
+
+func TestAddIncomeSource_FreeTier_RejectsWhenAtLimit(t *testing.T) {
+	ownerID := uuid.New()
+	profileID := uuid.New()
+	personID := int32(1)
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			},
+			listIncomeSources: func(_ context.Context, _ uuid.UUID) ([]db.IncomeSource, error) {
+				return []db.IncomeSource{
+					{ID: 1, BudgetPersonID: &personID},
+					{ID: 2, BudgetPersonID: &personID},
+				}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{ID: ownerID, Plan: "free"}, nil
+			},
+		},
+	)
+
+	_, err := svc.AddIncomeSource(context.Background(), profileID, ownerID, IncomeSourceInput{
+		Name:           "Freelance",
+		IncomeType:     "freelance",
+		BudgetPersonID: &personID,
+	})
+	require.Error(t, err)
+	var inv *apperr.ValidationError
+	assert.True(t, errors.As(err, &inv), "expected ValidationError for free-tier limit")
+}
+
+func TestAddIncomeSource_LifetimeTier_AllowsMoreThanTwo(t *testing.T) {
+	ownerID := uuid.New()
+	profileID := uuid.New()
+	personID := int32(1)
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			},
+			addIncomeSource: func(_ context.Context, arg db.AddIncomeSourceParams) (db.IncomeSource, error) {
+				return db.IncomeSource{ID: 3, Name: arg.Name}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{ID: ownerID, Plan: "lifetime"}, nil
+			},
+		},
+	)
+
+	src, err := svc.AddIncomeSource(context.Background(), profileID, ownerID, IncomeSourceInput{
+		Name:           "Freelance",
+		IncomeType:     "freelance",
+		BudgetPersonID: &personID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Freelance", src.Name)
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/config"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
@@ -91,6 +92,29 @@ func (s *NotificationService) UpsertSubscription(ctx context.Context, userID uui
 	if profile.UserID != userID {
 		if _, err := s.profiles.GetPersonByUserID(ctx, inp.ProfileID, userID); err != nil {
 			return db.AlertSubscription{}, err
+		}
+	}
+	// Free tier: new_transaction alerts and more than 2 subscriptions per budget require Pro.
+	caller, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return db.AlertSubscription{}, err
+	}
+	if caller.Plan == "free" {
+		if inp.AlertType == "new_transaction" {
+			return db.AlertSubscription{}, apperr.Invalid("free tier: new_transaction alerts require a Pro subscription")
+		}
+		existing, listErr := s.notifs.ListSubscriptions(ctx, userID, inp.ProfileID)
+		if listErr == nil && len(existing) >= 2 {
+			isUpdate := false
+			for _, sub := range existing {
+				if sub.AlertType == inp.AlertType {
+					isUpdate = true
+					break
+				}
+			}
+			if !isUpdate {
+				return db.AlertSubscription{}, apperr.Invalid("free tier: budget alerts are limited to 2; upgrade to Pro for unlimited")
+			}
 		}
 	}
 

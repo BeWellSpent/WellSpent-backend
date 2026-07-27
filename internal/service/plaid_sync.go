@@ -21,6 +21,11 @@ import (
 // Safe to call from a goroutine; uses a separate context so the caller's request
 // context doesn't cancel the background work.
 func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
+	// Plaid sync requires Pro or Lifetime — skip free-tier accounts.
+	if owner, err := s.users.GetByID(ctx, item.UserID); err == nil && owner.Plan == "free" {
+		log.Printf("plaid sync: skipping item %s — user %s is on free tier", item.ID, item.UserID)
+		return nil
+	}
 	categoryIDs, err := s.transactions.ListSystemCategories(ctx)
 	if err != nil {
 		return err

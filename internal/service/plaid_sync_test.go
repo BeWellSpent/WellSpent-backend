@@ -170,7 +170,11 @@ func TestSyncItem_ReturnsErrorWhenCursorPersistFails(t *testing.T) {
 			},
 		},
 		nil, // budgets — unreached: SyncTransactions returns no added transactions
-		nil, // users — unreached: only used by SyncItem's callers, not SyncItem itself
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{Plan: "pro"}, nil
+			},
+		},
 		&mockTransactionRepo{},
 		&mockFixedExpenseRepo{},
 		&mockTransactionReviewRepo{},
@@ -215,7 +219,11 @@ func TestSyncItem_AutoConfirmedMatch_ExcludesInsteadOfDeleting(t *testing.T) {
 				return db.BudgetPeriod{ID: periodID}, nil
 			},
 		},
-		nil, // users — unreached
+		&mockUserRepo{
+				getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+					return db.User{Plan: "pro"}, nil
+				},
+			},
 		&mockTransactionRepo{
 			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
 				return db.Transaction{ID: insertedTxID}, nil
