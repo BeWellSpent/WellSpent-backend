@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/BeWellSpent/wellspent-backend/internal/config"
+	"github.com/joho/godotenv"
 	"github.com/BeWellSpent/wellspent-backend/internal/db"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	"github.com/BeWellSpent/wellspent-backend/internal/service"
@@ -17,13 +19,22 @@ import (
 // has ended (end_date < today) and creates the next period, pre-filling recurring
 // income entries and carrying forward fixed+recurring transactions.
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("[FATAL] load config: %v", err)
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "dev"
+	}
+	// Overload (not Load) so the file always wins over any stale env var in the shell.
+	if err := godotenv.Overload(fmt.Sprintf(".env.%s", env)); err != nil {
+		log.Printf("[WARN] could not load .env.%s: %v", env, err)
+	}
+
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatalf("[FATAL] DATABASE_URL is not set (checked .env.%s)", env)
 	}
 
 	ctx := context.Background()
-	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
+	pool, err := db.NewPool(ctx, dbURL)
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}
