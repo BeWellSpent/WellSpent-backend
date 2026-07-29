@@ -29,6 +29,9 @@ type notificationRepository struct {
 }
 
 func NewNotificationRepository(q *db.Queries) NotificationRepository {
+	if q == nil {
+		panic("NewNotificationRepository: q is required")
+	}
 	return &notificationRepository{q: q}
 }
 

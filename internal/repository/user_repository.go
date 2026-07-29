@@ -32,6 +32,9 @@ type userRepository struct {
 }
 
 func NewUserRepository(q *db.Queries) UserRepository {
+	if q == nil {
+		panic("NewUserRepository: q is required")
+	}
 	return &userRepository{q: q}
 }
 

@@ -169,7 +169,7 @@ func TestSyncItem_ReturnsErrorWhenCursorPersistFails(t *testing.T) {
 				return db.PlaidItem{}, errors.New("connection reset")
 			},
 		},
-		nil, // budgets — unreached: SyncTransactions returns no added transactions
+		&mockBudgetProfileRepo{}, // budgets — unreached: SyncTransactions returns no added transactions
 		&mockUserRepo{
 			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
 				return db.User{Plan: "pro"}, nil

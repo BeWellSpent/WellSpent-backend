@@ -18,6 +18,9 @@ type UserHandler struct {
 }
 
 func NewUserHandler(svc *service.UserService) *UserHandler {
+	if svc == nil {
+		panic("NewUserHandler: svc is required")
+	}
 	return &UserHandler{svc: svc}
 }
 

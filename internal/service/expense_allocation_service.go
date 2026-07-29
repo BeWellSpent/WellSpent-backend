@@ -19,6 +19,12 @@ func NewExpenseAllocationService(
 	allocations repository.ExpenseAllocationRepository,
 	profiles repository.BudgetProfileRepository,
 ) *ExpenseAllocationService {
+	if allocations == nil {
+		panic("NewExpenseAllocationService: allocations is required")
+	}
+	if profiles == nil {
+		panic("NewExpenseAllocationService: profiles is required")
+	}
 	return &ExpenseAllocationService{allocations: allocations, profiles: profiles}
 }
 

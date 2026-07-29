@@ -40,6 +40,30 @@ func NewPlaidService(
 	reviews repository.TransactionReviewRepository,
 	encryptionKey string,
 ) *PlaidService {
+	if plaid == nil {
+		panic("NewPlaidService: plaid is required")
+	}
+	if items == nil {
+		panic("NewPlaidService: items is required")
+	}
+	if budgets == nil {
+		panic("NewPlaidService: budgets is required")
+	}
+	if users == nil {
+		panic("NewPlaidService: users is required")
+	}
+	if transactions == nil {
+		panic("NewPlaidService: transactions is required")
+	}
+	if fixedExpenses == nil {
+		panic("NewPlaidService: fixedExpenses is required")
+	}
+	if reviews == nil {
+		panic("NewPlaidService: reviews is required")
+	}
+	if encryptionKey == "" {
+		panic("NewPlaidService: encryptionKey is required")
+	}
 	return &PlaidService{
 		plaid:         plaid,
 		items:         items,

@@ -29,6 +29,9 @@ type fixedExpenseRepository struct {
 }
 
 func NewFixedExpenseRepository(q *db.Queries) FixedExpenseRepository {
+	if q == nil {
+		panic("NewFixedExpenseRepository: q is required")
+	}
 	return &fixedExpenseRepository{q: q}
 }
 

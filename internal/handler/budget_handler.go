@@ -22,6 +22,15 @@ type BudgetHandler struct {
 }
 
 func NewBudgetHandler(profiles *service.BudgetProfileService, transactions *service.TransactionService, allocations *service.ExpenseAllocationService) *BudgetHandler {
+	if profiles == nil {
+		panic("NewBudgetHandler: profiles is required")
+	}
+	if transactions == nil {
+		panic("NewBudgetHandler: transactions is required")
+	}
+	if allocations == nil {
+		panic("NewBudgetHandler: allocations is required")
+	}
 	return &BudgetHandler{profiles: profiles, transactions: transactions, allocations: allocations}
 }
 

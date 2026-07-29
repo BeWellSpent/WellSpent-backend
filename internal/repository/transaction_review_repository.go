@@ -30,6 +30,9 @@ type transactionReviewRepository struct {
 }
 
 func NewTransactionReviewRepository(q *db.Queries) TransactionReviewRepository {
+	if q == nil {
+		panic("NewTransactionReviewRepository: q is required")
+	}
 	return &transactionReviewRepository{q: q}
 }
 

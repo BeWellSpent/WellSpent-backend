@@ -27,6 +27,9 @@ type plaidRepository struct {
 }
 
 func NewPlaidRepository(q *db.Queries) PlaidRepository {
+	if q == nil {
+		panic("NewPlaidRepository: q is required")
+	}
 	return &plaidRepository{q: q}
 }
 

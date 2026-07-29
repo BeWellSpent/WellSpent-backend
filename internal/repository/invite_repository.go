@@ -23,6 +23,9 @@ type inviteRepository struct {
 }
 
 func NewInviteRepository(q *db.Queries) InviteRepository {
+	if q == nil {
+		panic("NewInviteRepository: q is required")
+	}
 	return &inviteRepository{q: q}
 }
 

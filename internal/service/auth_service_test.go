@@ -139,7 +139,8 @@ func testJWT() *auth.JWTService {
 func newAuthSvc(repo *mockUserRepo) *AuthService {
 	// Empty ResendAPIKey routes sendVerificationEmail into its
 	// no-op "skipped" branch, so tests don't need a real Resend client.
-	return NewAuthService(repo, testJWT(), nil, &config.Config{}, zap.NewNop())
+	// Empty Google OAuth credentials are fine — no test exercises the OAuth flow.
+	return NewAuthService(repo, testJWT(), auth.NewGoogleOAuth("", "", ""), &config.Config{}, zap.NewNop())
 }
 
 func hashFor(t *testing.T, password string) string {

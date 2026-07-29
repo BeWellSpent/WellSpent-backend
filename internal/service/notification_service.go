@@ -34,6 +34,27 @@ func NewNotificationService(
 	cfg *config.Config,
 	log *zap.Logger,
 ) *NotificationService {
+	if notifs == nil {
+		panic("NewNotificationService: notifs is required")
+	}
+	if transactions == nil {
+		panic("NewNotificationService: transactions is required")
+	}
+	if profiles == nil {
+		panic("NewNotificationService: profiles is required")
+	}
+	if allocations == nil {
+		panic("NewNotificationService: allocations is required")
+	}
+	if users == nil {
+		panic("NewNotificationService: users is required")
+	}
+	if cfg == nil {
+		panic("NewNotificationService: cfg is required")
+	}
+	if log == nil {
+		panic("NewNotificationService: log is required")
+	}
 	return &NotificationService{
 		notifs:       notifs,
 		transactions: transactions,

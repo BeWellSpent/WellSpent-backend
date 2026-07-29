@@ -33,6 +33,21 @@ func NewInviteService(
 	cfg *config.Config,
 	log *zap.Logger,
 ) *InviteService {
+	if invites == nil {
+		panic("NewInviteService: invites is required")
+	}
+	if profiles == nil {
+		panic("NewInviteService: profiles is required")
+	}
+	if users == nil {
+		panic("NewInviteService: users is required")
+	}
+	if cfg == nil {
+		panic("NewInviteService: cfg is required")
+	}
+	if log == nil {
+		panic("NewInviteService: log is required")
+	}
 	return &InviteService{invites: invites, profiles: profiles, users: users, cfg: cfg, log: log}
 }
 
