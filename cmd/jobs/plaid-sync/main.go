@@ -62,6 +62,7 @@ func main() {
 	queries := sqlcdb.New(pool)
 	plaidRepo := repository.NewPlaidRepository(queries)
 	budgetRepo := repository.NewBudgetProfileRepository(queries)
+	userRepo := repository.NewUserRepository(queries)
 	txRepo := repository.NewTransactionRepository(queries)
 	feRepo := repository.NewFixedExpenseRepository(queries)
 	reviewRepo := repository.NewTransactionReviewRepository(queries)
@@ -76,7 +77,7 @@ func main() {
 		log.Fatalf("plaid: init client: %v", err)
 	}
 
-	svc := service.NewPlaidService(pc, plaidRepo, budgetRepo, nil, txRepo, feRepo, reviewRepo, encryptionKey)
+	svc := service.NewPlaidService(pc, plaidRepo, budgetRepo, userRepo, txRepo, feRepo, reviewRepo, encryptionKey)
 
 	items, err := plaidRepo.ListActiveForSync(ctx)
 	if err != nil {
