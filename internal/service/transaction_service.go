@@ -20,6 +20,21 @@ type TransactionService struct {
 }
 
 func NewTransactionService(transactions repository.TransactionRepository, profiles repository.BudgetProfileRepository, allocations repository.ExpenseAllocationRepository, fixedExpenses repository.FixedExpenseRepository, reviews repository.TransactionReviewRepository) *TransactionService {
+	if transactions == nil {
+		panic("NewTransactionService: transactions is required")
+	}
+	if profiles == nil {
+		panic("NewTransactionService: profiles is required")
+	}
+	if allocations == nil {
+		panic("NewTransactionService: allocations is required")
+	}
+	if fixedExpenses == nil {
+		panic("NewTransactionService: fixedExpenses is required")
+	}
+	if reviews == nil {
+		panic("NewTransactionService: reviews is required")
+	}
 	return &TransactionService{transactions: transactions, profiles: profiles, allocations: allocations, fixedExpenses: fixedExpenses, reviews: reviews}
 }
 

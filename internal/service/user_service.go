@@ -16,6 +16,9 @@ type UserService struct {
 }
 
 func NewUserService(users repository.UserRepository) *UserService {
+	if users == nil {
+		panic("NewUserService: users is required")
+	}
 	return &UserService{users: users}
 }
 

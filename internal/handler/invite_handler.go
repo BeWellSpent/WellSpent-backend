@@ -18,6 +18,9 @@ type InviteHandler struct {
 }
 
 func NewInviteHandler(invites *service.InviteService) *InviteHandler {
+	if invites == nil {
+		panic("NewInviteHandler: invites is required")
+	}
 	return &InviteHandler{invites: invites}
 }
 

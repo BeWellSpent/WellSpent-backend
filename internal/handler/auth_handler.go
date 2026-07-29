@@ -13,6 +13,9 @@ type AuthHandler struct {
 }
 
 func NewAuthHandler(svc *service.AuthService) *AuthHandler {
+	if svc == nil {
+		panic("NewAuthHandler: svc is required")
+	}
 	return &AuthHandler{svc: svc}
 }
 

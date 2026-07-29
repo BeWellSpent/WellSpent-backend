@@ -71,6 +71,9 @@ type budgetProfileRepository struct {
 }
 
 func NewBudgetProfileRepository(q *db.Queries) BudgetProfileRepository {
+	if q == nil {
+		panic("NewBudgetProfileRepository: q is required")
+	}
 	return &budgetProfileRepository{q: q}
 }
 

@@ -18,6 +18,9 @@ type expenseAllocationRepository struct {
 }
 
 func NewExpenseAllocationRepository(q *db.Queries) ExpenseAllocationRepository {
+	if q == nil {
+		panic("NewExpenseAllocationRepository: q is required")
+	}
 	return &expenseAllocationRepository{q: q}
 }
 

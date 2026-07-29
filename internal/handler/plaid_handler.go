@@ -17,6 +17,9 @@ type PlaidHandler struct {
 }
 
 func NewPlaidHandler(svc *service.PlaidService) *PlaidHandler {
+	if svc == nil {
+		panic("NewPlaidHandler: svc is required")
+	}
 	return &PlaidHandler{svc: svc}
 }
 

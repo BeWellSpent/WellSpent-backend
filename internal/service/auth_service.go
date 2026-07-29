@@ -53,6 +53,21 @@ type AuthService struct {
 }
 
 func NewAuthService(users repository.UserRepository, jwt *auth.JWTService, google *auth.GoogleOAuth, cfg *config.Config, log *zap.Logger) *AuthService {
+	if users == nil {
+		panic("NewAuthService: users is required")
+	}
+	if jwt == nil {
+		panic("NewAuthService: jwt is required")
+	}
+	if google == nil {
+		panic("NewAuthService: google is required")
+	}
+	if cfg == nil {
+		panic("NewAuthService: cfg is required")
+	}
+	if log == nil {
+		panic("NewAuthService: log is required")
+	}
 	return &AuthService{users: users, jwt: jwt, google: google, cfg: cfg, log: log}
 }
 

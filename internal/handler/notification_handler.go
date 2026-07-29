@@ -18,6 +18,9 @@ type NotificationHandler struct {
 }
 
 func NewNotificationHandler(svc *service.NotificationService) *NotificationHandler {
+	if svc == nil {
+		panic("NewNotificationHandler: svc is required")
+	}
 	return &NotificationHandler{svc: svc}
 }
 

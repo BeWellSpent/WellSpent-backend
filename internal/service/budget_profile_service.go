@@ -31,6 +31,18 @@ func NewBudgetProfileService(
 	fixedExpenses repository.FixedExpenseRepository,
 	users repository.UserRepository,
 ) *BudgetProfileService {
+	if profiles == nil {
+		panic("NewBudgetProfileService: profiles is required")
+	}
+	if transactions == nil {
+		panic("NewBudgetProfileService: transactions is required")
+	}
+	if fixedExpenses == nil {
+		panic("NewBudgetProfileService: fixedExpenses is required")
+	}
+	if users == nil {
+		panic("NewBudgetProfileService: users is required")
+	}
 	return &BudgetProfileService{profiles: profiles, transactions: transactions, fixedExpenses: fixedExpenses, users: users}
 }
 

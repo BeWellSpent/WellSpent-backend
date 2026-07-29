@@ -158,7 +158,7 @@ func newPlaidSvc(pc plaidclient.Client, plaidRepo *mockPlaidRepo, budgetRepo *mo
 			}
 			return usUser(), nil
 		},
-	}, &mockTransactionRepo{}, nil, nil, testEncKey)
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ func TestPlaid_CreateLinkToken_Success(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, budgetRepo, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, nil, nil, testEncKey)
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
 	result, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, nil)
 	require.NoError(t, err)
@@ -186,7 +186,7 @@ func TestPlaid_CreateLinkToken_NonUS_Forbidden(t *testing.T) {
 
 	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, &mockBudgetProfileRepo{}, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, nil, nil, testEncKey)
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
 	_, err := svc.CreateLinkToken(context.Background(), user.ID, uuid.New(), nil)
 	require.Error(t, err)
@@ -205,7 +205,7 @@ func TestPlaid_ExchangePublicToken_Success(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, budgetRepo, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, nil, nil, testEncKey)
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
 	item, err := svc.ExchangePublicToken(context.Background(), user.ID, profileID, "public-token-sandbox")
 	require.NoError(t, err)
@@ -230,7 +230,7 @@ func TestPlaid_Disconnect_Success(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, plaidRepo, &mockBudgetProfileRepo{}, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, nil, nil, testEncKey)
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
 	err := svc.Disconnect(context.Background(), user.ID, connID)
 	require.NoError(t, err)
@@ -249,7 +249,7 @@ func TestPlaid_Disconnect_WrongUser_Forbidden(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, plaidRepo, &mockBudgetProfileRepo{}, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, nil, nil, testEncKey)
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
 	err := svc.Disconnect(context.Background(), user.ID, connID)
 	require.Error(t, err)
@@ -285,7 +285,7 @@ func TestPlaid_CreateLinkToken_UpdateMode_PassesDecryptedAccessToken(t *testing.
 	}
 	svc := NewPlaidService(plaidClient, plaidRepo, budgetRepo, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, nil, nil, testEncKey)
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
 	result, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, &connID)
 	require.NoError(t, err)
@@ -311,7 +311,7 @@ func TestPlaid_CreateLinkToken_UpdateMode_WrongUser_Forbidden(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, plaidRepo, budgetRepo, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, nil, nil, testEncKey)
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
 	_, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, &connID)
 	require.Error(t, err)
@@ -381,7 +381,7 @@ func TestPlaid_RefreshAccounts_CreatesNewAndDeactivatesRemoved(t *testing.T) {
 
 	svc := NewPlaidService(plaidClient, plaidRepo, budgetRepo, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, txRepo, nil, nil, testEncKey)
+	}, txRepo, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
 	item, err := svc.RefreshAccounts(context.Background(), user.ID, uuid.New())
 	require.NoError(t, err)
@@ -405,7 +405,7 @@ func TestPlaid_RefreshAccounts_WrongUser_Forbidden(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, plaidRepo, &mockBudgetProfileRepo{}, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, nil, nil, testEncKey)
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
 	_, err := svc.RefreshAccounts(context.Background(), user.ID, connID)
 	require.Error(t, err)
