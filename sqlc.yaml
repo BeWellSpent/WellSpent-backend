@@ -43,6 +43,7 @@ sql:
       - "internal/db/migrations/000038_account_deletion.sql"
       - "internal/db/migrations/000039_notifications.sql"
       - "internal/db/migrations/000040_account_plan.sql"
+      - "internal/db/migrations/000041_category_type_backfill.sql"
     gen:
       go:
         package: "db"

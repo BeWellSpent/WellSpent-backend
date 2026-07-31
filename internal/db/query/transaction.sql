@@ -125,8 +125,13 @@ WHERE (
 ORDER BY c.name;
 
 -- name: CreateCategory :one
-INSERT INTO category (name, user_id, color)
-VALUES (sqlc.arg('name'), sqlc.arg('user_id')::uuid, sqlc.arg('color'))
+INSERT INTO category (name, type_id, user_id, color)
+VALUES (
+    sqlc.arg('name'),
+    (SELECT id FROM category_type WHERE name = 'Expense'),
+    sqlc.arg('user_id')::uuid,
+    sqlc.arg('color')
+)
 RETURNING id, name, type_id, is_system, user_id, color;
 
 -- name: UpdateCategory :one

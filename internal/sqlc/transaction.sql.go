@@ -13,8 +13,13 @@ import (
 )
 
 const createCategory = `-- name: CreateCategory :one
-INSERT INTO category (name, user_id, color)
-VALUES ($1, $2::uuid, $3)
+INSERT INTO category (name, type_id, user_id, color)
+VALUES (
+    $1,
+    (SELECT id FROM category_type WHERE name = 'Expense'),
+    $2::uuid,
+    $3
+)
 RETURNING id, name, type_id, is_system, user_id, color
 `
 
