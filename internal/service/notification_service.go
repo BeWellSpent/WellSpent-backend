@@ -12,6 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	resend "github.com/resend/resend-go/v2"
+	apns2 "github.com/sideshow/apns2"
+	"github.com/sideshow/apns2/payload"
+	apnstoken "github.com/sideshow/apns2/token"
 	"go.uber.org/zap"
 )
 
@@ -398,7 +401,12 @@ func (s *NotificationService) sendInApp(ctx context.Context, userID uuid.UUID, p
 	})
 	if err != nil {
 		s.log.Error("notification.sendInApp: create", zap.String("user_id", userID.String()), zap.Error(err))
+		return
 	}
+	// Push isn't a separate `channel` value — it rides along with every
+	// in-app notification for users who've registered a device, the same
+	// way every other mobile app surfaces its in-app alerts as pushes too.
+	s.sendPush(ctx, userID, title, body)
 }
 
 func (s *NotificationService) sendEmail(ctx context.Context, userID uuid.UUID, subject, htmlBody string) {
@@ -426,6 +434,78 @@ func (s *NotificationService) sendEmail(ctx context.Context, userID uuid.UUID, s
 	if sendErr != nil {
 		s.log.Error("notification.sendEmail: send failed", zap.String("to", user.Email), zap.Error(sendErr))
 	}
+}
+
+// sendPush delivers a real APNs push to every device the user has
+// registered. Best-effort, same posture as sendEmail: skips with a log
+// warning (not an error) if APNS_AUTH_KEY isn't configured, and logs but
+// swallows per-device send failures so one bad token doesn't block the rest.
+func (s *NotificationService) sendPush(ctx context.Context, userID uuid.UUID, title, body string) {
+	if s.cfg.APNSAuthKey == "" {
+		s.log.Warn("notification.sendPush: APNS_AUTH_KEY not set, skipping push", zap.String("user_id", userID.String()))
+		return
+	}
+
+	tokens, err := s.notifs.ListDeviceTokensForUser(ctx, userID)
+	if err != nil {
+		s.log.Error("notification.sendPush: list device tokens", zap.String("user_id", userID.String()), zap.Error(err))
+		return
+	}
+	if len(tokens) == 0 {
+		return
+	}
+
+	authKey, err := apnstoken.AuthKeyFromBytes([]byte(s.cfg.APNSAuthKey))
+	if err != nil {
+		s.log.Error("notification.sendPush: parse APNS_AUTH_KEY", zap.Error(err))
+		return
+	}
+	client := apns2.NewTokenClient(&apnstoken.Token{
+		AuthKey: authKey,
+		KeyID:   s.cfg.APNSKeyID,
+		TeamID:  s.cfg.APNSTeamID,
+	})
+	if s.cfg.APNSEnvironment == "production" {
+		client = client.Production()
+	} else {
+		client = client.Development()
+	}
+
+	body2 := payload.NewPayload().AlertTitle(title).AlertBody(body).Badge(1)
+	for _, dt := range tokens {
+		notification := &apns2.Notification{
+			DeviceToken: dt.Token,
+			Topic:       s.cfg.APNSBundleID,
+			Payload:     body2,
+		}
+		res, sendErr := client.PushWithContext(ctx, notification)
+		if sendErr != nil {
+			s.log.Error("notification.sendPush: send failed", zap.String("token", dt.Token), zap.Error(sendErr))
+			continue
+		}
+		if !res.Sent() {
+			s.log.Warn("notification.sendPush: not sent", zap.String("token", dt.Token), zap.String("reason", res.Reason))
+		}
+	}
+}
+
+// RegisterDeviceToken upserts an APNs device token for the authenticated
+// user, keyed by the token itself — a device re-registering (e.g. after a
+// reinstall, when APNs may issue the same or a new token) just updates its
+// owner rather than creating duplicate rows.
+func (s *NotificationService) RegisterDeviceToken(ctx context.Context, userID uuid.UUID, tokenValue, platform string) error {
+	if platform != "ios" {
+		return apperr.Invalid("platform must be \"ios\"")
+	}
+	if tokenValue == "" {
+		return apperr.Invalid("token is required")
+	}
+	_, err := s.notifs.UpsertDeviceToken(ctx, db.UpsertDeviceTokenParams{
+		UserID:   userID,
+		Platform: platform,
+		Token:    tokenValue,
+	})
+	return err
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -30,6 +30,8 @@ type mockNotifRepo struct {
 	list                 func(context.Context, uuid.UUID, *uuid.UUID, int32) ([]db.Notification, error)
 	markRead             func(context.Context, uuid.UUID, []uuid.UUID) error
 	getUnreadCount       func(context.Context, uuid.UUID) (int32, error)
+	upsertDeviceToken    func(context.Context, db.UpsertDeviceTokenParams) (db.DeviceToken, error)
+	listDeviceTokens     func(context.Context, uuid.UUID) ([]db.DeviceToken, error)
 }
 
 func (m *mockNotifRepo) ListSubscriptions(ctx context.Context, userID, profileID uuid.UUID) ([]db.AlertSubscription, error) {
@@ -85,6 +87,18 @@ func (m *mockNotifRepo) GetUnreadCount(ctx context.Context, userID uuid.UUID) (i
 		return m.getUnreadCount(ctx, userID)
 	}
 	return 0, nil
+}
+func (m *mockNotifRepo) UpsertDeviceToken(ctx context.Context, arg db.UpsertDeviceTokenParams) (db.DeviceToken, error) {
+	if m.upsertDeviceToken != nil {
+		return m.upsertDeviceToken(ctx, arg)
+	}
+	return db.DeviceToken{ID: uuid.New()}, nil
+}
+func (m *mockNotifRepo) ListDeviceTokensForUser(ctx context.Context, userID uuid.UUID) ([]db.DeviceToken, error) {
+	if m.listDeviceTokens != nil {
+		return m.listDeviceTokens(ctx, userID)
+	}
+	return nil, nil
 }
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -370,4 +384,80 @@ func TestUpsertSubscription_FreeTier_AllowsUpdateExisting(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, subID, sub.ID)
+}
+
+func TestRegisterDeviceToken_Success(t *testing.T) {
+	userID := uuid.New()
+	var upserted db.UpsertDeviceTokenParams
+
+	notifRepo := &mockNotifRepo{
+		upsertDeviceToken: func(_ context.Context, arg db.UpsertDeviceTokenParams) (db.DeviceToken, error) {
+			upserted = arg
+			return db.DeviceToken{ID: uuid.New(), UserID: arg.UserID, Platform: arg.Platform, Token: arg.Token}, nil
+		},
+	}
+	svc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
+
+	err := svc.RegisterDeviceToken(context.Background(), userID, "abc123", "ios")
+
+	require.NoError(t, err)
+	assert.Equal(t, userID, upserted.UserID)
+	assert.Equal(t, "ios", upserted.Platform)
+	assert.Equal(t, "abc123", upserted.Token)
+}
+
+func TestRegisterDeviceToken_RejectsNonIOSPlatform(t *testing.T) {
+	svc := newTestNotifSvc(&mockNotifRepo{}, &mockBudgetProfileRepo{})
+
+	err := svc.RegisterDeviceToken(context.Background(), uuid.New(), "abc123", "android")
+
+	require.Error(t, err)
+	var valErr *apperr.ValidationError
+	require.ErrorAs(t, err, &valErr)
+}
+
+func TestRegisterDeviceToken_RejectsEmptyToken(t *testing.T) {
+	svc := newTestNotifSvc(&mockNotifRepo{}, &mockBudgetProfileRepo{})
+
+	err := svc.RegisterDeviceToken(context.Background(), uuid.New(), "", "ios")
+
+	require.Error(t, err)
+	var valErr *apperr.ValidationError
+	require.ErrorAs(t, err, &valErr)
+}
+
+// sendPush is private, but every other test in this file already exercises
+// sendInApp -> sendPush indirectly with an empty config.Config{} (no
+// APNS_AUTH_KEY) and none of them fail — this test makes that skip-path
+// coverage explicit rather than incidental.
+func TestHandlePeriodCreated_SkipsPushWhenAPNSNotConfigured(t *testing.T) {
+	profileID := uuid.New()
+	subscriberID := uuid.New()
+
+	notifRepo := &mockNotifRepo{
+		getBudgetSubscribers: func(_ context.Context, _ uuid.UUID, alertType string) ([]db.AlertSubscription, error) {
+			if alertType == "period_created" {
+				return []db.AlertSubscription{
+					{ID: uuid.New(), UserID: subscriberID, AlertType: "period_created", Channel: "in_app"},
+				}, nil
+			}
+			return nil, nil
+		},
+		listDeviceTokens: func(_ context.Context, _ uuid.UUID) ([]db.DeviceToken, error) {
+			t.Fatal("sendPush should have skipped before listing device tokens when APNS_AUTH_KEY is empty")
+			return nil, nil
+		},
+	}
+	svc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
+
+	period := db.BudgetPeriod{
+		ID:              uuid.New(),
+		BudgetProfileID: profileID,
+		StartDate:       pgtype.Date{Valid: true},
+		EndDate:         pgtype.Date{Valid: true},
+	}
+
+	require.NotPanics(t, func() {
+		svc.HandlePeriodCreated(context.Background(), period)
+	})
 }

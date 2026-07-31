@@ -91,6 +91,15 @@ type CountryFeature struct {
 	IsEnabled   bool   `json:"is_enabled"`
 }
 
+type DeviceToken struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	Platform  string             `json:"platform"`
+	Token     string             `json:"token"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ExpenseAllocation struct {
 	ID              int32          `json:"id"`
 	BudgetProfileID uuid.UUID      `json:"budget_profile_id"`

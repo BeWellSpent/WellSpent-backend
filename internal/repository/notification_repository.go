@@ -22,6 +22,10 @@ type NotificationRepository interface {
 	List(ctx context.Context, userID uuid.UUID, profileID *uuid.UUID, limit int32) ([]db.Notification, error)
 	MarkRead(ctx context.Context, userID uuid.UUID, ids []uuid.UUID) error
 	GetUnreadCount(ctx context.Context, userID uuid.UUID) (int32, error)
+
+	// Push device tokens
+	UpsertDeviceToken(ctx context.Context, arg db.UpsertDeviceTokenParams) (db.DeviceToken, error)
+	ListDeviceTokensForUser(ctx context.Context, userID uuid.UUID) ([]db.DeviceToken, error)
 }
 
 type notificationRepository struct {
@@ -97,5 +101,13 @@ func (r *notificationRepository) MarkRead(ctx context.Context, userID uuid.UUID,
 
 func (r *notificationRepository) GetUnreadCount(ctx context.Context, userID uuid.UUID) (int32, error) {
 	return r.q.GetUnreadCount(ctx, userID)
+}
+
+func (r *notificationRepository) UpsertDeviceToken(ctx context.Context, arg db.UpsertDeviceTokenParams) (db.DeviceToken, error) {
+	return r.q.UpsertDeviceToken(ctx, arg)
+}
+
+func (r *notificationRepository) ListDeviceTokensForUser(ctx context.Context, userID uuid.UUID) ([]db.DeviceToken, error) {
+	return r.q.ListDeviceTokensForUser(ctx, userID)
 }
 
