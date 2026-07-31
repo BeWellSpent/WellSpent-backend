@@ -151,6 +151,17 @@ func (h *NotificationHandler) DeleteAlertSubscription(ctx context.Context, req *
 	return connect.NewResponse(&v1.DeleteAlertSubscriptionResponse{}), nil
 }
 
+func (h *NotificationHandler) RegisterDeviceToken(ctx context.Context, req *connect.Request[v1.RegisterDeviceTokenRequest]) (*connect.Response[v1.RegisterDeviceTokenResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if svcErr := h.svc.RegisterDeviceToken(ctx, userID, req.Msg.Token, req.Msg.Platform); svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.RegisterDeviceTokenResponse{}), nil
+}
+
 // ─── Converters ───────────────────────────────────────────────────────────────
 
 func toProtoNotification(n db.Notification) *v1.Notification {

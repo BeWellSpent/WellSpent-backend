@@ -44,6 +44,7 @@ sql:
       - "internal/db/migrations/000039_notifications.sql"
       - "internal/db/migrations/000040_account_plan.sql"
       - "internal/db/migrations/000041_category_type_backfill.sql"
+      - "internal/db/migrations/000042_device_tokens.sql"
     gen:
       go:
         package: "db"

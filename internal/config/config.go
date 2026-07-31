@@ -22,6 +22,16 @@ type Config struct {
 	ResendAPIKey       string   `envconfig:"RESEND_API_KEY"`
 	ResendFromEmail    string   `envconfig:"RESEND_FROM_EMAIL" default:"WellSpent <noreply@wellspent.app>"`
 	FrontendURL        string   `envconfig:"FRONTEND_URL" default:"http://localhost:3000"`
+	// APNs (Apple Push Notification service) — Auth Key (.p8) based, not
+	// certificate-based. APNSAuthKey holds the raw PEM contents of the key
+	// file. APNSEnvironment is "sandbox" (Debug builds, TestFlight) or
+	// "production" (App Store). All empty by default — sendPush no-ops with
+	// a log warning until these are configured, same pattern as ResendAPIKey.
+	APNSKeyID       string `envconfig:"APNS_KEY_ID"`
+	APNSTeamID      string `envconfig:"APNS_TEAM_ID"`
+	APNSAuthKey     string `envconfig:"APNS_AUTH_KEY"`
+	APNSBundleID    string `envconfig:"APNS_BUNDLE_ID" default:"com.bewellspent.WellSpent"`
+	APNSEnvironment string `envconfig:"APNS_ENVIRONMENT" default:"sandbox"`
 	PlaidClientID      string   `envconfig:"PLAID_CLIENT_ID"`
 	PlaidSecret        string   `envconfig:"PLAID_SECRET"`
 	PlaidEnv           string   `envconfig:"PLAID_ENV" default:"sandbox"`
