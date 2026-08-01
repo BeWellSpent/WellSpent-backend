@@ -16,7 +16,7 @@ import (
 // ── Mock Plaid client ─────────────────────────────────────────────────────────
 
 type mockPlaidClient struct {
-	createLinkToken     func(ctx context.Context, userID, updateAccessToken string) (string, string, error)
+	createLinkToken     func(ctx context.Context, userID, updateAccessToken, redirectURI string) (string, string, error)
 	exchangePublicToken func(ctx context.Context, publicToken string) (string, string, error)
 	getAccounts         func(ctx context.Context, accessToken string) ([]plaidclient.Account, string, error)
 	getInstitutionName  func(ctx context.Context, institutionID string) (string, error)
@@ -24,9 +24,9 @@ type mockPlaidClient struct {
 	syncTransactions    func(ctx context.Context, accessToken, cursor string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error)
 }
 
-func (m *mockPlaidClient) CreateLinkToken(ctx context.Context, userID, updateAccessToken string) (string, string, error) {
+func (m *mockPlaidClient) CreateLinkToken(ctx context.Context, userID, updateAccessToken, redirectURI string) (string, string, error) {
 	if m.createLinkToken != nil {
-		return m.createLinkToken(ctx, userID, updateAccessToken)
+		return m.createLinkToken(ctx, userID, updateAccessToken, redirectURI)
 	}
 	return "link-token", "2099-01-01T00:00:00Z", nil
 }
@@ -176,9 +176,59 @@ func TestPlaid_CreateLinkToken_Success(t *testing.T) {
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
 	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
-	result, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, nil)
+	result, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, nil, "")
 	require.NoError(t, err)
 	assert.Equal(t, "link-token", result.LinkToken)
+}
+
+func TestPlaid_CreateLinkToken_ForwardsRedirectURI(t *testing.T) {
+	user := usUser()
+	profileID := uuid.New()
+	var gotRedirectURI string
+
+	budgetRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: id, UserID: user.ID}, nil
+		},
+	}
+	plaidClient := &mockPlaidClient{
+		createLinkToken: func(_ context.Context, _, _, redirectURI string) (string, string, error) {
+			gotRedirectURI = redirectURI
+			return "link-token", "2099-01-01T00:00:00Z", nil
+		},
+	}
+	svc := NewPlaidService(plaidClient, &mockPlaidRepo{}, budgetRepo, &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
+
+	_, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, nil, "https://bewellspent.com/plaid-oauth-redirect")
+	require.NoError(t, err)
+	assert.Equal(t, "https://bewellspent.com/plaid-oauth-redirect", gotRedirectURI)
+}
+
+func TestPlaid_CreateLinkToken_OmitsRedirectURIWhenNotProvided(t *testing.T) {
+	user := usUser()
+	profileID := uuid.New()
+	var gotRedirectURI string
+
+	budgetRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: id, UserID: user.ID}, nil
+		},
+	}
+	plaidClient := &mockPlaidClient{
+		createLinkToken: func(_ context.Context, _, _, redirectURI string) (string, string, error) {
+			gotRedirectURI = redirectURI
+			return "link-token", "2099-01-01T00:00:00Z", nil
+		},
+	}
+	svc := NewPlaidService(plaidClient, &mockPlaidRepo{}, budgetRepo, &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
+
+	_, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, nil, "")
+	require.NoError(t, err)
+	assert.Equal(t, "", gotRedirectURI)
 }
 
 func TestPlaid_CreateLinkToken_NonUS_Forbidden(t *testing.T) {
@@ -188,7 +238,7 @@ func TestPlaid_CreateLinkToken_NonUS_Forbidden(t *testing.T) {
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
 	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
-	_, err := svc.CreateLinkToken(context.Background(), user.ID, uuid.New(), nil)
+	_, err := svc.CreateLinkToken(context.Background(), user.ID, uuid.New(), nil, "")
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	assert.ErrorAs(t, err, &forbidden)
@@ -273,7 +323,7 @@ func TestPlaid_CreateLinkToken_UpdateMode_PassesDecryptedAccessToken(t *testing.
 		},
 	}
 	plaidClient := &mockPlaidClient{
-		createLinkToken: func(_ context.Context, _, updateAccessToken string) (string, string, error) {
+		createLinkToken: func(_ context.Context, _, updateAccessToken, _ string) (string, string, error) {
 			gotAccessToken = updateAccessToken
 			return "update-link-token", "2099-01-01T00:00:00Z", nil
 		},
@@ -287,7 +337,7 @@ func TestPlaid_CreateLinkToken_UpdateMode_PassesDecryptedAccessToken(t *testing.
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
 	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
-	result, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, &connID)
+	result, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, &connID, "")
 	require.NoError(t, err)
 	assert.Equal(t, "update-link-token", result.LinkToken)
 	assert.Equal(t, "real-access-token", gotAccessToken)
@@ -313,7 +363,7 @@ func TestPlaid_CreateLinkToken_UpdateMode_WrongUser_Forbidden(t *testing.T) {
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
 	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
 
-	_, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, &connID)
+	_, err := svc.CreateLinkToken(context.Background(), user.ID, profileID, &connID, "")
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	assert.ErrorAs(t, err, &forbidden)

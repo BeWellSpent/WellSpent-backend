@@ -119,7 +119,7 @@ type CreateLinkTokenResult struct {
 // CreateLinkToken creates a Link token. If connectionID is non-nil, it
 // requests update mode (account selection) for that existing connection
 // instead of a fresh connect flow — the caller must own the connection.
-func (s *PlaidService) CreateLinkToken(ctx context.Context, userID, profileID uuid.UUID, connectionID *uuid.UUID) (CreateLinkTokenResult, error) {
+func (s *PlaidService) CreateLinkToken(ctx context.Context, userID, profileID uuid.UUID, connectionID *uuid.UUID, redirectURI string) (CreateLinkTokenResult, error) {
 	if err := s.requireUS(ctx, userID); err != nil {
 		return CreateLinkTokenResult{}, err
 	}
@@ -143,7 +143,7 @@ func (s *PlaidService) CreateLinkToken(ctx context.Context, userID, profileID uu
 		updateAccessToken = decrypted
 	}
 
-	tok, exp, err := s.plaid.CreateLinkToken(ctx, userID.String(), updateAccessToken)
+	tok, exp, err := s.plaid.CreateLinkToken(ctx, userID.String(), updateAccessToken, redirectURI)
 	if err != nil {
 		return CreateLinkTokenResult{}, fmt.Errorf("plaid: create link token: %w", err)
 	}
