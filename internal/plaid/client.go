@@ -39,7 +39,7 @@ type Client interface {
 	// non-empty updateAccessToken to request update mode with account
 	// selection enabled for that existing item (add/remove accounts)
 	// instead of a fresh connect flow.
-	CreateLinkToken(ctx context.Context, userID, updateAccessToken string) (linkToken, expiration string, err error)
+	CreateLinkToken(ctx context.Context, userID, updateAccessToken, redirectURI string) (linkToken, expiration string, err error)
 	// ExchangePublicToken exchanges a Link public token for a permanent access token.
 	ExchangePublicToken(ctx context.Context, publicToken string) (accessToken, itemID string, err error)
 	// GetInstitutionName returns the display name for a Plaid institution ID.
@@ -109,7 +109,7 @@ func New(clientID, secret, env string, opts Options) (Client, error) {
 	return &client{api: plaidSDK.NewAPIClient(cfg)}, nil
 }
 
-func (c *client) CreateLinkToken(ctx context.Context, userID, updateAccessToken string) (string, string, error) {
+func (c *client) CreateLinkToken(ctx context.Context, userID, updateAccessToken, redirectURI string) (string, string, error) {
 	user := plaidSDK.LinkTokenCreateRequestUser{ClientUserId: userID}
 	req := plaidSDK.NewLinkTokenCreateRequest("WellSpent", "en", []plaidSDK.CountryCode{plaidSDK.COUNTRYCODE_US}, user)
 	req.SetProducts([]plaidSDK.Products{plaidSDK.PRODUCTS_TRANSACTIONS})
@@ -118,6 +118,13 @@ func (c *client) CreateLinkToken(ctx context.Context, userID, updateAccessToken 
 		req.SetAccessToken(updateAccessToken)
 		enabled := true
 		req.SetUpdate(plaidSDK.LinkTokenCreateRequestUpdate{AccountSelectionEnabled: &enabled})
+	}
+
+	// Only native clients (iOS) need this — OAuth-based institutions must
+	// hand control back to the app via a Plaid-dashboard-registered redirect
+	// URI. Web's Link flow stays in-browser and never sets this.
+	if redirectURI != "" {
+		req.SetRedirectUri(redirectURI)
 	}
 
 	resp, _, err := c.api.PlaidApi.LinkTokenCreate(ctx).LinkTokenCreateRequest(*req).Execute()

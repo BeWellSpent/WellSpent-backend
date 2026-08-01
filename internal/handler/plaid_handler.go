@@ -52,7 +52,7 @@ func (h *PlaidHandler) CreateLinkToken(ctx context.Context, req *connect.Request
 		}
 		connectionID = &id
 	}
-	result, svcErr := h.svc.CreateLinkToken(ctx, userID, profileID, connectionID)
+	result, svcErr := h.svc.CreateLinkToken(ctx, userID, profileID, connectionID, req.Msg.RedirectUri)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
