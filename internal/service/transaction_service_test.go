@@ -1326,6 +1326,244 @@ func TestUpdateTransaction_Invalid_WhenDateBackdatedBeforePeriodStart(t *testing
 	require.ErrorAs(t, err, &invalid)
 }
 
+// ── UpdateTransaction category-only restriction tests ─────────────────────────
+// (Plaid-linked transactions, and any transaction whose period has archived,
+// keep their financial record frozen -- only their category may still change.)
+
+func baseUpdateTestTransaction(id, periodID, paymentMethodID uuid.UUID) db.Transaction {
+	name := "Groceries"
+	recurring := false
+	categoryID := int32(1)
+	freqID := int32(1)
+	typeID := int32(2)
+	amount := pgtype.Numeric{}
+	_ = amount.Scan("50.00")
+	return db.Transaction{
+		ID:                     id,
+		Name:                   &name,
+		Amount:                 amount,
+		PlannedAmount:          amount,
+		Date:                   pgtype.Date{Time: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC), Valid: true},
+		Recurring:              &recurring,
+		BudgetPeriodID:         &periodID,
+		CategoryID:             &categoryID,
+		PaymentMethodID:        &paymentMethodID,
+		TransactionFrequencyID: &freqID,
+		TransactionTypeID:      &typeID,
+	}
+}
+
+func matchingUpdateParams(tx db.Transaction) db.UpdateTransactionParams {
+	return db.UpdateTransactionParams{
+		ID:                     tx.ID,
+		Name:                   tx.Name,
+		Amount:                 tx.Amount,
+		PlannedAmount:          tx.PlannedAmount,
+		Date:                   tx.Date,
+		Recurring:              tx.Recurring,
+		CategoryID:             tx.CategoryID,
+		PaymentMethodID:        tx.PaymentMethodID,
+		TransactionFrequencyID: tx.TransactionFrequencyID,
+		TransactionTypeID:      tx.TransactionTypeID,
+	}
+}
+
+func TestUpdateTransaction_Success_FullEdit_WhenActiveAndNotPlaidLinked(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	pmID := uuid.New()
+	newPmID := uuid.New()
+	tx := baseUpdateTestTransaction(txID, periodID, pmID)
+	params := matchingUpdateParams(tx)
+	// Change every field -- a fully active, non-Plaid transaction should
+	// allow this.
+	newAmount := pgtype.Numeric{}
+	_ = newAmount.Scan("75.00")
+	params.Amount = newAmount
+	params.PlannedAmount = newAmount
+	params.PaymentMethodID = &newPmID
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.Transaction, error) { return tx, nil },
+			update: func(_ context.Context, arg db.UpdateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: arg.ID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, IsArchived: false, StartDate: pgtype.Date{Time: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Valid: true}}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.Update(context.Background(), params, userID)
+	require.NoError(t, err)
+}
+
+func TestUpdateTransaction_CategoryOnly_Succeeds_WhenPeriodArchived(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	pmID := uuid.New()
+	newCategoryID := int32(2)
+	tx := baseUpdateTestTransaction(txID, periodID, pmID)
+	params := matchingUpdateParams(tx)
+	params.CategoryID = &newCategoryID
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.Transaction, error) { return tx, nil },
+			update: func(_ context.Context, arg db.UpdateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: arg.ID, CategoryID: arg.CategoryID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, IsArchived: true}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	result, err := svc.Update(context.Background(), params, userID)
+	require.NoError(t, err)
+	assert.Equal(t, &newCategoryID, result.CategoryID)
+}
+
+func TestUpdateTransaction_Invalid_WhenAmountChangedOnArchivedPeriod(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	pmID := uuid.New()
+	tx := baseUpdateTestTransaction(txID, periodID, pmID)
+	params := matchingUpdateParams(tx)
+	newAmount := pgtype.Numeric{}
+	_ = newAmount.Scan("999.00")
+	params.Amount = newAmount
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.Transaction, error) { return tx, nil },
+			update: func(_ context.Context, _ db.UpdateTransactionParams) (db.Transaction, error) {
+				t.Fatal("transactions.Update should not be called when a non-category field changes on an archived period")
+				return db.Transaction{}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, IsArchived: true}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.Update(context.Background(), params, userID)
+	require.Error(t, err)
+	var invalid *apperr.ValidationError
+	require.ErrorAs(t, err, &invalid)
+}
+
+func TestUpdateTransaction_CategoryOnly_Succeeds_ForPlaidLinkedTransaction(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	pmID := uuid.New()
+	plaidID := "plaid-tx-123"
+	newCategoryID := int32(2)
+	tx := baseUpdateTestTransaction(txID, periodID, pmID)
+	tx.PlaidTransactionID = &plaidID
+	params := matchingUpdateParams(tx)
+	params.CategoryID = &newCategoryID
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.Transaction, error) { return tx, nil },
+			update: func(_ context.Context, arg db.UpdateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: arg.ID, CategoryID: arg.CategoryID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			// Active period -- the Plaid-linked restriction applies
+			// regardless of archive state.
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, IsArchived: false, StartDate: pgtype.Date{Time: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Valid: true}}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	result, err := svc.Update(context.Background(), params, userID)
+	require.NoError(t, err)
+	assert.Equal(t, &newCategoryID, result.CategoryID)
+}
+
+func TestUpdateTransaction_Invalid_WhenPaymentMethodChangedOnPlaidLinkedTransaction(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	pmID := uuid.New()
+	newPmID := uuid.New()
+	plaidID := "plaid-tx-123"
+	tx := baseUpdateTestTransaction(txID, periodID, pmID)
+	tx.PlaidTransactionID = &plaidID
+	params := matchingUpdateParams(tx)
+	params.PaymentMethodID = &newPmID
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.Transaction, error) { return tx, nil },
+			update: func(_ context.Context, _ db.UpdateTransactionParams) (db.Transaction, error) {
+				t.Fatal("transactions.Update should not be called when a non-category field changes on a Plaid-linked transaction")
+				return db.Transaction{}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, IsArchived: false, StartDate: pgtype.Date{Time: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Valid: true}}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.Update(context.Background(), params, userID)
+	require.Error(t, err)
+	var invalid *apperr.ValidationError
+	require.ErrorAs(t, err, &invalid)
+}
+
 // ── CreateTransaction review-queueing tests ───────────────────────────────────
 
 func TestCreateTransaction_QueuesReview_WhenScoreOver80(t *testing.T) {

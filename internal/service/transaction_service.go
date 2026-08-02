@@ -106,6 +106,84 @@ func assertNotBackdated(transactionTypeID *int32, date pgtype.Date, period db.Bu
 	return nil
 }
 
+// assertOnlyCategoryChanged rejects an update unless it differs from the
+// existing transaction only in CategoryID — used for Plaid-imported
+// transactions and any transaction whose period has archived, where the
+// financial record itself must stay frozen but re-categorizing is still
+// allowed.
+func assertOnlyCategoryChanged(arg db.UpdateTransactionParams, existing db.Transaction) error {
+	if equalOptString(arg.Name, existing.Name) &&
+		equalNumeric(arg.Amount, existing.Amount) &&
+		equalNumeric(arg.PlannedAmount, existing.PlannedAmount) &&
+		equalDate(arg.Date, existing.Date) &&
+		equalOptBool(arg.Recurring, existing.Recurring) &&
+		equalOptUUID(arg.PaymentMethodID, existing.PaymentMethodID) &&
+		equalOptInt32(arg.TransactionFrequencyID, existing.TransactionFrequencyID) &&
+		equalOptInt32(arg.TransactionTypeID, existing.TransactionTypeID) {
+		return nil
+	}
+	return apperr.Invalid("only the category can be changed for this transaction")
+}
+
+func equalOptString(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalOptBool(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalOptInt32(a, b *int32) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalOptUUID(a, b *uuid.UUID) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// equalNumeric compares by value (via Float64Value) rather than by raw
+// Int/Exp representation — a client resubmitting an unchanged amount after
+// round-tripping it through display formatting can produce a structurally
+// different but numerically identical pgtype.Numeric (e.g. Int=105,Exp=-1
+// vs Int=1050,Exp=-2, both 10.50), which a raw field comparison would
+// wrongly treat as a change.
+func equalNumeric(a, b pgtype.Numeric) bool {
+	if a.Valid != b.Valid {
+		return false
+	}
+	if !a.Valid {
+		return true
+	}
+	af, aErr := a.Float64Value()
+	bf, bErr := b.Float64Value()
+	if aErr != nil || bErr != nil {
+		return false
+	}
+	return af.Float64 == bf.Float64
+}
+
+func equalDate(a, b pgtype.Date) bool {
+	if a.Valid != b.Valid {
+		return false
+	}
+	if !a.Valid {
+		return true
+	}
+	return a.Time.Equal(b.Time)
+}
+
 func (s *TransactionService) getUserRoleForProfile(ctx context.Context, profileID, userID uuid.UUID) (string, error) {
 	profile, err := s.profiles.GetByID(ctx, profileID)
 	if err != nil {
@@ -216,17 +294,34 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 	}
 }
 
+// Update allows a full edit of a transaction, with two exceptions where only
+// its category may still change: once a transaction's period has archived
+// (its financial record should stay frozen, but re-categorizing for
+// reporting is still useful), and for any Plaid-imported transaction at any
+// time (it's synced data, not something the user entered by hand — amount,
+// date, and payment method should reflect what the bank actually reported).
+// Unlike Create/Delete/MarkTransactionAsPaid/etc., archiving does NOT hard-
+// block Update entirely, so this deliberately does not call
+// assertPeriodCollaborator (which would reject archived-period writes
+// outright) — it does the same role check directly instead.
 func (s *TransactionService) Update(ctx context.Context, arg db.UpdateTransactionParams, userID uuid.UUID) (db.Transaction, error) {
 	tx, err := s.transactions.GetByID(ctx, arg.ID)
 	if err != nil {
 		return db.Transaction{}, err
 	}
 	if tx.BudgetPeriodID != nil {
-		period, err := s.assertPeriodCollaborator(ctx, *tx.BudgetPeriodID, userID)
+		period, role, err := s.getUserRoleForPeriod(ctx, *tx.BudgetPeriodID, userID)
 		if err != nil {
 			return db.Transaction{}, err
 		}
-		if err := assertNotBackdated(arg.TransactionTypeID, arg.Date, period); err != nil {
+		if role != "admin" && role != "collaborator" {
+			return db.Transaction{}, apperr.Forbidden("access denied")
+		}
+		if period.IsArchived || tx.PlaidTransactionID != nil {
+			if err := assertOnlyCategoryChanged(arg, tx); err != nil {
+				return db.Transaction{}, err
+			}
+		} else if err := assertNotBackdated(arg.TransactionTypeID, arg.Date, period); err != nil {
 			return db.Transaction{}, err
 		}
 	}
