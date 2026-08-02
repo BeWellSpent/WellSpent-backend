@@ -496,6 +496,7 @@ func toProtoTransaction(t db.Transaction) *v1.Transaction {
 		TransactionTypeId:      ptrInt32OrZero(t.TransactionTypeID),
 		IsPaid:                 t.IsPaid,
 		IsExcluded:             t.IsExcluded,
+		IsPlaidImported:        t.PlaidTransactionID != nil,
 	}
 	if t.PaidDate.Valid {
 		proto.PaidAt = protoTSFromDate(t.PaidDate)
