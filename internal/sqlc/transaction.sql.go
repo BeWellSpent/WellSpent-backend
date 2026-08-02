@@ -326,6 +326,10 @@ WITH moved_tx AS (
     UPDATE savings_source SET payment_method_id = $2::uuid
     WHERE payment_method_id = $1::uuid
       AND budget_profile_id = $3::uuid
+), moved_fixed_expense AS (
+    UPDATE fixed_expense SET payment_method_id = $2::uuid
+    WHERE payment_method_id = $1::uuid
+      AND budget_profile_id = $3::uuid
 )
 UPDATE payment_methods
 SET is_active = FALSE
@@ -338,7 +342,13 @@ type DeletePaymentMethodAndReassignParams struct {
 	BudgetProfileID uuid.UUID `json:"budget_profile_id"`
 }
 
-// Reassigns all transactions and savings sources referencing this method, then soft-deletes.
+// Reassigns all transactions, savings sources, and fixed-expense templates
+// referencing this method, then soft-deletes. fixed_expense must be included
+// alongside transaction/savings_source — otherwise every future period
+// cycle spawned from an affected template keeps copying the now-inactive
+// method's id onto its new transaction (see budget_profile_service.go's
+// fixed-expense spawn logic), which renders blank once ListPaymentMethods
+// filters it out as inactive.
 func (q *Queries) DeletePaymentMethodAndReassign(ctx context.Context, arg DeletePaymentMethodAndReassignParams) error {
 	_, err := q.db.Exec(ctx, deletePaymentMethodAndReassign, arg.ID, arg.ReplacementID, arg.BudgetProfileID)
 	return err

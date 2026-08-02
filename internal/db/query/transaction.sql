@@ -197,7 +197,13 @@ SET name = sqlc.arg('name'), color = sqlc.arg('color'), alias = sqlc.narg('alias
 WHERE payment_methods.id = sqlc.arg('id')
 RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id;
 
--- Reassigns all transactions and savings sources referencing this method, then soft-deletes.
+-- Reassigns all transactions, savings sources, and fixed-expense templates
+-- referencing this method, then soft-deletes. fixed_expense must be included
+-- alongside transaction/savings_source — otherwise every future period
+-- cycle spawned from an affected template keeps copying the now-inactive
+-- method's id onto its new transaction (see budget_profile_service.go's
+-- fixed-expense spawn logic), which renders blank once ListPaymentMethods
+-- filters it out as inactive.
 -- name: DeletePaymentMethodAndReassign :exec
 WITH moved_tx AS (
     UPDATE transaction SET payment_method_id = sqlc.arg('replacement_id')::uuid
@@ -207,6 +213,10 @@ WITH moved_tx AS (
       )
 ), moved_savings AS (
     UPDATE savings_source SET payment_method_id = sqlc.arg('replacement_id')::uuid
+    WHERE payment_method_id = sqlc.arg('id')::uuid
+      AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid
+), moved_fixed_expense AS (
+    UPDATE fixed_expense SET payment_method_id = sqlc.arg('replacement_id')::uuid
     WHERE payment_method_id = sqlc.arg('id')::uuid
       AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid
 )
