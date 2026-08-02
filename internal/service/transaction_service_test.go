@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
@@ -1182,6 +1183,147 @@ func TestCreateTransaction_ViewerForbidden(t *testing.T) {
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	require.ErrorAs(t, err, &forbidden)
+}
+
+func TestCreateTransaction_Forbidden_WhenPeriodArchived(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, IsArchived: true}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{BudgetPeriodID: &periodID}, userID)
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
+}
+
+func TestCreateTransaction_Invalid_WhenDateBackdatedBeforePeriodStart(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	periodStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	backdated := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	variableType := int32(2)
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				t.Fatal("transactions.Create should not be called when the date is rejected")
+				return db.Transaction{}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, StartDate: pgtype.Date{Time: periodStart, Valid: true}}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{
+		BudgetPeriodID:    &periodID,
+		TransactionTypeID: &variableType,
+		Date:              pgtype.Date{Time: backdated, Valid: true},
+	}, userID)
+	require.Error(t, err)
+	var invalid *apperr.ValidationError
+	require.ErrorAs(t, err, &invalid)
+}
+
+func TestCreateTransaction_FixedTypeExemptFromBackdatingCheck(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	periodStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	backdated := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	fixedType := int32(1)
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New()}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, StartDate: pgtype.Date{Time: periodStart, Valid: true}}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{
+		BudgetPeriodID:    &periodID,
+		TransactionTypeID: &fixedType,
+		Date:              pgtype.Date{Time: backdated, Valid: true},
+	}, userID)
+	require.NoError(t, err)
+}
+
+func TestUpdateTransaction_Invalid_WhenDateBackdatedBeforePeriodStart(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	periodStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	backdated := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	variableType := int32(2)
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: id, BudgetPeriodID: &periodID}, nil
+			},
+			update: func(_ context.Context, _ db.UpdateTransactionParams) (db.Transaction, error) {
+				t.Fatal("transactions.Update should not be called when the date is rejected")
+				return db.Transaction{}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, StartDate: pgtype.Date{Time: periodStart, Valid: true}}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.Update(context.Background(), db.UpdateTransactionParams{
+		ID:                txID,
+		TransactionTypeID: &variableType,
+		Date:              pgtype.Date{Time: backdated, Valid: true},
+	}, userID)
+	require.Error(t, err)
+	var invalid *apperr.ValidationError
+	require.ErrorAs(t, err, &invalid)
 }
 
 // ── CreateTransaction review-queueing tests ───────────────────────────────────
