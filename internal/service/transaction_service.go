@@ -44,38 +44,64 @@ func (s *TransactionService) WithNotifications(ns *NotificationService) *Transac
 }
 
 // getUserRoleForPeriod returns the caller's effective role for the budget profile
-// that owns the given period. Profile owners are always "admin".
-func (s *TransactionService) getUserRoleForPeriod(ctx context.Context, periodID, userID uuid.UUID) (string, error) {
+// that owns the given period (and the period itself, so callers that also need
+// it — e.g. assertPeriodCollaborator's archived/backdating checks — don't have
+// to re-fetch it). Profile owners are always "admin".
+func (s *TransactionService) getUserRoleForPeriod(ctx context.Context, periodID, userID uuid.UUID) (db.BudgetPeriod, string, error) {
 	period, err := s.profiles.GetPeriodByID(ctx, periodID)
 	if err != nil {
-		return "", err
+		return db.BudgetPeriod{}, "", err
 	}
 	profile, err := s.profiles.GetByID(ctx, period.BudgetProfileID)
 	if err != nil {
-		return "", err
+		return db.BudgetPeriod{}, "", err
 	}
 	if profile.UserID == userID {
-		return "admin", nil
+		return period, "admin", nil
 	}
 	person, err := s.profiles.GetPersonByUserID(ctx, profile.ID, userID)
 	if err != nil {
-		return "", apperr.Forbidden("access denied")
+		return db.BudgetPeriod{}, "", apperr.Forbidden("access denied")
 	}
-	return person.Role, nil
+	return period, person.Role, nil
 }
 
 func (s *TransactionService) assertPeriodMember(ctx context.Context, periodID, userID uuid.UUID) error {
-	_, err := s.getUserRoleForPeriod(ctx, periodID, userID)
+	_, _, err := s.getUserRoleForPeriod(ctx, periodID, userID)
 	return err
 }
 
-func (s *TransactionService) assertPeriodCollaborator(ctx context.Context, periodID, userID uuid.UUID) error {
-	role, err := s.getUserRoleForPeriod(ctx, periodID, userID)
+// assertPeriodCollaborator checks role membership and rejects a write against
+// an archived (read-only) period, returning the period itself so callers that
+// also need to validate the transaction's date (Create/Update) don't have to
+// re-fetch it.
+func (s *TransactionService) assertPeriodCollaborator(ctx context.Context, periodID, userID uuid.UUID) (db.BudgetPeriod, error) {
+	period, role, err := s.getUserRoleForPeriod(ctx, periodID, userID)
 	if err != nil {
-		return err
+		return db.BudgetPeriod{}, err
 	}
 	if role != "admin" && role != "collaborator" {
-		return apperr.Forbidden("access denied")
+		return db.BudgetPeriod{}, apperr.Forbidden("access denied")
+	}
+	if period.IsArchived {
+		return db.BudgetPeriod{}, apperr.Forbidden("this budget period is archived and read-only")
+	}
+	return period, nil
+}
+
+// assertNotBackdated rejects a Variable transaction whose date falls before
+// the period's own start_date — i.e. a date that actually belongs to a
+// previous (already-archived) period. Fixed-type transactions are exempt:
+// their occurrences are template-driven (spawned by createNextPeriod, or
+// created directly against a specific period), not manually dated by the
+// user in the same sense a Variable spend is.
+func assertNotBackdated(transactionTypeID *int32, date pgtype.Date, period db.BudgetPeriod) error {
+	isFixed := transactionTypeID != nil && *transactionTypeID == 1
+	if isFixed || !date.Valid || !period.StartDate.Valid {
+		return nil
+	}
+	if date.Time.Before(period.StartDate.Time) {
+		return apperr.Invalid("transaction date falls within an archived period")
 	}
 	return nil
 }
@@ -124,7 +150,11 @@ func (s *TransactionService) List(ctx context.Context, arg db.ListTransactionsPa
 
 func (s *TransactionService) Create(ctx context.Context, arg db.CreateTransactionParams, userID uuid.UUID) (db.Transaction, error) {
 	if arg.BudgetPeriodID != nil {
-		if err := s.assertPeriodCollaborator(ctx, *arg.BudgetPeriodID, userID); err != nil {
+		period, err := s.assertPeriodCollaborator(ctx, *arg.BudgetPeriodID, userID)
+		if err != nil {
+			return db.Transaction{}, err
+		}
+		if err := assertNotBackdated(arg.TransactionTypeID, arg.Date, period); err != nil {
 			return db.Transaction{}, err
 		}
 	}
@@ -192,7 +222,11 @@ func (s *TransactionService) Update(ctx context.Context, arg db.UpdateTransactio
 		return db.Transaction{}, err
 	}
 	if tx.BudgetPeriodID != nil {
-		if err := s.assertPeriodCollaborator(ctx, *tx.BudgetPeriodID, userID); err != nil {
+		period, err := s.assertPeriodCollaborator(ctx, *tx.BudgetPeriodID, userID)
+		if err != nil {
+			return db.Transaction{}, err
+		}
+		if err := assertNotBackdated(arg.TransactionTypeID, arg.Date, period); err != nil {
 			return db.Transaction{}, err
 		}
 	}
@@ -205,7 +239,7 @@ func (s *TransactionService) Delete(ctx context.Context, id, userID uuid.UUID) e
 		return err
 	}
 	if tx.BudgetPeriodID != nil {
-		if err := s.assertPeriodCollaborator(ctx, *tx.BudgetPeriodID, userID); err != nil {
+		if _, err := s.assertPeriodCollaborator(ctx, *tx.BudgetPeriodID, userID); err != nil {
 			return err
 		}
 	}
@@ -308,7 +342,7 @@ func (s *TransactionService) UpdatePaymentMethod(ctx context.Context, arg db.Upd
 // actual amount and date. If the paid amount differs from planned, also updates
 // the fixed expense template so future periods carry the corrected planned cost.
 func (s *TransactionService) MarkTransactionAsPaid(ctx context.Context, id uuid.UUID, periodID uuid.UUID, paidAmount pgtype.Numeric, paidDate pgtype.Date, userID uuid.UUID) (db.Transaction, error) {
-	if err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
+	if _, err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
 		return db.Transaction{}, err
 	}
 
@@ -334,7 +368,7 @@ func (s *TransactionService) MarkTransactionAsPaid(ctx context.Context, id uuid.
 }
 
 func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uuid.UUID, periodID uuid.UUID, userID uuid.UUID) (db.Transaction, error) {
-	if err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
+	if _, err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
 		return db.Transaction{}, err
 	}
 	tx, err := s.transactions.UnmarkAsPaid(ctx, db.UnmarkTransactionAsPaidParams{
@@ -370,7 +404,7 @@ func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uui
 // without deleting it (e.g. reimbursements, transfers, or anything else that
 // would otherwise disrupt the spending total).
 func (s *TransactionService) SetTransactionExcluded(ctx context.Context, id uuid.UUID, periodID uuid.UUID, excluded bool, userID uuid.UUID) (db.Transaction, error) {
-	if err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
+	if _, err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
 		return db.Transaction{}, err
 	}
 	return s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{

@@ -363,6 +363,51 @@ func TestCreateBudgetProfile_Duplicate(t *testing.T) {
 	require.ErrorAs(t, err, &dup)
 }
 
+func TestCreateBudgetProfile_AlreadyHasOne(t *testing.T) {
+	userID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			listByUserID: func(_ context.Context, _ uuid.UUID) ([]db.BudgetProfile, error) {
+				return []db.BudgetProfile{{ID: uuid.New(), UserID: userID, Name: "Existing"}}, nil
+			},
+			create: func(_ context.Context, _ db.CreateBudgetProfileParams) (db.BudgetProfile, error) {
+				t.Fatal("Create should not be called when the user already owns a profile")
+				return db.BudgetProfile{}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{},
+	)
+
+	_, _, err := svc.Create(context.Background(), userID, "Second Budget", "monthly")
+	require.Error(t, err)
+	var invalid *apperr.ValidationError
+	require.ErrorAs(t, err, &invalid)
+}
+
+func TestUpdateIncomeEntry_Forbidden_WhenPeriodArchived(t *testing.T) {
+	userID := uuid.New()
+	periodID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, IsArchived: true}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.UpdateIncomeEntry(context.Background(), 1, periodID, pgtype.Numeric{}, userID)
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
+}
+
 func TestGetBudgetProfile_Forbidden_WhenNotOwner(t *testing.T) {
 	profileID := uuid.New()
 	ownerID := uuid.New()

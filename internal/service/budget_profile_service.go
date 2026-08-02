@@ -114,6 +114,9 @@ func (s *BudgetProfileService) assertPeriodCollaborator(ctx context.Context, per
 	if err != nil {
 		return db.BudgetProfile{}, err
 	}
+	if period.IsArchived {
+		return db.BudgetProfile{}, apperr.Forbidden("this budget period is archived and read-only")
+	}
 	return s.assertCollaboratorOrAbove(ctx, period.BudgetProfileID, userID)
 }
 
@@ -128,6 +131,17 @@ func (s *BudgetProfileService) Get(ctx context.Context, id, userID uuid.UUID) (d
 }
 
 func (s *BudgetProfileService) Create(ctx context.Context, userID uuid.UUID, name, cycle string) (db.BudgetProfile, db.BudgetPeriod, error) {
+	// Only one owned budget profile per user, regardless of plan tier — a
+	// user can still be a *member* of other people's shared budgets without
+	// limit; this only caps how many they can own.
+	owned, err := s.profiles.ListByUserID(ctx, userID)
+	if err != nil {
+		return db.BudgetProfile{}, db.BudgetPeriod{}, fmt.Errorf("budget_profile: check owned: %w", err)
+	}
+	if len(owned) > 0 {
+		return db.BudgetProfile{}, db.BudgetPeriod{}, apperr.Invalid("you already have a budget — only one budget profile is allowed per account")
+	}
+
 	exists, err := s.profiles.ExistsByNameAndUser(ctx, name, userID)
 	if err != nil {
 		return db.BudgetProfile{}, db.BudgetPeriod{}, fmt.Errorf("budget_profile: check exists: %w", err)
