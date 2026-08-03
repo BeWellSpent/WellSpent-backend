@@ -69,7 +69,7 @@ bypass := map[string]bool{
 
 ## Git workflow
 
-`main` is production. Never commit or push directly to `main`.
+`main` is production. Never commit or push directly to `main`. Never add a `Co-Authored-By: Claude` (or any AI attribution) trailer to commit messages — standing rule across the whole workspace.
 
 **Before starting any work:**
 
