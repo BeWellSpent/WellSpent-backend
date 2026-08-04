@@ -278,3 +278,160 @@ func TestSyncItem_AutoConfirmedMatch_ExcludesInsteadOfDeleting(t *testing.T) {
 	assert.Equal(t, unpaidTxID, markedPaidID, "should mark the matched fixed transaction paid")
 	assert.Equal(t, "confirmed", confirmedStatus, "should record the auto-match as a confirmed review so unmarking paid can find and undo it")
 }
+
+// TestSyncItem_NotifiesOnceForPlainImports_NotOncePerTransaction covers the
+// most common sync outcome — several imported transactions that don't match
+// any fixed expense at all — and asserts exactly one new_transaction
+// notification fires for the whole run, not one per row.
+func TestSyncItem_NotifiesOnceForPlainImports_NotOncePerTransaction(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	encrypted, err := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, err)
+
+	var createCount int
+	var lastBody string
+	notifRepo := &mockNotifRepo{
+		getBudgetSubscribers: func(_ context.Context, _ uuid.UUID, alertType string) ([]db.AlertSubscription, error) {
+			if alertType == "new_transaction" {
+				return []db.AlertSubscription{{ID: uuid.New(), UserID: uuid.New(), AlertType: "new_transaction", Channel: "in_app"}}, nil
+			}
+			return nil, nil
+		},
+		create: func(_ context.Context, arg db.CreateNotificationParams) (db.Notification, error) {
+			createCount++
+			lastBody = arg.Body
+			return db.Notification{ID: uuid.New()}, nil
+		},
+	}
+	notifSvc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: "plaid-tx-1", Name: "Whole Foods", Amount: 42.10, Date: time.Now()},
+					{PlaidID: "plaid-tx-2", Name: "Shell Gas", Amount: 30.00, Date: time.Now()},
+					{PlaidID: "plaid-tx-3", Name: "Amazon", Amount: 19.99, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{Plan: "pro"}, nil
+			},
+		},
+		&mockTransactionRepo{
+			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New()}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return nil, nil // no fixed expenses to match against — every import is "plain"
+			},
+		},
+		&mockTransactionReviewRepo{},
+		testEncKey,
+	).WithNotifications(notifSvc)
+
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item))
+
+	require.Equal(t, 1, createCount, "3 plain imports should still produce exactly one aggregated notification")
+	assert.Contains(t, lastBody, "3", "the aggregated notification should mention the actual count")
+}
+
+// TestSyncItem_NotifiesOnceForQueuedReviews_NotOncePerTransaction mirrors the
+// plain-import case above but for transactions that score high enough
+// against a fixed expense to be queued for review (not auto-confirmed).
+func TestSyncItem_NotifiesOnceForQueuedReviews_NotOncePerTransaction(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	feID := uuid.New()
+	unpaidTxID := uuid.New()
+	pmID := uuid.New()
+	encrypted, err := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, err)
+
+	var createCount int
+	var lastBody string
+	notifRepo := &mockNotifRepo{
+		getBudgetSubscribers: func(_ context.Context, _ uuid.UUID, alertType string) ([]db.AlertSubscription, error) {
+			if alertType == "review_pending" {
+				return []db.AlertSubscription{{ID: uuid.New(), UserID: uuid.New(), AlertType: "review_pending", Channel: "in_app"}}, nil
+			}
+			return nil, nil
+		},
+		create: func(_ context.Context, arg db.CreateNotificationParams) (db.Notification, error) {
+			createCount++
+			lastBody = arg.Body
+			return db.Notification{ID: uuid.New()}, nil
+		},
+	}
+	notifSvc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				// Amount match (40) + word-overlap name match, no alias (20) +
+				// payment method match (20) = 80 — reaches the review queue
+				// threshold without an alias hit, so it lands in the "queued"
+				// branch rather than auto-confirm.
+				return []plaidclient.Transaction{
+					{PlaidID: "plaid-tx-1", Name: "Creator Support Membership", Amount: 15.00, Date: time.Now(), AccountID: "acct-1"},
+					{PlaidID: "plaid-tx-2", Name: "Creator Support Membership", Amount: 15.00, Date: time.Now(), AccountID: "acct-1"},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{Plan: "pro"}, nil
+			},
+		},
+		&mockTransactionRepo{
+			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New()}, nil
+			},
+			getPaymentMethodByPlaidAccountID: func(_ context.Context, _ string) (db.PaymentMethod, error) {
+				return db.PaymentMethod{ID: pmID}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				fe := makeFixedExpense(t, feID, "Creator Support", "15.00")
+				fe.PaymentMethodID = &pmID
+				return []db.FixedExpense{fe}, nil
+			},
+			getUnpaidTransaction: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error) {
+				return db.Transaction{ID: unpaidTxID, BudgetPeriodID: &periodID, PlannedAmount: numericFromString(t, "15.00")}, nil
+			},
+		},
+		&mockTransactionReviewRepo{
+			create: func(_ context.Context, _, transactionID, matchedTransactionID uuid.UUID, _ float64) (db.TransactionReview, error) {
+				return db.TransactionReview{ID: uuid.New(), TransactionID: transactionID, MatchedTransactionID: matchedTransactionID}, nil
+			},
+		},
+		testEncKey,
+	).WithNotifications(notifSvc)
+
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item))
+
+	require.Equal(t, 1, createCount, "2 queued-for-review imports should still produce exactly one aggregated notification")
+	assert.Contains(t, lastBody, "2", "the aggregated notification should mention the actual count")
+}

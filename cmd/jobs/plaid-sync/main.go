@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeWellSpent/wellspent-backend/internal/config"
 	"github.com/BeWellSpent/wellspent-backend/internal/db"
 	plaidclient "github.com/BeWellSpent/wellspent-backend/internal/plaid"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
@@ -44,6 +45,25 @@ func main() {
 	retryDelay := envDurationDefault("PLAID_HTTP_RETRY_DELAY", 5*time.Second)
 	redactSensitive := envBoolDefault("PLAID_LOG_REDACT_SENSITIVE", true)
 
+	// Read once here and reused both by the per-user alert_subscription
+	// notifications (via notifCfg below) and the ops failure-alert email
+	// further down, rather than reading RESEND_API_KEY/RESEND_FROM_EMAIL twice.
+	resendAPIKey := os.Getenv("RESEND_API_KEY")
+	resendFromEmail := os.Getenv("RESEND_FROM_EMAIL")
+	if resendFromEmail == "" {
+		resendFromEmail = "WellSpent <noreply@wellspent.app>"
+	}
+	notifCfg := &config.Config{
+		ResendAPIKey:    resendAPIKey,
+		ResendFromEmail: resendFromEmail,
+		FrontendURL:     envStringDefault("FRONTEND_URL", "http://localhost:3000"),
+		APNSKeyID:       os.Getenv("APNS_KEY_ID"),
+		APNSTeamID:      os.Getenv("APNS_TEAM_ID"),
+		APNSAuthKey:     os.Getenv("APNS_AUTH_KEY"),
+		APNSBundleID:    envStringDefault("APNS_BUNDLE_ID", "com.bewellspent.WellSpent"),
+		APNSEnvironment: envStringDefault("APNS_ENVIRONMENT", "sandbox"),
+	}
+
 	var logger *zap.Logger
 	if os.Getenv("DEBUG") == "true" {
 		logger, _ = zap.NewDevelopment()
@@ -66,6 +86,8 @@ func main() {
 	txRepo := repository.NewTransactionRepository(queries)
 	feRepo := repository.NewFixedExpenseRepository(queries)
 	reviewRepo := repository.NewTransactionReviewRepository(queries)
+	notifRepo := repository.NewNotificationRepository(queries)
+	allocationRepo := repository.NewExpenseAllocationRepository(queries)
 
 	pc, err := plaidclient.New(clientID, secret, plaidEnv, plaidclient.Options{
 		Logger:          logger,
@@ -77,7 +99,8 @@ func main() {
 		log.Fatalf("plaid: init client: %v", err)
 	}
 
-	svc := service.NewPlaidService(pc, plaidRepo, budgetRepo, userRepo, txRepo, feRepo, reviewRepo, encryptionKey)
+	notifSvc := service.NewNotificationService(notifRepo, txRepo, budgetRepo, allocationRepo, userRepo, notifCfg, logger)
+	svc := service.NewPlaidService(pc, plaidRepo, budgetRepo, userRepo, txRepo, feRepo, reviewRepo, encryptionKey).WithNotifications(notifSvc)
 
 	items, err := plaidRepo.ListActiveForSync(ctx)
 	if err != nil {
@@ -98,11 +121,6 @@ func main() {
 		return
 	}
 
-	resendAPIKey := os.Getenv("RESEND_API_KEY")
-	resendFromEmail := os.Getenv("RESEND_FROM_EMAIL")
-	if resendFromEmail == "" {
-		resendFromEmail = "WellSpent <noreply@wellspent.app>"
-	}
 	alertEmail := os.Getenv("PLAID_SYNC_ALERT_EMAIL")
 
 	if resendAPIKey == "" || alertEmail == "" {
@@ -181,4 +199,11 @@ func envBoolDefault(key string, def bool) bool {
 		return def
 	}
 	return b
+}
+
+func envStringDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

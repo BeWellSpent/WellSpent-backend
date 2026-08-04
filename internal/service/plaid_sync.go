@@ -169,10 +169,22 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 			if _, rErr := s.reviews.Create(ctx, periodID, inserted.ID, unpaid.ID, bestScore); rErr == nil {
 				queued++
 				log.Printf("plaid item %s: queued review for %q (score=%.0f, fixed=%q)", item.ID, tx.Name, bestScore, bestFE.Name)
-				if s.notifs != nil {
-					s.notifs.HandleReviewPending(ctx, item.BudgetProfileID, tx.Name)
-				}
 			}
+		}
+	}
+
+	// Notify at most once per sync run per budget, not once per transaction —
+	// a single sync can import dozens of transactions and nobody wants a
+	// push per row. "New transactions" excludes anything auto-confirmed
+	// (already handled, no action needed) or queued for review (its own,
+	// separate notification below), so the same transaction never triggers
+	// both.
+	if s.notifs != nil {
+		if newlyAvailable := importedAdded - autoConfirmed - queued; newlyAvailable > 0 {
+			s.notifs.HandlePlaidTransactionsImported(ctx, item.BudgetProfileID, newlyAvailable)
+		}
+		if queued > 0 {
+			s.notifs.HandleReviewPendingBatch(ctx, item.BudgetProfileID, queued)
 		}
 	}
 
