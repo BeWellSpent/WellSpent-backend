@@ -271,6 +271,91 @@ func TestNotificationService_HandlePeriodCreated_NotifiesSubscribers(t *testing.
 	assert.Equal(t, subscriberID, created[0].UserID)
 }
 
+func TestNotificationService_HandleReviewPendingBatch_SendsOneNotificationRegardlessOfCount(t *testing.T) {
+	profileID := uuid.New()
+	subscriberID := uuid.New()
+
+	created := []db.Notification{}
+	notifRepo := &mockNotifRepo{
+		getBudgetSubscribers: func(_ context.Context, _ uuid.UUID, alertType string) ([]db.AlertSubscription, error) {
+			if alertType == "review_pending" {
+				return []db.AlertSubscription{
+					{ID: uuid.New(), UserID: subscriberID, AlertType: "review_pending", Channel: "in_app"},
+				}, nil
+			}
+			return nil, nil
+		},
+		create: func(_ context.Context, arg db.CreateNotificationParams) (db.Notification, error) {
+			created = append(created, db.Notification{UserID: arg.UserID, Body: arg.Body})
+			return db.Notification{ID: uuid.New()}, nil
+		},
+	}
+	svc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
+
+	svc.HandleReviewPendingBatch(context.Background(), profileID, 5)
+
+	// One notification per subscriber per call — not one per queued transaction.
+	require.Len(t, created, 1)
+	assert.Contains(t, created[0].Body, "5")
+}
+
+func TestNotificationService_HandleReviewPendingBatch_NoOpWhenCountIsZero(t *testing.T) {
+	called := false
+	notifRepo := &mockNotifRepo{
+		getBudgetSubscribers: func(_ context.Context, _ uuid.UUID, _ string) ([]db.AlertSubscription, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	svc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
+
+	svc.HandleReviewPendingBatch(context.Background(), uuid.New(), 0)
+
+	assert.False(t, called, "should not even look up subscribers when count is 0")
+}
+
+func TestNotificationService_HandlePlaidTransactionsImported_SendsOneNotificationRegardlessOfCount(t *testing.T) {
+	profileID := uuid.New()
+	subscriberID := uuid.New()
+
+	created := []db.Notification{}
+	notifRepo := &mockNotifRepo{
+		getBudgetSubscribers: func(_ context.Context, _ uuid.UUID, alertType string) ([]db.AlertSubscription, error) {
+			if alertType == "new_transaction" {
+				return []db.AlertSubscription{
+					{ID: uuid.New(), UserID: subscriberID, AlertType: "new_transaction", Channel: "in_app"},
+				}, nil
+			}
+			return nil, nil
+		},
+		create: func(_ context.Context, arg db.CreateNotificationParams) (db.Notification, error) {
+			created = append(created, db.Notification{UserID: arg.UserID, Body: arg.Body})
+			return db.Notification{ID: uuid.New()}, nil
+		},
+	}
+	svc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
+
+	svc.HandlePlaidTransactionsImported(context.Background(), profileID, 3)
+
+	require.Len(t, created, 1)
+	assert.Contains(t, created[0].Body, "3")
+}
+
+func TestNotificationService_HandlePlaidTransactionsImported_NoOpWhenCountIsZero(t *testing.T) {
+	called := false
+	notifRepo := &mockNotifRepo{
+		getBudgetSubscribers: func(_ context.Context, _ uuid.UUID, _ string) ([]db.AlertSubscription, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	svc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
+
+	svc.HandlePlaidTransactionsImported(context.Background(), uuid.New(), 0)
+
+	assert.False(t, called, "should not even look up subscribers when count is 0")
+}
+
 func TestNotificationService_GetUnreadCount_Success(t *testing.T) {
 	userID := uuid.New()
 

@@ -222,6 +222,58 @@ func (s *NotificationService) HandleReviewPending(ctx context.Context, profileID
 	}
 }
 
+// HandleReviewPendingBatch is the Plaid-sync counterpart to HandleReviewPending:
+// one sync run can queue several imports for review across a single budget,
+// and each of those already gets its own row in the To Review tab, so this
+// fires a single aggregated notification per sync run instead of one per
+// transaction. HandleReviewPending (singular) stays as-is for the manual
+// "flag for review" path, which is inherently one transaction at a time.
+func (s *NotificationService) HandleReviewPendingBatch(ctx context.Context, profileID uuid.UUID, count int) {
+	if count <= 0 {
+		return
+	}
+	subs, err := s.notifs.GetBudgetSubscribers(ctx, profileID, "review_pending")
+	if err != nil {
+		s.log.Error("notification.HandleReviewPendingBatch: get subscribers", zap.Error(err))
+		return
+	}
+	title := "Transactions pending review"
+	body := "A new import needs your review."
+	if count > 1 {
+		body = fmt.Sprintf("%d new imports need your review.", count)
+	}
+	for _, sub := range subs {
+		s.deliver(ctx, sub, &profileID, "review_pending", title, body)
+	}
+}
+
+// HandlePlaidTransactionsImported fires once per sync run (not once per
+// transaction) when the Plaid sync job imports one or more new Variable
+// transactions that don't need review — i.e. plain spending, not something
+// auto-confirmed against a fixed expense (no action needed) or queued for
+// review (covered separately by HandleReviewPendingBatch). Reuses the
+// new_transaction alert type. Unlike HandleNewTransaction (the manual
+// CreateTransaction path), there's no caller to exclude — nobody in the app
+// performed this action, so every subscriber is notified.
+func (s *NotificationService) HandlePlaidTransactionsImported(ctx context.Context, profileID uuid.UUID, count int) {
+	if count <= 0 {
+		return
+	}
+	subs, err := s.notifs.GetBudgetSubscribers(ctx, profileID, "new_transaction")
+	if err != nil {
+		s.log.Error("notification.HandlePlaidTransactionsImported: get subscribers", zap.Error(err))
+		return
+	}
+	title := "New transactions imported"
+	body := "A new transaction was imported from your bank."
+	if count > 1 {
+		body = fmt.Sprintf("%d new transactions were imported from your bank.", count)
+	}
+	for _, sub := range subs {
+		s.deliver(ctx, sub, &profileID, "new_transaction", title, body)
+	}
+}
+
 // HandlePeriodCreated fires when createNextPeriod creates a new budget period.
 func (s *NotificationService) HandlePeriodCreated(ctx context.Context, period db.BudgetPeriod) {
 	profileID := period.BudgetProfileID
