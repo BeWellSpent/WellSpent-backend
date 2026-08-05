@@ -74,15 +74,17 @@ jobs:
           # Strip trailing CR — see ci-main.yml for why (CRLF breaks net/http header parsing)
           sed -i 's/\r$//' .env.staging
           set -a; source .env.staging; set +a
-          printf 'DATABASE_URL=%s\n'         "${DATABASE_URL}"         >> $GITHUB_ENV
-          printf 'JWT_SECRET=%s\n'           "${JWT_SECRET}"           >> $GITHUB_ENV
-          printf 'GOOGLE_CLIENT_ID=%s\n'     "${GOOGLE_CLIENT_ID}"     >> $GITHUB_ENV
-          printf 'GOOGLE_CLIENT_SECRET=%s\n' "${GOOGLE_CLIENT_SECRET}" >> $GITHUB_ENV
-          printf 'GOOGLE_REDIRECT_URI=%s\n'  "${GOOGLE_REDIRECT_URI}"  >> $GITHUB_ENV
-          printf 'PLAID_CLIENT_ID=%s\n'      "${PLAID_CLIENT_ID}"      >> $GITHUB_ENV
-          printf 'PLAID_SECRET=%s\n'         "${PLAID_SECRET}"         >> $GITHUB_ENV
-          printf 'RESEND_API_KEY=%s\n'       "${RESEND_API_KEY}"       >> $GITHUB_ENV
-          printf 'ENCRYPTION_KEY=%s\n'       "${ENCRYPTION_KEY}"       >> $GITHUB_ENV
+          printf 'DATABASE_URL=%s\n'           "${DATABASE_URL}"           >> $GITHUB_ENV
+          printf 'JWT_SECRET=%s\n'             "${JWT_SECRET}"             >> $GITHUB_ENV
+          printf 'GOOGLE_CLIENT_ID=%s\n'       "${GOOGLE_CLIENT_ID}"       >> $GITHUB_ENV
+          printf 'GOOGLE_CLIENT_SECRET=%s\n'   "${GOOGLE_CLIENT_SECRET}"   >> $GITHUB_ENV
+          printf 'GOOGLE_REDIRECT_URI=%s\n'    "${GOOGLE_REDIRECT_URI}"    >> $GITHUB_ENV
+          printf 'PLAID_CLIENT_ID=%s\n'        "${PLAID_CLIENT_ID}"        >> $GITHUB_ENV
+          printf 'PLAID_SECRET=%s\n'           "${PLAID_SECRET}"           >> $GITHUB_ENV
+          printf 'RESEND_API_KEY=%s\n'         "${RESEND_API_KEY}"         >> $GITHUB_ENV
+          printf 'ENCRYPTION_KEY=%s\n'         "${ENCRYPTION_KEY}"         >> $GITHUB_ENV
+          printf 'FRONTEND_URL=%s\n'           "${FRONTEND_URL}"           >> $GITHUB_ENV
+          printf 'CORS_ALLOWED_ORIGINS=%s\n'   "${CORS_ALLOWED_ORIGINS}"   >> $GITHUB_ENV
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -117,3 +119,5 @@ jobs:
             PLAID_SECRET=${{ env.PLAID_SECRET }}
             RESEND_API_KEY=${{ env.RESEND_API_KEY }}
             ENCRYPTION_KEY=${{ env.ENCRYPTION_KEY }}
+            FRONTEND_URL=${{ env.FRONTEND_URL }}
+            CORS_ALLOWED_ORIGINS=${{ env.CORS_ALLOWED_ORIGINS }}
