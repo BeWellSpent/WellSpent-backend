@@ -11,27 +11,13 @@ import (
 )
 
 // moneyFromNumeric converts a pgtype.Numeric (NUMERIC(12,2)) to a proto Money.
-// Amounts in this app are at most 2 decimal places, so nanos are always a multiple of 10^7.
-//
-// This must stay exact integer arithmetic, never a float64 intermediate: most
-// cents amounts (e.g. 19.99) aren't exactly representable in binary floating
-// point, so converting through float64 can produce a nanos value off by one
-// (e.g. 989999999 instead of 990000000). A client that reads that value and
-// echoes it back unchanged (e.g. a category-only edit on a locked
-// transaction, which must resend amount/planned_amount verbatim) would then
-// fail assertOnlyCategoryChanged's exact-equality check against the
-// unmodified DB row — a real "amount changed" mismatch caused entirely by
-// this conversion, not by anything the client did.
+// Uses exact big.Int arithmetic, never float64 — a float64 intermediate can
+// round most cents amounts (e.g. 19.99) to a nanos value off by one, breaking
+// exact-equality checks on a value that's read back unchanged later.
 func moneyFromNumeric(n pgtype.Numeric) *v1.Money {
 	if !n.Valid {
 		return &v1.Money{}
 	}
-	// Scale the exact decimal value (n.Int * 10^n.Exp) to nanos (10^-9) via
-	// big.Int only. This app's amounts never exceed 4 decimal places, so
-	// nanoExp (n.Exp + 9) is always >= 0 in practice, making the scaling an
-	// exact multiplication; the division branch is kept only as a safe
-	// fallback (truncating, same as the multiplication path's implicit
-	// exactness) should that invariant ever not hold.
 	nanoExp := n.Exp + 9
 	totalNanos := new(big.Int).Set(n.Int)
 	if nanoExp > 0 {

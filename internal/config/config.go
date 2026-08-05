@@ -70,14 +70,7 @@ func Load() (*Config, error) {
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
-	// APNS_AUTH_KEY is stored (locally and in Cloud Run) as a single-line
-	// value with literal \n escapes standing in for the PEM file's real
-	// line breaks. godotenv already unescapes these when loading a local
-	// .env file, but Cloud Run sets this as a raw process env var with no
-	// godotenv involved at all, so the literal "\n" text would otherwise
-	// reach the PEM parser unconverted. Applying this unconditionally is
-	// safe either way — a value that already has real newlines (the local
-	// dev path) has no literal "\n" substring left to match.
+	// Cloud Run doesn't go through godotenv's quote-unescaping, so do it here too.
 	cfg.APNSAuthKey = strings.ReplaceAll(cfg.APNSAuthKey, `\n`, "\n")
 	return &cfg, nil
 }

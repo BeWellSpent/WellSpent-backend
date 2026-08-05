@@ -7,14 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// TestMoneyFromNumeric_RoundTripsExactly_ForAmountsProneToFloatRounding covers
-// dollar amounts whose decimal value isn't exactly representable in binary
-// floating point (e.g. 19.99). The old implementation converted through a
-// float64 intermediate, which could produce a nanos value off by one
-// (989999999 instead of 990000000) — a real, silent precision loss that made
-// a category-only edit on a locked transaction fail the backend's exact
-// equality check, since resending the read value unchanged no longer matched
-// what was actually stored.
+// Covers amounts that don't round-trip exactly through float64 (e.g. 19.99).
 func TestMoneyFromNumeric_RoundTripsExactly_ForAmountsProneToFloatRounding(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -44,10 +37,7 @@ func TestMoneyFromNumeric_RoundTripsExactly_ForAmountsProneToFloatRounding(t *te
 	}
 }
 
-// TestMoneyFromNumeric_NumericFromMoney_RoundTrip confirms that reading a
-// stored amount and immediately resending it unchanged (the exact locked-
-// transaction category-only-edit path) reconstructs the identical NUMERIC
-// value — the invariant assertOnlyCategoryChanged's equalNumeric relies on.
+// Confirms reading an amount and resending it unchanged reconstructs the identical NUMERIC value.
 func TestMoneyFromNumeric_NumericFromMoney_RoundTrip(t *testing.T) {
 	amounts := []struct {
 		unscaled int64
@@ -62,9 +52,6 @@ func TestMoneyFromNumeric_NumericFromMoney_RoundTrip(t *testing.T) {
 		money := moneyFromNumeric(original)
 		roundTripped := numericFromMoney(money)
 
-		// Mirrors internal/service.equalNumeric's own comparison — that
-		// function lives in a different package, but a plain Float64Value
-		// comparison is exactly what it does under the hood.
 		origF, _ := original.Float64Value()
 		rtF, _ := roundTripped.Float64Value()
 		if origF.Float64 != rtF.Float64 {

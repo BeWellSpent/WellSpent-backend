@@ -1774,11 +1774,6 @@ func TestMarkTransactionForReview_Success(t *testing.T) {
 	assert.Equal(t, db.TransactionReview{}, review) // mock returns zero value
 }
 
-// TestMarkTransactionForReview_FiresReviewPendingNotification covers the gap
-// this manual flag path used to have: unlike the automatic scoring path
-// (maybeQueueReview), MarkTransactionForReview used to upsert the review row
-// with no notification hook call at all, so a subscriber would never find
-// out short of opening the To Review tab themselves.
 func TestMarkTransactionForReview_FiresReviewPendingNotification(t *testing.T) {
 	userID := uuid.New()
 	profileID := uuid.New()
