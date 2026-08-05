@@ -2,12 +2,7 @@ package config
 
 import "testing"
 
-// TestLoad_APNSAuthKey_UnescapesLiteralNewlines covers the exact production
-// scenario: Cloud Run sets APNS_AUTH_KEY as a raw process env var (no
-// godotenv involved, since there's no .env file in the container), stored
-// with literal \n escapes standing in for the PEM file's real line breaks.
-// Without unescaping, apnstoken.AuthKeyFromBytes fails to parse the key and
-// every push silently no-ops.
+// Covers Cloud Run's raw env var (literal \n, no godotenv unescaping).
 func TestLoad_APNSAuthKey_UnescapesLiteralNewlines(t *testing.T) {
 	t.Setenv("ENV", "unittest-does-not-exist")
 	t.Setenv("DATABASE_URL", "postgres://example")
@@ -25,10 +20,7 @@ func TestLoad_APNSAuthKey_UnescapesLiteralNewlines(t *testing.T) {
 	}
 }
 
-// TestLoad_APNSAuthKey_LeavesRealNewlinesUnchanged covers the local-dev path,
-// where godotenv has already unescaped a quoted .env value into a string
-// with genuine newline bytes before envconfig ever sees it — re-applying the
-// same ReplaceAll must be a no-op, not a double-unescape or corruption.
+// Covers the local-dev path, where godotenv already unescaped the value.
 func TestLoad_APNSAuthKey_LeavesRealNewlinesUnchanged(t *testing.T) {
 	t.Setenv("ENV", "unittest-does-not-exist")
 	t.Setenv("DATABASE_URL", "postgres://example")

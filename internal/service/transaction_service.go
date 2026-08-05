@@ -574,9 +574,7 @@ func (s *TransactionService) MarkTransactionForReview(ctx context.Context, userI
 	if err != nil {
 		return db.TransactionReview{}, err
 	}
-	// Unlike the automatic scoring path (maybeQueueReview), a manual flag
-	// used to queue a review with no notification at all — a subscriber
-	// would never find out short of opening the To Review tab themselves.
+	// Manual flags used to skip notifying subscribers entirely.
 	if s.notifs != nil && tx.Name != nil {
 		s.notifs.HandleReviewPending(ctx, profileID, *tx.Name)
 	}
