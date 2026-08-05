@@ -338,6 +338,10 @@ func (s *TransactionService) Delete(ctx context.Context, id, userID uuid.UUID) e
 			return err
 		}
 	}
+	// Synced bank data is hard to recover once deleted — block it entirely, same as edits.
+	if tx.PlaidTransactionID != nil {
+		return apperr.Invalid("Plaid-imported transactions cannot be deleted")
+	}
 	return s.transactions.Delete(ctx, db.DeleteTransactionParams{ID: id, BudgetPeriodID: tx.BudgetPeriodID})
 }
 
