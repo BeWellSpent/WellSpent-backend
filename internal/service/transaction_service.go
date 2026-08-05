@@ -3,11 +3,11 @@ package service
 import (
 	"context"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type TransactionService struct {
@@ -570,7 +570,17 @@ func (s *TransactionService) MarkTransactionForReview(ctx context.Context, userI
 	if matched.BudgetPeriodID == nil || *matched.BudgetPeriodID != *tx.BudgetPeriodID {
 		return db.TransactionReview{}, apperr.Forbidden("matched transaction belongs to a different budget")
 	}
-	return s.reviews.Upsert(ctx, *tx.BudgetPeriodID, txID, matchedTransactionID, 100.0)
+	review, err := s.reviews.Upsert(ctx, *tx.BudgetPeriodID, txID, matchedTransactionID, 100.0)
+	if err != nil {
+		return db.TransactionReview{}, err
+	}
+	// Unlike the automatic scoring path (maybeQueueReview), a manual flag
+	// used to queue a review with no notification at all — a subscriber
+	// would never find out short of opening the To Review tab themselves.
+	if s.notifs != nil && tx.Name != nil {
+		s.notifs.HandleReviewPending(ctx, profileID, *tx.Name)
+	}
+	return review, nil
 }
 
 func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userID, reviewID, budgetProfileID uuid.UUID) error {

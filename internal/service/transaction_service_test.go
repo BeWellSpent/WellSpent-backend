@@ -1774,6 +1774,66 @@ func TestMarkTransactionForReview_Success(t *testing.T) {
 	assert.Equal(t, db.TransactionReview{}, review) // mock returns zero value
 }
 
+// TestMarkTransactionForReview_FiresReviewPendingNotification covers the gap
+// this manual flag path used to have: unlike the automatic scoring path
+// (maybeQueueReview), MarkTransactionForReview used to upsert the review row
+// with no notification hook call at all, so a subscriber would never find
+// out short of opening the To Review tab themselves.
+func TestMarkTransactionForReview_FiresReviewPendingNotification(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	matchedTxID := uuid.New()
+	variableType := int32(2)
+	fixedType := int32(1)
+	txName := "Starbucks"
+
+	var createdNotifications []db.CreateNotificationParams
+	notifRepo := &mockNotifRepo{
+		getBudgetSubscribers: func(_ context.Context, pid uuid.UUID, alertType string) ([]db.AlertSubscription, error) {
+			assert.Equal(t, profileID, pid)
+			assert.Equal(t, "review_pending", alertType)
+			return []db.AlertSubscription{{ID: uuid.New(), UserID: uuid.New(), Channel: "in_app"}}, nil
+		},
+		create: func(_ context.Context, arg db.CreateNotificationParams) (db.Notification, error) {
+			createdNotifications = append(createdNotifications, arg)
+			return db.Notification{}, nil
+		},
+	}
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+		},
+		getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+			return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+		},
+	}
+	notifSvc := newTestNotifSvc(notifRepo, profileRepo)
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				if id == matchedTxID {
+					return db.Transaction{ID: id, TransactionTypeID: &fixedType, BudgetPeriodID: &periodID}, nil
+				}
+				return db.Transaction{ID: id, Name: &txName, TransactionTypeID: &variableType, BudgetPeriodID: &periodID}, nil
+			},
+		},
+		profileRepo,
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	).WithNotifications(notifSvc)
+
+	_, err := svc.MarkTransactionForReview(context.Background(), userID, txID, matchedTxID, profileID)
+	require.NoError(t, err)
+
+	require.Len(t, createdNotifications, 1)
+	assert.Equal(t, "review_pending", createdNotifications[0].AlertType)
+	assert.Contains(t, createdNotifications[0].Body, txName)
+}
+
 func TestMarkTransactionForReview_Forbidden_WhenViewer(t *testing.T) {
 	userID := uuid.New()
 	profileID := uuid.New()
