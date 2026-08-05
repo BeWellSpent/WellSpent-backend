@@ -760,6 +760,80 @@ func TestUpdateCategory_SystemColor_NotFound(t *testing.T) {
 	require.ErrorAs(t, err, &notFound)
 }
 
+// ── DeleteTransaction tests ───────────────────────────────────────────────────
+
+func TestDeleteTransaction_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	deleteCalled := false
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: txID, BudgetPeriodID: &periodID}, nil
+			},
+			delete: func(_ context.Context, arg db.DeleteTransactionParams) error {
+				deleteCalled = true
+				assert.Equal(t, txID, arg.ID)
+				return nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, IsArchived: false}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	err := svc.Delete(context.Background(), txID, userID)
+	require.NoError(t, err)
+	assert.True(t, deleteCalled)
+}
+
+func TestDeleteTransaction_Invalid_WhenPlaidImported(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	plaidID := "plaid-tx-123"
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: txID, BudgetPeriodID: &periodID, PlaidTransactionID: &plaidID}, nil
+			},
+			delete: func(_ context.Context, _ db.DeleteTransactionParams) error {
+				t.Fatal("delete should not be called for a Plaid-imported transaction")
+				return nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID, IsArchived: false}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	err := svc.Delete(context.Background(), txID, userID)
+	require.Error(t, err)
+	var invalid *apperr.ValidationError
+	require.ErrorAs(t, err, &invalid)
+}
+
 // ── DeleteCategory tests ──────────────────────────────────────────────────────
 
 func TestDeleteCategory_Success(t *testing.T) {
