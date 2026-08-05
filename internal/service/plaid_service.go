@@ -92,6 +92,22 @@ func (s *PlaidService) requireUS(ctx context.Context, userID uuid.UUID) error {
 	return nil
 }
 
+// requireProOrLifetime returns Invalid if the calling user is on the free
+// plan — Plaid bank sync is a Pro/Lifetime feature. Checked at link time
+// (CreateLinkToken/ExchangePublicToken) so a free-tier user gets a clear
+// error instead of successfully linking an item that SyncItem will then
+// silently no-op on forever (see the plan check in plaid_sync.go).
+func (s *PlaidService) requireProOrLifetime(ctx context.Context, userID uuid.UUID) error {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if user.Plan == "free" {
+		return apperr.Invalid("free tier: Plaid bank sync requires a Pro subscription")
+	}
+	return nil
+}
+
 // requireProfileOwnerOrMember returns Forbidden if the user does not own or belong to the profile.
 func (s *PlaidService) requireProfileOwnerOrMember(ctx context.Context, profileID, userID uuid.UUID) error {
 	profile, err := s.budgets.GetByID(ctx, profileID)
@@ -123,6 +139,9 @@ func (s *PlaidService) CreateLinkToken(ctx context.Context, userID, profileID uu
 	if err := s.requireUS(ctx, userID); err != nil {
 		return CreateLinkTokenResult{}, err
 	}
+	if err := s.requireProOrLifetime(ctx, userID); err != nil {
+		return CreateLinkTokenResult{}, err
+	}
 	if err := s.requireProfileOwnerOrMember(ctx, profileID, userID); err != nil {
 		return CreateLinkTokenResult{}, err
 	}
@@ -152,6 +171,9 @@ func (s *PlaidService) CreateLinkToken(ctx context.Context, userID, profileID uu
 
 func (s *PlaidService) ExchangePublicToken(ctx context.Context, userID, profileID uuid.UUID, publicToken string) (db.PlaidItem, error) {
 	if err := s.requireUS(ctx, userID); err != nil {
+		return db.PlaidItem{}, err
+	}
+	if err := s.requireProOrLifetime(ctx, userID); err != nil {
 		return db.PlaidItem{}, err
 	}
 	if err := s.requireProfileOwnerOrMember(ctx, profileID, userID); err != nil {

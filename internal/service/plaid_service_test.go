@@ -147,6 +147,11 @@ func nonUSUser() db.User {
 	return db.User{ID: uuid.New(), CountryCode: &cc}
 }
 
+func freeUser() db.User {
+	cc := "US"
+	return db.User{ID: uuid.New(), CountryCode: &cc, Plan: "free"}
+}
+
 // testEncKey is a valid 64-char hex key used only in tests.
 const testEncKey = "0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -242,6 +247,58 @@ func TestPlaid_CreateLinkToken_NonUS_Forbidden(t *testing.T) {
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	assert.ErrorAs(t, err, &forbidden)
+}
+
+func TestPlaid_CreateLinkToken_FreeTier_Invalid(t *testing.T) {
+	user := freeUser()
+
+	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, &mockBudgetProfileRepo{}, &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
+
+	_, err := svc.CreateLinkToken(context.Background(), user.ID, uuid.New(), nil, "")
+	require.Error(t, err)
+	var invalid *apperr.ValidationError
+	assert.ErrorAs(t, err, &invalid)
+}
+
+func TestPlaid_ExchangePublicToken_FreeTier_Invalid(t *testing.T) {
+	user := freeUser()
+
+	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, &mockBudgetProfileRepo{}, &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
+
+	_, err := svc.ExchangePublicToken(context.Background(), user.ID, uuid.New(), "public-token-sandbox")
+	require.Error(t, err)
+	var invalid *apperr.ValidationError
+	assert.ErrorAs(t, err, &invalid)
+}
+
+func TestPlaid_Disconnect_FreeTier_StillAllowed(t *testing.T) {
+	user := freeUser()
+	connID := uuid.New()
+	statusUpdated := ""
+
+	plaidRepo := &mockPlaidRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.PlaidItem, error) {
+			return db.PlaidItem{ID: id, UserID: user.ID, AccessToken: "access-sandbox"}, nil
+		},
+		updateStatus: func(_ context.Context, arg db.UpdatePlaidItemStatusParams) (db.PlaidItem, error) {
+			statusUpdated = arg.Status
+			return db.PlaidItem{ID: arg.ID, Status: arg.Status}, nil
+		},
+	}
+	svc := NewPlaidService(&mockPlaidClient{}, plaidRepo, &mockBudgetProfileRepo{}, &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
+
+	// Disconnect must never be gated by plan — removing access should always
+	// be possible, even for a free-tier user who somehow already has a
+	// connection (e.g. was downgraded after linking while Pro).
+	err := svc.Disconnect(context.Background(), user.ID, connID)
+	require.NoError(t, err)
+	assert.Equal(t, "disconnected", statusUpdated)
 }
 
 func TestPlaid_ExchangePublicToken_Success(t *testing.T) {
