@@ -4,32 +4,48 @@ import (
 	"fmt"
 	"math/big"
 
+	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // moneyFromNumeric converts a pgtype.Numeric (NUMERIC(12,2)) to a proto Money.
 // Amounts in this app are at most 2 decimal places, so nanos are always a multiple of 10^7.
+//
+// This must stay exact integer arithmetic, never a float64 intermediate: most
+// cents amounts (e.g. 19.99) aren't exactly representable in binary floating
+// point, so converting through float64 can produce a nanos value off by one
+// (e.g. 989999999 instead of 990000000). A client that reads that value and
+// echoes it back unchanged (e.g. a category-only edit on a locked
+// transaction, which must resend amount/planned_amount verbatim) would then
+// fail assertOnlyCategoryChanged's exact-equality check against the
+// unmodified DB row — a real "amount changed" mismatch caused entirely by
+// this conversion, not by anything the client did.
 func moneyFromNumeric(n pgtype.Numeric) *v1.Money {
 	if !n.Valid {
 		return &v1.Money{}
 	}
-	// Reconstruct as big.Float then extract units/nanos
-	rat := new(big.Rat).SetInt(n.Int)
-	if n.Exp > 0 {
-		mul := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n.Exp)), nil)
-		rat.Mul(rat, new(big.Rat).SetInt(mul))
-	} else if n.Exp < 0 {
-		div := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(-n.Exp)), nil)
-		rat.Quo(rat, new(big.Rat).SetInt(div))
+	// Scale the exact decimal value (n.Int * 10^n.Exp) to nanos (10^-9) via
+	// big.Int only. This app's amounts never exceed 4 decimal places, so
+	// nanoExp (n.Exp + 9) is always >= 0 in practice, making the scaling an
+	// exact multiplication; the division branch is kept only as a safe
+	// fallback (truncating, same as the multiplication path's implicit
+	// exactness) should that invariant ever not hold.
+	nanoExp := n.Exp + 9
+	totalNanos := new(big.Int).Set(n.Int)
+	if nanoExp > 0 {
+		scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(nanoExp)), nil)
+		totalNanos.Mul(totalNanos, scale)
+	} else if nanoExp < 0 {
+		scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(-nanoExp)), nil)
+		totalNanos.Quo(totalNanos, scale)
 	}
 
-	f, _ := rat.Float64()
-	units := int64(f)
-	nanos := int32((f - float64(units)) * 1e9)
-	return &v1.Money{Units: units, Nanos: nanos}
+	billion := big.NewInt(1e9)
+	unitsBig := new(big.Int).Quo(totalNanos, billion)
+	nanosBig := new(big.Int).Rem(totalNanos, billion)
+	return &v1.Money{Units: unitsBig.Int64(), Nanos: int32(nanosBig.Int64())}
 }
 
 // numericFromMoney converts a proto Money back to pgtype.Numeric.
