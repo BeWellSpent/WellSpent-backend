@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -32,10 +33,10 @@ type Config struct {
 	APNSAuthKey     string `envconfig:"APNS_AUTH_KEY"`
 	APNSBundleID    string `envconfig:"APNS_BUNDLE_ID" default:"com.bewellspent.WellSpent"`
 	APNSEnvironment string `envconfig:"APNS_ENVIRONMENT" default:"sandbox"`
-	PlaidClientID      string   `envconfig:"PLAID_CLIENT_ID"`
-	PlaidSecret        string   `envconfig:"PLAID_SECRET"`
-	PlaidEnv           string   `envconfig:"PLAID_ENV" default:"sandbox"`
-	EncryptionKey      string   `envconfig:"ENCRYPTION_KEY"`
+	PlaidClientID   string `envconfig:"PLAID_CLIENT_ID"`
+	PlaidSecret     string `envconfig:"PLAID_SECRET"`
+	PlaidEnv        string `envconfig:"PLAID_ENV" default:"sandbox"`
+	EncryptionKey   string `envconfig:"ENCRYPTION_KEY"`
 
 	// PlaidHTTPMaxRetries/PlaidHTTPRetryDelay configure the Plaid API HTTP
 	// transport's retry-on-failure (network errors, 429, 5xx — not 4xx,
@@ -69,5 +70,14 @@ func Load() (*Config, error) {
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
+	// APNS_AUTH_KEY is stored (locally and in Cloud Run) as a single-line
+	// value with literal \n escapes standing in for the PEM file's real
+	// line breaks. godotenv already unescapes these when loading a local
+	// .env file, but Cloud Run sets this as a raw process env var with no
+	// godotenv involved at all, so the literal "\n" text would otherwise
+	// reach the PEM parser unconverted. Applying this unconditionally is
+	// safe either way — a value that already has real newlines (the local
+	// dev path) has no literal "\n" substring left to match.
+	cfg.APNSAuthKey = strings.ReplaceAll(cfg.APNSAuthKey, `\n`, "\n")
 	return &cfg, nil
 }

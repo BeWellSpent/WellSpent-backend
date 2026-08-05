@@ -81,6 +81,13 @@ jobs:
           printf 'PLAID_CLIENT_ID=%s\n'        "${PLAID_CLIENT_ID}"        >> $GITHUB_ENV
           printf 'RESEND_FROM_EMAIL=%s\n'      "${RESEND_FROM_EMAIL}"      >> $GITHUB_ENV
           printf 'PLAID_SYNC_ALERT_EMAIL=%s\n' "${PLAID_SYNC_ALERT_EMAIL}" >> $GITHUB_ENV
+          printf 'APNS_KEY_ID=%s\n'            "${APNS_KEY_ID}"            >> $GITHUB_ENV
+          printf 'APNS_TEAM_ID=%s\n'           "${APNS_TEAM_ID}"           >> $GITHUB_ENV
+          printf 'APNS_ENVIRONMENT=%s\n'       "${APNS_ENVIRONMENT}"       >> $GITHUB_ENV
+          # APNS_AUTH_KEY is stored single-line with literal \n escapes (see
+          # config.Load()'s unescaping of it) — safe to forward as a plain
+          # one-line value same as everything else here, no heredoc needed.
+          printf 'APNS_AUTH_KEY=%s\n'          "${APNS_AUTH_KEY}"          >> $GITHUB_ENV
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -113,6 +120,10 @@ jobs:
             GOOGLE_CLIENT_ID=${{ env.GOOGLE_CLIENT_ID }}
             PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }}
             RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }}
+            APNS_KEY_ID=${{ env.APNS_KEY_ID }}
+            APNS_TEAM_ID=${{ env.APNS_TEAM_ID }}
+            APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }}
+            APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY }}
           secrets: |
             DATABASE_URL=DATABASE_URL:latest
             JWT_SECRET=JWT_SECRET:latest
