@@ -70,7 +70,18 @@ func Load() (*Config, error) {
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
-	// Cloud Run doesn't go through godotenv's quote-unescaping, so do it here too.
-	cfg.APNSAuthKey = strings.ReplaceAll(cfg.APNSAuthKey, `\n`, "\n")
+	cfg.APNSAuthKey = NormalizeAPNSAuthKey(cfg.APNSAuthKey)
 	return &cfg, nil
+}
+
+// NormalizeAPNSAuthKey converts a literal `\n` two-character sequence (as
+// found in a raw Cloud Run env var, which never goes through godotenv's
+// quote-unescaping) into a real newline, so the PEM parser in
+// notification_service.go can decode it. A value that already contains real
+// newlines (local dev via godotenv, or any other already-unescaped source)
+// passes through unchanged. Every binary that builds a config.Config's
+// APNSAuthKey field directly from os.Getenv (cmd/jobs/*) must call this —
+// Load() does it automatically.
+func NormalizeAPNSAuthKey(key string) string {
+	return strings.ReplaceAll(key, `\n`, "\n")
 }

@@ -9,10 +9,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/joho/godotenv"
+	"github.com/BeWellSpent/wellspent-backend/internal/config"
 	"github.com/BeWellSpent/wellspent-backend/internal/db"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	"github.com/BeWellSpent/wellspent-backend/internal/service"
 	sqlcdb "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"go.uber.org/zap"
 )
 
 // cycle-budgets is a daily job that finds every BudgetProfile whose latest period
@@ -33,6 +35,30 @@ func main() {
 		log.Fatalf("[FATAL] DATABASE_URL is not set (checked .env.%s)", env)
 	}
 
+	// Lite notification config, same pattern as cmd/jobs/plaid-sync/main.go —
+	// this job creates budget periods, which fires the period_created alert
+	// (in-app/email/push) via NotificationService.HandlePeriodCreated. All
+	// fields are optional; each channel just no-ops with a log warning if
+	// its config is missing (APNSAuthKey empty, ResendAPIKey empty, etc.).
+	notifCfg := &config.Config{
+		ResendAPIKey:    os.Getenv("RESEND_API_KEY"),
+		ResendFromEmail: envStringDefault("RESEND_FROM_EMAIL", "WellSpent <noreply@wellspent.app>"),
+		FrontendURL:     envStringDefault("FRONTEND_URL", "http://localhost:3000"),
+		APNSKeyID:       os.Getenv("APNS_KEY_ID"),
+		APNSTeamID:      os.Getenv("APNS_TEAM_ID"),
+		APNSAuthKey:     config.NormalizeAPNSAuthKey(os.Getenv("APNS_AUTH_KEY")),
+		APNSBundleID:    envStringDefault("APNS_BUNDLE_ID", "com.bewellspent.WellSpent"),
+		APNSEnvironment: envStringDefault("APNS_ENVIRONMENT", "sandbox"),
+	}
+
+	var logger *zap.Logger
+	if os.Getenv("DEBUG") == "true" {
+		logger, _ = zap.NewDevelopment()
+	} else {
+		logger, _ = zap.NewProduction()
+	}
+	defer logger.Sync() //nolint:errcheck
+
 	ctx := context.Background()
 	pool, err := db.NewPool(ctx, dbURL)
 	if err != nil {
@@ -45,8 +71,11 @@ func main() {
 	txRepo           := repository.NewTransactionRepository(queries)
 	fixedExpenseRepo := repository.NewFixedExpenseRepository(queries)
 	userRepo         := repository.NewUserRepository(queries)
+	allocationRepo   := repository.NewExpenseAllocationRepository(queries)
+	notifRepo        := repository.NewNotificationRepository(queries)
 
-	svc := service.NewBudgetProfileService(profileRepo, txRepo, fixedExpenseRepo, userRepo)
+	notifSvc := service.NewNotificationService(notifRepo, txRepo, profileRepo, allocationRepo, userRepo, notifCfg, logger)
+	svc := service.NewBudgetProfileService(profileRepo, txRepo, fixedExpenseRepo, userRepo).WithNotifications(notifSvc)
 
 	today := time.Now().UTC()
 	yesterday := today.AddDate(0, 0, -1)
@@ -89,4 +118,11 @@ func main() {
 	if failed > 0 {
 		log.Printf("[WARN]  %d profile(s) failed to cycle — check errors above", failed)
 	}
+}
+
+func envStringDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
