@@ -69,7 +69,7 @@ func main() {
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo).WithNotifications(notifSvc)
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo).WithNotifications(notifSvc)
 	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
-	expenseSummarySvc := service.NewExpenseSummaryService(budgetProfileRepo, transactionRepo, allocationRepo, fixedExpenseRepo)
+	expenseSummarySvc := service.NewExpenseSummaryService(budgetProfileRepo, transactionRepo, allocationRepo, fixedExpenseRepo, logger)
 	inviteSvc := service.NewInviteService(inviteRepo, budgetProfileRepo, userRepo, cfg, logger)
 
 	var plaidSvc *service.PlaidService

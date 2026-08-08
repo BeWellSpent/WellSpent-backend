@@ -10,6 +10,7 @@ import (
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 // n is a short numericFromString wrapper for readability in table-shaped test data.
@@ -35,7 +36,7 @@ func newTestExpenseSummarySvc(profiles *mockBudgetProfileRepo, transactions *moc
 	if fixedExpenses == nil {
 		fixedExpenses = &mockFixedExpenseRepo{}
 	}
-	return NewExpenseSummaryService(profiles, transactions, allocations, fixedExpenses)
+	return NewExpenseSummaryService(profiles, transactions, allocations, fixedExpenses, zap.NewNop())
 }
 
 func TestGetSummary_ForbiddenWhenNotMember(t *testing.T) {

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"math/big"
-	"sort"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -11,6 +10,7 @@ import (
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"go.uber.org/zap"
 )
 
 // fixedTransactionTypeID matches transaction_type (1=Fixed, 2=Variable),
@@ -31,6 +31,7 @@ type ExpenseSummaryService struct {
 	transactions  repository.TransactionRepository
 	allocations   repository.ExpenseAllocationRepository
 	fixedExpenses repository.FixedExpenseRepository
+	log           *zap.Logger
 }
 
 func NewExpenseSummaryService(
@@ -38,6 +39,7 @@ func NewExpenseSummaryService(
 	transactions repository.TransactionRepository,
 	allocations repository.ExpenseAllocationRepository,
 	fixedExpenses repository.FixedExpenseRepository,
+	log *zap.Logger,
 ) *ExpenseSummaryService {
 	if profiles == nil {
 		panic("NewExpenseSummaryService: profiles is required")
@@ -51,11 +53,15 @@ func NewExpenseSummaryService(
 	if fixedExpenses == nil {
 		panic("NewExpenseSummaryService: fixedExpenses is required")
 	}
+	if log == nil {
+		panic("NewExpenseSummaryService: log is required")
+	}
 	return &ExpenseSummaryService{
 		profiles:      profiles,
 		transactions:  transactions,
 		allocations:   allocations,
 		fixedExpenses: fixedExpenses,
+		log:           log,
 	}
 }
 
@@ -81,9 +87,12 @@ type catPersonKey struct {
 // GetSummary computes the full expense summary for a budget period, fresh on
 // every call (no caching/storage) so it reflects the current state of
 // transactions/allocations/savings/fixed expenses/income exactly, including
-// anything just manually added.
+// anything just manually added. It's a thin orchestrator: fetch every input
+// (each via its own logged loadX method, so a failure names exactly which
+// dependency broke) into an expenseSummaryData, then hand that to
+// newExpenseSummaryCalculator to do the actual math.
 func (s *ExpenseSummaryService) GetSummary(ctx context.Context, periodID, userID uuid.UUID) (*v1.GetExpenseSummaryResponse, error) {
-	period, err := s.profiles.GetPeriodByID(ctx, periodID)
+	period, err := s.loadPeriod(ctx, periodID)
 	if err != nil {
 		return nil, err
 	}
@@ -92,310 +101,210 @@ func (s *ExpenseSummaryService) GetSummary(ctx context.Context, periodID, userID
 		return nil, err
 	}
 
+	data, err := s.loadData(ctx, period)
+	if err != nil {
+		return nil, err
+	}
+
+	return newExpenseSummaryCalculator(data).response(), nil
+}
+
+// ─── Data loading — one function per source, each logging its own failure ───
+
+// expenseSummaryData holds every input GetSummary's calculation needs, all
+// fetched up front so the calculator itself does no I/O.
+type expenseSummaryData struct {
+	period              db.BudgetPeriod
+	people              []db.BudgetToProfileMapping
+	allocations         []db.ExpenseAllocation
+	savingsSources      []db.SavingsSource
+	activeFixedExpenses []db.FixedExpense
+	incomeSources       []db.IncomeSource
+	incomeEntries       []db.IncomeEntry
+	paymentMethods      []db.ListPaymentMethodsRow
+	// transactions is already exclusion-filtered (is_excluded, Income
+	// category) — every downstream computation can assume every transaction
+	// here is real spending activity.
+	transactions       []db.Transaction
+	incomeCategoryID   int32
+	hasIncomeCategory  bool
+	savingsCategoryID  int32
+	hasSavingsCategory bool
+}
+
+func (s *ExpenseSummaryService) loadData(ctx context.Context, period db.BudgetPeriod) (*expenseSummaryData, error) {
+	profileID := period.BudgetProfileID
+
+	incomeCategoryID, hasIncomeCategory, savingsCategoryID, hasSavingsCategory, err := s.loadSystemCategoryIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	people, err := s.loadPeople(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	allocations, err := s.loadAllocations(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	savingsSources, err := s.loadSavingsSources(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	activeFixedExpenses, err := s.loadActiveFixedExpenses(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	incomeSources, err := s.loadIncomeSources(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	incomeEntries, err := s.loadIncomeEntries(ctx, period.ID)
+	if err != nil {
+		return nil, err
+	}
+	paymentMethods, err := s.loadPaymentMethods(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	transactions, err := s.loadTransactions(ctx, period.ID, incomeCategoryID, hasIncomeCategory)
+	if err != nil {
+		return nil, err
+	}
+
+	return &expenseSummaryData{
+		period:              period,
+		people:              people,
+		allocations:         allocations,
+		savingsSources:      savingsSources,
+		activeFixedExpenses: activeFixedExpenses,
+		incomeSources:       incomeSources,
+		incomeEntries:       incomeEntries,
+		paymentMethods:      paymentMethods,
+		transactions:        transactions,
+		incomeCategoryID:    incomeCategoryID,
+		hasIncomeCategory:   hasIncomeCategory,
+		savingsCategoryID:   savingsCategoryID,
+		hasSavingsCategory:  hasSavingsCategory,
+	}, nil
+}
+
+func (s *ExpenseSummaryService) loadPeriod(ctx context.Context, periodID uuid.UUID) (db.BudgetPeriod, error) {
+	period, err := s.profiles.GetPeriodByID(ctx, periodID)
+	if err != nil {
+		s.log.Error("expense_summary.loadPeriod: get period", zap.String("period_id", periodID.String()), zap.Error(err))
+		return db.BudgetPeriod{}, err
+	}
+	return period, nil
+}
+
+func (s *ExpenseSummaryService) loadPeople(ctx context.Context, profileID uuid.UUID) ([]db.BudgetToProfileMapping, error) {
 	people, err := s.profiles.ListPeople(ctx, profileID)
 	if err != nil {
+		s.log.Error("expense_summary.loadPeople: list people", zap.String("profile_id", profileID.String()), zap.Error(err))
 		return nil, err
 	}
+	return people, nil
+}
+
+func (s *ExpenseSummaryService) loadAllocations(ctx context.Context, profileID uuid.UUID) ([]db.ExpenseAllocation, error) {
 	allocations, err := s.allocations.List(ctx, profileID)
 	if err != nil {
+		s.log.Error("expense_summary.loadAllocations: list expense allocations", zap.String("profile_id", profileID.String()), zap.Error(err))
 		return nil, err
 	}
-	savingsSources, err := s.profiles.ListSavingsSources(ctx, profileID)
-	if err != nil {
-		return nil, err
-	}
-	allFixedExpenses, err := s.fixedExpenses.List(ctx, profileID)
-	if err != nil {
-		return nil, err
-	}
-	incomeSources, err := s.profiles.ListIncomeSources(ctx, profileID)
-	if err != nil {
-		return nil, err
-	}
-	incomeEntries, err := s.profiles.ListIncomeEntries(ctx, periodID)
-	if err != nil {
-		return nil, err
-	}
-	paymentMethods, err := s.transactions.ListPaymentMethods(ctx, profileID)
-	if err != nil {
-		return nil, err
-	}
-	systemCategories, err := s.transactions.ListSystemCategories(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rawTransactions, err := s.transactions.List(ctx, db.ListTransactionsParams{BudgetPeriodID: periodID})
-	if err != nil {
-		return nil, err
-	}
+	return allocations, nil
+}
 
-	incomeCategoryID, hasIncomeCategory := systemCategories["Income"]
-	savingsCategoryID, hasSavingsCategory := systemCategories["Savings"]
+func (s *ExpenseSummaryService) loadSavingsSources(ctx context.Context, profileID uuid.UUID) ([]db.SavingsSource, error) {
+	sources, err := s.profiles.ListSavingsSources(ctx, profileID)
+	if err != nil {
+		s.log.Error("expense_summary.loadSavingsSources: list savings sources", zap.String("profile_id", profileID.String()), zap.Error(err))
+		return nil, err
+	}
+	return sources, nil
+}
 
-	// Same exclusion rule as web's isTransactionExcluded/iOS's
-	// ExpenseOverviewCalculations.isTransactionExcluded: is_excluded, or the
-	// Income system category (payroll deposits aren't spend).
-	transactions := make([]db.Transaction, 0, len(rawTransactions))
-	for _, tx := range rawTransactions {
+func (s *ExpenseSummaryService) loadActiveFixedExpenses(ctx context.Context, profileID uuid.UUID) ([]db.FixedExpense, error) {
+	all, err := s.fixedExpenses.List(ctx, profileID)
+	if err != nil {
+		s.log.Error("expense_summary.loadActiveFixedExpenses: list fixed expenses", zap.String("profile_id", profileID.String()), zap.Error(err))
+		return nil, err
+	}
+	active := make([]db.FixedExpense, 0, len(all))
+	for _, fe := range all {
+		if fe.IsActive {
+			active = append(active, fe)
+		}
+	}
+	return active, nil
+}
+
+func (s *ExpenseSummaryService) loadIncomeSources(ctx context.Context, profileID uuid.UUID) ([]db.IncomeSource, error) {
+	sources, err := s.profiles.ListIncomeSources(ctx, profileID)
+	if err != nil {
+		s.log.Error("expense_summary.loadIncomeSources: list income sources", zap.String("profile_id", profileID.String()), zap.Error(err))
+		return nil, err
+	}
+	return sources, nil
+}
+
+func (s *ExpenseSummaryService) loadIncomeEntries(ctx context.Context, periodID uuid.UUID) ([]db.IncomeEntry, error) {
+	entries, err := s.profiles.ListIncomeEntries(ctx, periodID)
+	if err != nil {
+		s.log.Error("expense_summary.loadIncomeEntries: list income entries", zap.String("period_id", periodID.String()), zap.Error(err))
+		return nil, err
+	}
+	return entries, nil
+}
+
+func (s *ExpenseSummaryService) loadPaymentMethods(ctx context.Context, profileID uuid.UUID) ([]db.ListPaymentMethodsRow, error) {
+	methods, err := s.transactions.ListPaymentMethods(ctx, profileID)
+	if err != nil {
+		s.log.Error("expense_summary.loadPaymentMethods: list payment methods", zap.String("profile_id", profileID.String()), zap.Error(err))
+		return nil, err
+	}
+	return methods, nil
+}
+
+// loadSystemCategoryIDs resolves the "Income" and "Savings" system category
+// IDs, needed respectively for transaction exclusion and the Savings
+// special-case. Either may legitimately not exist (not yet seeded in a
+// fresh environment) — that's reported via the hasX bool, not an error.
+func (s *ExpenseSummaryService) loadSystemCategoryIDs(ctx context.Context) (incomeCategoryID int32, hasIncome bool, savingsCategoryID int32, hasSavings bool, err error) {
+	categories, err := s.transactions.ListSystemCategories(ctx)
+	if err != nil {
+		s.log.Error("expense_summary.loadSystemCategoryIDs: list system categories", zap.Error(err))
+		return 0, false, 0, false, err
+	}
+	incomeCategoryID, hasIncome = categories["Income"]
+	savingsCategoryID, hasSavings = categories["Savings"]
+	return incomeCategoryID, hasIncome, savingsCategoryID, hasSavings, nil
+}
+
+// loadTransactions fetches the period's transactions and applies the same
+// exclusion rule as web's isTransactionExcluded/iOS's
+// ExpenseOverviewCalculations.isTransactionExcluded: is_excluded, or the
+// Income system category (payroll deposits aren't spend). Every other
+// method in this file can assume the transactions it sees already passed
+// this filter.
+func (s *ExpenseSummaryService) loadTransactions(ctx context.Context, periodID uuid.UUID, incomeCategoryID int32, hasIncomeCategory bool) ([]db.Transaction, error) {
+	raw, err := s.transactions.List(ctx, db.ListTransactionsParams{BudgetPeriodID: periodID})
+	if err != nil {
+		s.log.Error("expense_summary.loadTransactions: list transactions", zap.String("period_id", periodID.String()), zap.Error(err))
+		return nil, err
+	}
+	filtered := make([]db.Transaction, 0, len(raw))
+	for _, tx := range raw {
 		if tx.IsExcluded {
 			continue
 		}
 		if hasIncomeCategory && tx.CategoryID != nil && *tx.CategoryID == incomeCategoryID {
 			continue
 		}
-		transactions = append(transactions, tx)
+		filtered = append(filtered, tx)
 	}
-
-	activeFixedExpenses := make([]db.FixedExpense, 0, len(allFixedExpenses))
-	for _, fe := range allFixedExpenses {
-		if fe.IsActive {
-			activeFixedExpenses = append(activeFixedExpenses, fe)
-		}
-	}
-
-	pmPersonMap := make(map[uuid.UUID]int32, len(paymentMethods))
-	for _, pm := range paymentMethods {
-		if pm.BudgetPersonID != nil {
-			pmPersonMap[pm.ID] = *pm.BudgetPersonID
-		}
-	}
-
-	// ─── Actual totals — unpaid Fixed transactions don't count as spent yet ───
-	actualByCat := map[int32]int64{}
-	actualByPersonCat := map[catPersonKey]int64{}
-	var uncategorizedActual int64
-	for _, tx := range transactions {
-		if tx.TransactionTypeID != nil && *tx.TransactionTypeID == fixedTransactionTypeID && !tx.IsPaid {
-			continue
-		}
-		amt := numericToNanos(tx.Amount)
-		if tx.CategoryID == nil {
-			uncategorizedActual += amt
-			continue
-		}
-		actualByCat[*tx.CategoryID] += amt
-		if tx.PaymentMethodID != nil {
-			if personID, ok := pmPersonMap[*tx.PaymentMethodID]; ok {
-				actualByPersonCat[catPersonKey{*tx.CategoryID, personID}] += amt
-			}
-		}
-	}
-
-	// ─── Planned totals ───
-	// Tier 1: allocations, per category and per person.
-	allocByCat := map[int32]int64{}
-	allocByPersonCat := map[catPersonKey]int64{}
-	catIDsWithAlloc := map[int32]bool{}
-	for _, a := range allocations {
-		amt := numericToNanos(a.PlannedAmount)
-		allocByCat[a.CategoryID] += amt
-		catIDsWithAlloc[a.CategoryID] = true
-		if a.BudgetPersonID != nil {
-			allocByPersonCat[catPersonKey{a.CategoryID, *a.BudgetPersonID}] += amt
-		}
-	}
-
-	// Tier 2: Fixed transactions due (spawned) this period.
-	fixedDueByCat := map[int32]int64{}
-	fixedDueByPersonCat := map[catPersonKey]int64{}
-	for _, tx := range transactions {
-		if tx.TransactionTypeID == nil || *tx.TransactionTypeID != fixedTransactionTypeID || tx.CategoryID == nil {
-			continue
-		}
-		amt := numericToNanos(tx.PlannedAmount)
-		fixedDueByCat[*tx.CategoryID] += amt
-		if tx.PaymentMethodID != nil {
-			if personID, ok := pmPersonMap[*tx.PaymentMethodID]; ok {
-				fixedDueByPersonCat[catPersonKey{*tx.CategoryID, personID}] += amt
-			}
-		}
-	}
-
-	// Tier 3: active Fixed expense templates not yet due this period —
-	// display/Overview-only fallback, deliberately excluded from the Plan
-	// tab's committed/remainder math below (an obligation that isn't due
-	// yet isn't "committed" against this period's income).
-	notDueFixedByCat := map[int32]int64{}
-	fixedExpenseCatIDs := map[int32]bool{}
-	for _, fe := range activeFixedExpenses {
-		if fe.CategoryID == nil {
-			continue
-		}
-		fixedExpenseCatIDs[*fe.CategoryID] = true
-		if _, ok := fixedDueByCat[*fe.CategoryID]; ok {
-			continue
-		}
-		notDueFixedByCat[*fe.CategoryID] += numericToNanos(fe.PlannedAmount)
-	}
-
-	// Savings: system-managed category, amount is the sum of savings source
-	// amounts regardless of allocations/fixed expenses.
-	var savingsTotal int64
-	savingsByPerson := map[int32]int64{}
-	for _, ss := range savingsSources {
-		amt := numericToNanos(ss.Amount)
-		savingsTotal += amt
-		if ss.BudgetPersonID != nil {
-			savingsByPerson[*ss.BudgetPersonID] += amt
-		}
-	}
-
-	isSavingsCategory := func(catID int32) bool {
-		return hasSavingsCategory && catID == savingsCategoryID
-	}
-
-	// plannedTotal mirrors web's getCatPlanned/getCategoryPlanned (identical
-	// on both the Plan and Overview tabs): savings first, then allocations,
-	// then Fixed fallback (due this period, else not-yet-due template).
-	plannedTotal := func(catID int32) int64 {
-		if isSavingsCategory(catID) {
-			return savingsTotal
-		}
-		if alloc, ok := allocByCat[catID]; ok && alloc != 0 {
-			return alloc
-		}
-		if due, ok := fixedDueByCat[catID]; ok && due != 0 {
-			return due
-		}
-		return notDueFixedByCat[catID]
-	}
-
-	plannedTotalForPerson := func(catID, personID int32) int64 {
-		if isSavingsCategory(catID) {
-			return savingsByPerson[personID]
-		}
-		if alloc, ok := allocByPersonCat[catPersonKey{catID, personID}]; ok && alloc != 0 {
-			return alloc
-		}
-		return fixedDueByPersonCat[catPersonKey{catID, personID}]
-	}
-
-	// ─── Category IDs to consider — union across every source ───
-	categoryIDSet := map[int32]bool{}
-	for id := range actualByCat {
-		categoryIDSet[id] = true
-	}
-	for id := range allocByCat {
-		categoryIDSet[id] = true
-	}
-	for id := range fixedDueByCat {
-		categoryIDSet[id] = true
-	}
-	for id := range notDueFixedByCat {
-		categoryIDSet[id] = true
-	}
-	if hasSavingsCategory && len(savingsSources) > 0 {
-		categoryIDSet[savingsCategoryID] = true
-	}
-
-	buildPersonBreakdowns := func(catID int32) []*v1.PersonExpenseSummary {
-		var out []*v1.PersonExpenseSummary
-		for _, p := range people {
-			planned := plannedTotalForPerson(catID, p.ID)
-			actual := actualByPersonCat[catPersonKey{catID, p.ID}]
-			if planned == 0 && actual == 0 {
-				continue
-			}
-			out = append(out, &v1.PersonExpenseSummary{
-				BudgetPersonId: int64(p.ID),
-				PlannedTotal:   nanosToMoney(planned),
-				ActualTotal:    nanosToMoney(actual),
-			})
-		}
-		return out
-	}
-
-	// ─── Plan tab: visible if it has an allocation, a Fixed obligation (due
-	// or not), or is Savings with sources. Sorted by planned descending. ───
-	var planCategories []*v1.CategoryExpenseSummary
-	var totalCommitted int64
-	for catID := range categoryIDSet {
-		hasSavingsSources := isSavingsCategory(catID) && len(savingsSources) > 0
-		visible := catIDsWithAlloc[catID] || hasSavingsSources || fixedDueByCat[catID] != 0 || fixedExpenseCatIDs[catID]
-		if !visible {
-			continue
-		}
-		planned := plannedTotal(catID)
-		planCategories = append(planCategories, &v1.CategoryExpenseSummary{
-			CategoryId:       catID,
-			PlannedTotal:     nanosToMoney(planned),
-			PersonBreakdowns: buildPersonBreakdowns(catID),
-		})
-
-		// Committed total intentionally excludes the not-due Fixed fallback
-		// (tier 3) — matches WellSpent-web's ExpensesPanel.tsx totalCommitted.
-		if isSavingsCategory(catID) {
-			totalCommitted += savingsTotal
-		} else if alloc, ok := allocByCat[catID]; ok && alloc != 0 {
-			totalCommitted += alloc
-		} else {
-			totalCommitted += fixedDueByCat[catID]
-		}
-	}
-	sort.Slice(planCategories, func(i, j int) bool {
-		return planCategories[i].PlannedTotal.Units > planCategories[j].PlannedTotal.Units ||
-			(planCategories[i].PlannedTotal.Units == planCategories[j].PlannedTotal.Units && planCategories[i].PlannedTotal.Nanos > planCategories[j].PlannedTotal.Nanos)
-	})
-
-	// ─── Overview tab: visible if it has actual spend OR any plan (so
-	// unspent budget is visible too). Sorted by actual descending. ───
-	var overviewCategories []*v1.CategoryExpenseSummary
-	var totalPlanned, totalActual, totalOverBudget, totalUnplanned int64
-	totalActual = uncategorizedActual
-	totalUnplanned = uncategorizedActual
-	for catID := range categoryIDSet {
-		hasSavingsSources := isSavingsCategory(catID) && len(savingsSources) > 0
-		visible := actualByCat[catID] != 0 || catIDsWithAlloc[catID] || hasSavingsSources || fixedDueByCat[catID] != 0 || notDueFixedByCat[catID] != 0
-		if !visible {
-			continue
-		}
-		planned := plannedTotal(catID)
-		actual := actualByCat[catID]
-		isOver := planned > 0 && actual > planned
-		overviewCategories = append(overviewCategories, &v1.CategoryExpenseSummary{
-			CategoryId:       catID,
-			PlannedTotal:     nanosToMoney(planned),
-			ActualTotal:      nanosToMoney(actual),
-			IsOver:           isOver,
-			PersonBreakdowns: buildPersonBreakdowns(catID),
-		})
-		totalPlanned += planned
-		totalActual += actual
-		if planned <= 0 {
-			totalUnplanned += actual
-		} else if actual > planned {
-			totalOverBudget += actual - planned
-		}
-	}
-	sort.Slice(overviewCategories, func(i, j int) bool {
-		return overviewCategories[i].ActualTotal.Units > overviewCategories[j].ActualTotal.Units ||
-			(overviewCategories[i].ActualTotal.Units == overviewCategories[j].ActualTotal.Units && overviewCategories[i].ActualTotal.Nanos > overviewCategories[j].ActualTotal.Nanos)
-	})
-
-	var incomeFromSources int64
-	for _, is := range incomeSources {
-		incomeFromSources += numericToNanos(is.DefaultAmount)
-	}
-	var incomeFromEntries int64
-	for _, ie := range incomeEntries {
-		incomeFromEntries += numericToNanos(ie.Amount)
-	}
-
-	return &v1.GetExpenseSummaryResponse{
-		IncomeFromSources:  nanosToMoney(incomeFromSources),
-		IncomeFromEntries:  nanosToMoney(incomeFromEntries),
-		TotalCommitted:     nanosToMoney(totalCommitted),
-		TotalPlanned:       nanosToMoney(totalPlanned),
-		TotalActual:        nanosToMoney(totalActual),
-		UncategorizedActual: nanosToMoney(uncategorizedActual),
-		TotalOverBudget:    nanosToMoney(totalOverBudget),
-		TotalUnplanned:     nanosToMoney(totalUnplanned),
-		RemainderPlan:      nanosToMoney(incomeFromSources - totalCommitted),
-		RemainderActual:    nanosToMoney(incomeFromEntries - totalActual),
-		RemainderPlanned:   nanosToMoney(incomeFromEntries - totalPlanned),
-		PlanCategories:     planCategories,
-		OverviewCategories: overviewCategories,
-	}, nil
+	return filtered, nil
 }
 
 // numericToNanos converts a pgtype.Numeric to an exact nanos-scaled int64,
