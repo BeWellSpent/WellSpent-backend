@@ -46,6 +46,7 @@ type mockTransactionRepo struct {
 	deactivatePaymentMethod             func(context.Context, uuid.UUID) error
 	createTransactionFromPlaid          func(context.Context, db.CreateTransactionFromPlaidParams) (db.Transaction, error)
 	existsTransactionByPlaidID          func(context.Context, *string) (bool, error)
+	listSystemCategories                func(context.Context) (map[string]int32, error)
 }
 
 // ── Mock fixed expense repo ───────────────────────────────────────────────────
@@ -357,7 +358,10 @@ func (m *mockTransactionRepo) DeactivatePaymentMethod(ctx context.Context, id uu
 	return nil
 }
 
-func (m *mockTransactionRepo) ListSystemCategories(_ context.Context) (map[string]int32, error) {
+func (m *mockTransactionRepo) ListSystemCategories(ctx context.Context) (map[string]int32, error) {
+	if m.listSystemCategories != nil {
+		return m.listSystemCategories(ctx)
+	}
 	return map[string]int32{}, nil
 }
 

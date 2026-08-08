@@ -69,6 +69,7 @@ func main() {
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo).WithNotifications(notifSvc)
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo).WithNotifications(notifSvc)
 	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
+	expenseSummarySvc := service.NewExpenseSummaryService(budgetProfileRepo, transactionRepo, allocationRepo, fixedExpenseRepo)
 	inviteSvc := service.NewInviteService(inviteRepo, budgetProfileRepo, userRepo, cfg, logger)
 
 	var plaidSvc *service.PlaidService
@@ -105,7 +106,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle(wellspentv1connect.NewAuthServiceHandler(handler.NewAuthHandler(authSvc), interceptors))
 	mux.Handle(wellspentv1connect.NewUserServiceHandler(handler.NewUserHandler(userSvc), interceptors))
-	mux.Handle(wellspentv1connect.NewBudgetServiceHandler(handler.NewBudgetHandler(profileSvc, transactionSvc, allocationSvc), interceptors))
+	mux.Handle(wellspentv1connect.NewBudgetServiceHandler(handler.NewBudgetHandler(profileSvc, transactionSvc, allocationSvc, expenseSummarySvc), interceptors))
 	mux.Handle(wellspentv1connect.NewInviteServiceHandler(handler.NewInviteHandler(inviteSvc), interceptors))
 	mux.Handle(wellspentv1connect.NewNotificationServiceHandler(handler.NewNotificationHandler(notifSvc), interceptors))
 	if plaidSvc != nil {
