@@ -16,12 +16,13 @@ import (
 )
 
 type BudgetHandler struct {
-	profiles     *service.BudgetProfileService
-	transactions *service.TransactionService
-	allocations  *service.ExpenseAllocationService
+	profiles       *service.BudgetProfileService
+	transactions   *service.TransactionService
+	allocations    *service.ExpenseAllocationService
+	expenseSummary *service.ExpenseSummaryService
 }
 
-func NewBudgetHandler(profiles *service.BudgetProfileService, transactions *service.TransactionService, allocations *service.ExpenseAllocationService) *BudgetHandler {
+func NewBudgetHandler(profiles *service.BudgetProfileService, transactions *service.TransactionService, allocations *service.ExpenseAllocationService, expenseSummary *service.ExpenseSummaryService) *BudgetHandler {
 	if profiles == nil {
 		panic("NewBudgetHandler: profiles is required")
 	}
@@ -31,7 +32,10 @@ func NewBudgetHandler(profiles *service.BudgetProfileService, transactions *serv
 	if allocations == nil {
 		panic("NewBudgetHandler: allocations is required")
 	}
-	return &BudgetHandler{profiles: profiles, transactions: transactions, allocations: allocations}
+	if expenseSummary == nil {
+		panic("NewBudgetHandler: expenseSummary is required")
+	}
+	return &BudgetHandler{profiles: profiles, transactions: transactions, allocations: allocations, expenseSummary: expenseSummary}
 }
 
 func (h *BudgetHandler) currentUserID(ctx context.Context) (uuid.UUID, error) {
@@ -700,6 +704,22 @@ func (h *BudgetHandler) DeleteFixedExpense(ctx context.Context, req *connect.Req
 }
 
 // ── Expense Allocations ───────────────────────────────────────────────────────
+
+func (h *BudgetHandler) GetExpenseSummary(ctx context.Context, req *connect.Request[v1.GetExpenseSummaryRequest]) (*connect.Response[v1.GetExpenseSummaryResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	periodID, err := uuid.Parse(req.Msg.BudgetPeriodId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	summary, svcErr := h.expenseSummary.GetSummary(ctx, periodID, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(summary), nil
+}
 
 func (h *BudgetHandler) ListExpenseAllocations(ctx context.Context, req *connect.Request[v1.ListExpenseAllocationsRequest]) (*connect.Response[v1.ListExpenseAllocationsResponse], error) {
 	userID, err := h.currentUserID(ctx)
