@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -132,7 +133,25 @@ func toProtoUser(u db.User) *v1.User {
 		Language:            u.Language,
 		Currency:            u.Currency,
 		Plan:                accountPlanFromString(u.Plan),
+
+		HasApplePrivateEmail: isApplePrivateEmail(u.Email),
 	}
+}
+
+// applePrivateRelayDomain is the domain Apple issues "Hide My Email" aliases
+// under. It's Apple-controlled, so no real user address can live there.
+const applePrivateRelayDomain = "@privaterelay.appleid.com"
+
+// isApplePrivateEmail reports whether an address is an Apple private-relay
+// alias. Such an address is machine-generated and meaningless to the user, so
+// clients show "Signed with Apple" rather than displaying it.
+//
+// Derived from the address rather than persisted from Apple's own
+// `is_private_email` claim: that claim is only present at sign-in, and
+// deriving here keeps the rule in one place for every client instead of each
+// re-implementing the suffix check.
+func isApplePrivateEmail(email string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(email)), applePrivateRelayDomain)
 }
 
 func accountPlanFromString(plan string) v1.AccountPlan {
