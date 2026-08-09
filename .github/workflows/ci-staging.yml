@@ -85,6 +85,11 @@ jobs:
           printf 'ENCRYPTION_KEY=%s\n'         "${ENCRYPTION_KEY}"         >> $GITHUB_ENV
           printf 'FRONTEND_URL=%s\n'           "${FRONTEND_URL}"           >> $GITHUB_ENV
           printf 'CORS_ALLOWED_ORIGINS=%s\n'   "${CORS_ALLOWED_ORIGINS}"   >> $GITHUB_ENV
+          printf 'APPLE_KEY_ID=%s\n'           "${APPLE_KEY_ID}"           >> $GITHUB_ENV
+          # deploy-cloudrun's env_vars parser strips single backslashes; double
+          # them so the .p8's \n line breaks survive to config.NormalizePEMKey.
+          APPLE_PRIVATE_KEY_ESCAPED=$(printf '%s' "${APPLE_PRIVATE_KEY}" | sed 's/\\/\\\\/g')
+          printf 'APPLE_PRIVATE_KEY=%s\n'      "${APPLE_PRIVATE_KEY_ESCAPED}" >> $GITHUB_ENV
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -121,3 +126,5 @@ jobs:
             ENCRYPTION_KEY=${{ env.ENCRYPTION_KEY }}
             FRONTEND_URL=${{ env.FRONTEND_URL }}
             CORS_ALLOWED_ORIGINS=${{ env.CORS_ALLOWED_ORIGINS }}
+            APPLE_KEY_ID=${{ env.APPLE_KEY_ID }}
+            APPLE_PRIVATE_KEY=${{ env.APPLE_PRIVATE_KEY }}
