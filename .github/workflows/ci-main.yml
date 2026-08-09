@@ -90,8 +90,22 @@ jobs:
           # Raw (non-double-escaped) form for the two `gcloud run jobs deploy`
           # steps below — those go straight through the gcloud CLI, not
           # deploy-cloudrun's own env_vars parser, so they need the literal
-          # \n form the app's own config.NormalizeAPNSAuthKey expects.
+          # \n form the app's own config.NormalizePEMKey expects.
           printf 'APNS_AUTH_KEY_RAW=%s\n'      "${APNS_AUTH_KEY}"          >> $GITHUB_ENV
+          # Sign in with Apple. Deliberately plain env vars sourced from
+          # .env.prod.enc rather than Secret Manager entries: the free tier
+          # allows 6 active secrets and all 6 are already spoken for
+          # (DATABASE_URL, JWT_SECRET, GOOGLE_CLIENT_SECRET, RESEND_API_KEY,
+          # PLAID_SECRET, ENCRYPTION_KEY). APNS_AUTH_KEY — the other .p8 this
+          # app holds — is handled exactly this way already.
+          #
+          # APPLE_CLIENT_ID/APPLE_TEAM_ID aren't forwarded: their config
+          # defaults (com.bewellspent.WellSpent / 76FQ7V92H5) are correct, the
+          # same way APNS_BUNDLE_ID relies on its own default.
+          printf 'APPLE_KEY_ID=%s\n'           "${APPLE_KEY_ID}"           >> $GITHUB_ENV
+          # Double-escaped for deploy-cloudrun's env_vars parser, same as APNS_AUTH_KEY above.
+          APPLE_PRIVATE_KEY_ESCAPED=$(printf '%s' "${APPLE_PRIVATE_KEY}" | sed 's/\\/\\\\/g')
+          printf 'APPLE_PRIVATE_KEY=%s\n'      "${APPLE_PRIVATE_KEY_ESCAPED}" >> $GITHUB_ENV
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -128,6 +142,8 @@ jobs:
             APNS_TEAM_ID=${{ env.APNS_TEAM_ID }}
             APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }}
             APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY }}
+            APPLE_KEY_ID=${{ env.APPLE_KEY_ID }}
+            APPLE_PRIVATE_KEY=${{ env.APPLE_PRIVATE_KEY }}
           secrets: |
             DATABASE_URL=DATABASE_URL:latest
             JWT_SECRET=JWT_SECRET:latest
