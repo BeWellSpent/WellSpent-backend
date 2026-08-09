@@ -13,9 +13,9 @@ import (
 )
 
 const createOAuthAccount = `-- name: CreateOAuthAccount :one
-INSERT INTO oauth_account (user_id, oauth_name, account_id, account_email)
-VALUES ($1, $2, $3, $4)
-RETURNING id, user_id, oauth_name, account_id, account_email
+INSERT INTO oauth_account (user_id, oauth_name, account_id, account_email, refresh_token)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, user_id, oauth_name, account_id, account_email, refresh_token
 `
 
 type CreateOAuthAccountParams struct {
@@ -23,6 +23,7 @@ type CreateOAuthAccountParams struct {
 	OauthName    string    `json:"oauth_name"`
 	AccountID    string    `json:"account_id"`
 	AccountEmail string    `json:"account_email"`
+	RefreshToken *string   `json:"refresh_token"`
 }
 
 func (q *Queries) CreateOAuthAccount(ctx context.Context, arg CreateOAuthAccountParams) (OauthAccount, error) {
@@ -31,6 +32,7 @@ func (q *Queries) CreateOAuthAccount(ctx context.Context, arg CreateOAuthAccount
 		arg.OauthName,
 		arg.AccountID,
 		arg.AccountEmail,
+		arg.RefreshToken,
 	)
 	var i OauthAccount
 	err := row.Scan(
@@ -39,6 +41,7 @@ func (q *Queries) CreateOAuthAccount(ctx context.Context, arg CreateOAuthAccount
 		&i.OauthName,
 		&i.AccountID,
 		&i.AccountEmail,
+		&i.RefreshToken,
 	)
 	return i, err
 }
@@ -112,7 +115,7 @@ func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) error {
 }
 
 const getOAuthAccount = `-- name: GetOAuthAccount :one
-SELECT id, user_id, oauth_name, account_id, account_email
+SELECT id, user_id, oauth_name, account_id, account_email, refresh_token
 FROM oauth_account
 WHERE oauth_name = $1 AND account_id = $2
 LIMIT 1
@@ -132,6 +135,7 @@ func (q *Queries) GetOAuthAccount(ctx context.Context, arg GetOAuthAccountParams
 		&i.OauthName,
 		&i.AccountID,
 		&i.AccountEmail,
+		&i.RefreshToken,
 	)
 	return i, err
 }
@@ -312,6 +316,40 @@ func (q *Queries) ListEnabledCountries(ctx context.Context) ([]ListEnabledCountr
 	return items, nil
 }
 
+const listOAuthAccountsByUser = `-- name: ListOAuthAccountsByUser :many
+SELECT id, user_id, oauth_name, account_id, account_email, refresh_token
+FROM oauth_account
+WHERE user_id = $1
+ORDER BY oauth_name
+`
+
+func (q *Queries) ListOAuthAccountsByUser(ctx context.Context, userID uuid.UUID) ([]OauthAccount, error) {
+	rows, err := q.db.Query(ctx, listOAuthAccountsByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OauthAccount
+	for rows.Next() {
+		var i OauthAccount
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.OauthName,
+			&i.AccountID,
+			&i.AccountEmail,
+			&i.RefreshToken,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markUserVerified = `-- name: MarkUserVerified :exec
 UPDATE users
 SET is_verified = TRUE,
@@ -388,6 +426,22 @@ WHERE id = $1
 
 func (q *Queries) SoftDeleteUser(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, softDeleteUser, id)
+	return err
+}
+
+const updateOAuthAccountRefreshToken = `-- name: UpdateOAuthAccountRefreshToken :exec
+UPDATE oauth_account
+SET refresh_token = $2
+WHERE id = $1
+`
+
+type UpdateOAuthAccountRefreshTokenParams struct {
+	ID           uuid.UUID `json:"id"`
+	RefreshToken *string   `json:"refresh_token"`
+}
+
+func (q *Queries) UpdateOAuthAccountRefreshToken(ctx context.Context, arg UpdateOAuthAccountRefreshTokenParams) error {
+	_, err := q.db.Exec(ctx, updateOAuthAccountRefreshToken, arg.ID, arg.RefreshToken)
 	return err
 }
 

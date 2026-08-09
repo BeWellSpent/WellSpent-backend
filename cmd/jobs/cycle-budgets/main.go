@@ -46,7 +46,7 @@ func main() {
 		FrontendURL:     envStringDefault("FRONTEND_URL", "http://localhost:3000"),
 		APNSKeyID:       os.Getenv("APNS_KEY_ID"),
 		APNSTeamID:      os.Getenv("APNS_TEAM_ID"),
-		APNSAuthKey:     config.NormalizeAPNSAuthKey(os.Getenv("APNS_AUTH_KEY")),
+		APNSAuthKey:     config.NormalizePEMKey(os.Getenv("APNS_AUTH_KEY")),
 		APNSBundleID:    envStringDefault("APNS_BUNDLE_ID", "com.bewellspent.WellSpent"),
 		APNSEnvironment: envStringDefault("APNS_ENVIRONMENT", "sandbox"),
 	}

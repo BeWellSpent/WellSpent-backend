@@ -12,6 +12,7 @@ import (
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/auth"
 	"github.com/BeWellSpent/wellspent-backend/internal/config"
+	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
@@ -42,17 +43,24 @@ const (
 	// verificationResendCooldown throttles ResendVerificationEmail so a
 	// user (or an attacker) can't trigger unlimited emails to an address.
 	verificationResendCooldown = 60 * time.Second
+
+	// oauth_account.oauth_name values. The table's UNIQUE (oauth_name,
+	// account_id) already namespaces providers, so each provider's subject
+	// only ever collides with itself.
+	oauthProviderGoogle = "google"
+	oauthProviderApple  = "apple"
 )
 
 type AuthService struct {
 	users  repository.UserRepository
 	jwt    *auth.JWTService
 	google *auth.GoogleOAuth
+	apple  auth.AppleAuthenticator
 	cfg    *config.Config
 	log    *zap.Logger
 }
 
-func NewAuthService(users repository.UserRepository, jwt *auth.JWTService, google *auth.GoogleOAuth, cfg *config.Config, log *zap.Logger) *AuthService {
+func NewAuthService(users repository.UserRepository, jwt *auth.JWTService, google *auth.GoogleOAuth, apple auth.AppleAuthenticator, cfg *config.Config, log *zap.Logger) *AuthService {
 	if users == nil {
 		panic("NewAuthService: users is required")
 	}
@@ -62,13 +70,16 @@ func NewAuthService(users repository.UserRepository, jwt *auth.JWTService, googl
 	if google == nil {
 		panic("NewAuthService: google is required")
 	}
+	if apple == nil {
+		panic("NewAuthService: apple is required")
+	}
 	if cfg == nil {
 		panic("NewAuthService: cfg is required")
 	}
 	if log == nil {
 		panic("NewAuthService: log is required")
 	}
-	return &AuthService{users: users, jwt: jwt, google: google, cfg: cfg, log: log}
+	return &AuthService{users: users, jwt: jwt, google: google, apple: apple, cfg: cfg, log: log}
 }
 
 type LoginResult struct {
@@ -124,7 +135,7 @@ func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI, lan
 
 	// Check if OAuth account already linked
 	oauthAcc, err := s.users.GetOAuthAccount(ctx, db.GetOAuthAccountParams{
-		OauthName: "google",
+		OauthName: oauthProviderGoogle,
 		AccountID: info.Sub,
 	})
 
@@ -183,7 +194,7 @@ func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI, lan
 		// Link OAuth account
 		_, err = s.users.CreateOAuthAccount(ctx, db.CreateOAuthAccountParams{
 			UserID:       userID,
-			OauthName:    "google",
+			OauthName:    oauthProviderGoogle,
 			AccountID:    info.Sub,
 			AccountEmail: info.Email,
 		})
@@ -212,6 +223,180 @@ func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI, lan
 
 func (s *AuthService) GoogleAuthURL(state string) string {
 	return s.google.AuthCodeURL(state)
+}
+
+type AppleSignInResult struct {
+	AccessToken string
+	ExpiresIn   int64
+	IsNewUser   bool
+	Language    string
+	Currency    string
+}
+
+// AppleSignIn resolves a native Sign in with Apple credential to a session.
+//
+// Account resolution mirrors GoogleExchange: look the user up by the
+// provider's stable subject first, fall back to matching an existing account
+// by email, and only create a new user when neither hits. The email fallback
+// is what makes "already signed up with Google, same address" land on the
+// existing account instead of a duplicate.
+//
+// firstName/lastName come from the request rather than the token because
+// Apple returns the user's name only on the very first authorization and
+// never again — so they are written at creation time and never overwritten.
+func (s *AuthService) AppleSignIn(ctx context.Context, identityToken, authorizationCode, firstName, lastName, language, currency string) (AppleSignInResult, error) {
+	identity, err := s.apple.VerifyIdentityToken(ctx, identityToken)
+	if err != nil {
+		s.log.Warn("auth.apple.verify_failed", zap.Error(err))
+		return AppleSignInResult{}, apperr.Invalid("invalid Apple identity token")
+	}
+	if identity.Email == "" {
+		return AppleSignInResult{}, apperr.Invalid("Apple identity token contained no email address")
+	}
+
+	var (
+		userID       uuid.UUID
+		userLang     string
+		userCurrency string
+		oauthID      uuid.UUID
+		isNew        bool
+	)
+
+	oauthAcc, err := s.users.GetOAuthAccount(ctx, db.GetOAuthAccountParams{
+		OauthName: oauthProviderApple,
+		AccountID: identity.Sub,
+	})
+	switch {
+	case err == nil:
+		// Returning user — resolved by Apple's stable subject.
+		existing, fetchErr := s.users.GetByID(ctx, oauthAcc.UserID)
+		if fetchErr != nil {
+			return AppleSignInResult{}, fmt.Errorf("auth: get user: %w", fetchErr)
+		}
+		if !existing.IsActive {
+			return AppleSignInResult{}, apperr.Forbidden("account is inactive")
+		}
+		userID = existing.ID
+		userLang = existing.Language
+		userCurrency = existing.Currency
+		oauthID = oauthAcc.ID
+
+	default:
+		var notFound *apperr.NotFoundError
+		if !errors.As(err, &notFound) {
+			return AppleSignInResult{}, err
+		}
+
+		user, lookupErr := s.users.GetByEmail(ctx, identity.Email)
+		if lookupErr != nil {
+			var notFoundUser *apperr.NotFoundError
+			if !errors.As(lookupErr, &notFoundUser) {
+				return AppleSignInResult{}, lookupErr
+			}
+			lang := language
+			if lang == "" {
+				lang = "en"
+			}
+			cur := currency
+			if cur == "" {
+				cur = "USD"
+			}
+			user, err = s.users.Create(ctx, db.CreateUserParams{
+				Email:     identity.Email,
+				FirstName: &firstName,
+				LastName:  &lastName,
+				Language:  lang,
+				Currency:  cur,
+			})
+			if err != nil {
+				return AppleSignInResult{}, fmt.Errorf("auth: create user: %w", err)
+			}
+			isNew = true
+		} else if !identity.EmailVerified {
+			// Linking to a pre-existing account on the strength of an
+			// unverified email claim would let anyone who can mint such a
+			// claim take over that account. Creating a fresh account is
+			// safe; adopting someone else's is not.
+			s.log.Warn("auth.apple.unverified_email_link_rejected", zap.String("email", identity.Email))
+			return AppleSignInResult{}, apperr.Invalid("Apple did not confirm this email address")
+		} else if !user.IsActive {
+			return AppleSignInResult{}, apperr.Forbidden("account is inactive")
+		}
+
+		// Apple vouched for this address, so skip the email-verification
+		// round trip — same reasoning as the Google path.
+		if err := s.users.MarkVerified(ctx, user.ID); err != nil {
+			return AppleSignInResult{}, fmt.Errorf("auth: mark verified: %w", err)
+		}
+
+		created, err := s.users.CreateOAuthAccount(ctx, db.CreateOAuthAccountParams{
+			UserID:       user.ID,
+			OauthName:    oauthProviderApple,
+			AccountID:    identity.Sub,
+			AccountEmail: identity.Email,
+		})
+		if err != nil {
+			return AppleSignInResult{}, fmt.Errorf("auth: link oauth account: %w", err)
+		}
+		userID = user.ID
+		userLang = user.Language
+		userCurrency = user.Currency
+		oauthID = created.ID
+	}
+
+	s.storeAppleRefreshToken(ctx, oauthID, authorizationCode)
+
+	// No "remember me" control exists on either OAuth flow, so both issue the
+	// long-lived token a user would get by ticking it on the login form.
+	token, err := s.jwt.GenerateTokenWithLifetime(userID, rememberMeTokenLifetime)
+	if err != nil {
+		return AppleSignInResult{}, fmt.Errorf("auth: generate token: %w", err)
+	}
+	return AppleSignInResult{
+		AccessToken: token,
+		ExpiresIn:   int64(rememberMeTokenLifetime.Seconds()),
+		IsNewUser:   isNew,
+		Language:    userLang,
+		Currency:    userCurrency,
+	}, nil
+}
+
+// storeAppleRefreshToken exchanges the one-time authorization code for a
+// refresh token and persists it encrypted, so the account can be revoked with
+// Apple on deletion.
+//
+// Deliberately best-effort and never returns an error: failing a sign-in
+// because Apple's token endpoint was briefly unavailable is a far worse
+// outcome than a missing revocation token, and the next sign-in supplies a
+// fresh code to retry with.
+func (s *AuthService) storeAppleRefreshToken(ctx context.Context, oauthAccountID uuid.UUID, authorizationCode string) {
+	if strings.TrimSpace(authorizationCode) == "" {
+		return
+	}
+	refreshToken, err := s.apple.ExchangeCode(ctx, authorizationCode)
+	if err != nil {
+		if errors.Is(err, auth.ErrAppleKeyNotConfigured) {
+			s.log.Warn("auth.apple.exchange_skipped: APPLE_KEY_ID/APPLE_PRIVATE_KEY unset, account cannot be revoked with Apple on deletion")
+		} else {
+			s.log.Error("auth.apple.exchange_failed", zap.Error(err))
+		}
+		return
+	}
+	if s.cfg.EncryptionKey == "" {
+		s.log.Error("auth.apple.refresh_token_not_stored: ENCRYPTION_KEY unset")
+		return
+	}
+	encrypted, err := crypto.Encrypt(refreshToken, s.cfg.EncryptionKey)
+	if err != nil {
+		s.log.Error("auth.apple.encrypt_refresh_token_failed", zap.Error(err))
+		return
+	}
+	if err := s.users.UpdateOAuthAccountRefreshToken(ctx, db.UpdateOAuthAccountRefreshTokenParams{
+		ID:           oauthAccountID,
+		RefreshToken: &encrypted,
+	}); err != nil {
+		s.log.Error("auth.apple.store_refresh_token_failed", zap.Error(err))
+	}
 }
 
 type RegisterResult struct {

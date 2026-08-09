@@ -174,6 +174,7 @@ type OauthAccount struct {
 	OauthName    string    `json:"oauth_name"`
 	AccountID    string    `json:"account_id"`
 	AccountEmail string    `json:"account_email"`
+	RefreshToken *string   `json:"refresh_token"`
 }
 
 type PaymentMethod struct {

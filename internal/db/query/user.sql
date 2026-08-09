@@ -84,15 +84,26 @@ SET is_verified = TRUE,
 WHERE id = $1;
 
 -- name: GetOAuthAccount :one
-SELECT id, user_id, oauth_name, account_id, account_email
+SELECT id, user_id, oauth_name, account_id, account_email, refresh_token
 FROM oauth_account
 WHERE oauth_name = $1 AND account_id = $2
 LIMIT 1;
 
 -- name: CreateOAuthAccount :one
-INSERT INTO oauth_account (user_id, oauth_name, account_id, account_email)
-VALUES ($1, $2, $3, $4)
-RETURNING id, user_id, oauth_name, account_id, account_email;
+INSERT INTO oauth_account (user_id, oauth_name, account_id, account_email, refresh_token)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, user_id, oauth_name, account_id, account_email, refresh_token;
+
+-- name: UpdateOAuthAccountRefreshToken :exec
+UPDATE oauth_account
+SET refresh_token = $2
+WHERE id = $1;
+
+-- name: ListOAuthAccountsByUser :many
+SELECT id, user_id, oauth_name, account_id, account_email, refresh_token
+FROM oauth_account
+WHERE user_id = $1
+ORDER BY oauth_name;
 
 -- name: ListEnabledCountries :many
 SELECT code, name, is_enabled

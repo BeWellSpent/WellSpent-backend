@@ -2,12 +2,15 @@ package service
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/auth"
 	"github.com/BeWellSpent/wellspent-backend/internal/config"
+	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -26,8 +29,11 @@ type mockUserRepo struct {
 	update               func(context.Context, db.UpdateUserParams) (db.User, error)
 	updatePassword       func(context.Context, db.UpdateUserPasswordParams) error
 	delete               func(context.Context, uuid.UUID) error
+	softDelete           func(context.Context, uuid.UUID) error
 	getOAuth             func(context.Context, db.GetOAuthAccountParams) (db.OauthAccount, error)
 	createOAuth          func(context.Context, db.CreateOAuthAccountParams) (db.OauthAccount, error)
+	updateOAuthRefresh   func(context.Context, db.UpdateOAuthAccountRefreshTokenParams) error
+	listOAuthByUser      func(context.Context, uuid.UUID) ([]db.OauthAccount, error)
 	listEnabledCountries func(context.Context) ([]db.ListEnabledCountriesRow, error)
 	listCountryFeatures  func(context.Context) ([]db.CountryFeature, error)
 	setEmailVerification func(context.Context, db.SetEmailVerificationTokenParams) (db.User, error)
@@ -78,6 +84,9 @@ func (m *mockUserRepo) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (m *mockUserRepo) SoftDelete(ctx context.Context, id uuid.UUID) error {
+	if m.softDelete != nil {
+		return m.softDelete(ctx, id)
+	}
 	return nil
 }
 
@@ -130,6 +139,50 @@ func (m *mockUserRepo) MarkVerified(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (m *mockUserRepo) UpdateOAuthAccountRefreshToken(ctx context.Context, arg db.UpdateOAuthAccountRefreshTokenParams) error {
+	if m.updateOAuthRefresh != nil {
+		return m.updateOAuthRefresh(ctx, arg)
+	}
+	return nil
+}
+
+func (m *mockUserRepo) ListOAuthAccountsByUser(ctx context.Context, userID uuid.UUID) ([]db.OauthAccount, error) {
+	if m.listOAuthByUser != nil {
+		return m.listOAuthByUser(ctx, userID)
+	}
+	return nil, nil
+}
+
+// mockAppleAuth stands in for Apple's endpoints. Unlike GoogleOAuth (a
+// concrete struct, hence untestable), the Apple client sits behind an
+// interface precisely so account resolution can be exercised offline.
+type mockAppleAuth struct {
+	verify   func(context.Context, string) (auth.AppleIdentity, error)
+	exchange func(context.Context, string) (string, error)
+	revoke   func(context.Context, string) error
+}
+
+func (m *mockAppleAuth) VerifyIdentityToken(ctx context.Context, token string) (auth.AppleIdentity, error) {
+	if m.verify != nil {
+		return m.verify(ctx, token)
+	}
+	return auth.AppleIdentity{Sub: "apple-sub", Email: "apple@example.com", EmailVerified: true}, nil
+}
+
+func (m *mockAppleAuth) ExchangeCode(ctx context.Context, code string) (string, error) {
+	if m.exchange != nil {
+		return m.exchange(ctx, code)
+	}
+	return "refresh-token", nil
+}
+
+func (m *mockAppleAuth) RevokeRefreshToken(ctx context.Context, token string) error {
+	if m.revoke != nil {
+		return m.revoke(ctx, token)
+	}
+	return nil
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func testJWT() *auth.JWTService {
@@ -137,10 +190,17 @@ func testJWT() *auth.JWTService {
 }
 
 func newAuthSvc(repo *mockUserRepo) *AuthService {
+	return newAuthSvcWithApple(repo, &mockAppleAuth{})
+}
+
+func newAuthSvcWithApple(repo *mockUserRepo, apple auth.AppleAuthenticator) *AuthService {
 	// Empty ResendAPIKey routes sendVerificationEmail into its
 	// no-op "skipped" branch, so tests don't need a real Resend client.
 	// Empty Google OAuth credentials are fine — no test exercises the OAuth flow.
-	return NewAuthService(repo, testJWT(), auth.NewGoogleOAuth("", "", ""), &config.Config{}, zap.NewNop())
+	// EncryptionKey is a valid 32-byte hex key so the Apple refresh-token
+	// storage path runs for real rather than bailing out early.
+	cfg := &config.Config{EncryptionKey: strings.Repeat("ab", 32)}
+	return NewAuthService(repo, testJWT(), auth.NewGoogleOAuth("", "", ""), apple, cfg, zap.NewNop())
 }
 
 func hashFor(t *testing.T, password string) string {
@@ -467,7 +527,7 @@ func TestUserService_Update_PassesNewFields(t *testing.T) {
 			return db.User{}, nil
 		},
 	}
-	svc := NewUserService(repo)
+	svc := NewUserService(repo, &mockAppleAuth{}, "", zap.NewNop())
 	_, err := svc.Update(context.Background(), id, UpdateUserInput{
 		CountryCode:         &cc,
 		StateCode:           &sc,
@@ -495,11 +555,285 @@ func TestUserService_ListCountries_MergesFeatures(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewUserService(repo)
+	svc := NewUserService(repo, &mockAppleAuth{}, "", zap.NewNop())
 	countries, byCode, err := svc.ListCountries(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, countries, 2)
 	assert.Len(t, byCode["US"], 1)
 	assert.Equal(t, "before_tax_income", byCode["US"][0].FeatureName)
 	assert.Empty(t, byCode["ES"])
+}
+
+// ── Sign in with Apple ────────────────────────────────────────────────────────
+
+func TestAppleSignIn_NewUser_CreatesAndAutoVerifies(t *testing.T) {
+	var created db.CreateUserParams
+	var verified uuid.UUID
+	repo := &mockUserRepo{
+		create: func(_ context.Context, arg db.CreateUserParams) (db.User, error) {
+			created = arg
+			return db.User{ID: uuid.New(), Email: arg.Email, IsActive: true, Language: arg.Language, Currency: arg.Currency}, nil
+		},
+		markVerified: func(_ context.Context, id uuid.UUID) error {
+			verified = id
+			return nil
+		},
+	}
+	apple := &mockAppleAuth{
+		verify: func(context.Context, string) (auth.AppleIdentity, error) {
+			return auth.AppleIdentity{Sub: "sub-1", Email: "new@example.com", EmailVerified: true}, nil
+		},
+	}
+
+	result, err := newAuthSvcWithApple(repo, apple).AppleSignIn(context.Background(), "tok", "code", "Jane", "Doe", "es", "EUR")
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.AccessToken)
+	assert.True(t, result.IsNewUser)
+	assert.Equal(t, "es", result.Language)
+	assert.Equal(t, "EUR", result.Currency)
+	// Apple only ever sends the name on the first authorization, so it has to
+	// be persisted here or it's lost for good.
+	require.NotNil(t, created.FirstName)
+	assert.Equal(t, "Jane", *created.FirstName)
+	require.NotNil(t, created.LastName)
+	assert.Equal(t, "Doe", *created.LastName)
+	assert.NotEqual(t, uuid.Nil, verified, "Apple vouched for the address, so the account should skip email verification")
+}
+
+// The headline rule from issue #33: an existing account (e.g. created via
+// Google) with the same address must be signed into, not duplicated.
+func TestAppleSignIn_ExistingEmail_LinksToSameAccount(t *testing.T) {
+	existingID := uuid.New()
+	var linked db.CreateOAuthAccountParams
+	repo := &mockUserRepo{
+		getByEmail: func(_ context.Context, email string) (db.User, error) {
+			return db.User{ID: existingID, Email: email, IsActive: true, Language: "en", Currency: "USD"}, nil
+		},
+		create: func(context.Context, db.CreateUserParams) (db.User, error) {
+			t.Fatal("must not create a second user for an address that already has an account")
+			return db.User{}, nil
+		},
+		createOAuth: func(_ context.Context, arg db.CreateOAuthAccountParams) (db.OauthAccount, error) {
+			linked = arg
+			return db.OauthAccount{ID: uuid.New(), UserID: arg.UserID}, nil
+		},
+	}
+
+	result, err := newAuthSvc(repo).AppleSignIn(context.Background(), "tok", "code", "", "", "", "")
+	require.NoError(t, err)
+	assert.False(t, result.IsNewUser)
+	assert.Equal(t, existingID, linked.UserID)
+	assert.Equal(t, "apple", linked.OauthName)
+}
+
+func TestAppleSignIn_ReturningUser_ResolvedBySubject(t *testing.T) {
+	userID := uuid.New()
+	repo := &mockUserRepo{
+		getOAuth: func(_ context.Context, arg db.GetOAuthAccountParams) (db.OauthAccount, error) {
+			assert.Equal(t, "apple", arg.OauthName)
+			assert.Equal(t, "sub-1", arg.AccountID)
+			return db.OauthAccount{ID: uuid.New(), UserID: userID}, nil
+		},
+		getByID: func(_ context.Context, id uuid.UUID) (db.User, error) {
+			return db.User{ID: id, IsActive: true, Language: "es", Currency: "EUR"}, nil
+		},
+		getByEmail: func(context.Context, string) (db.User, error) {
+			t.Fatal("a known subject must not fall through to an email lookup")
+			return db.User{}, nil
+		},
+	}
+	apple := &mockAppleAuth{
+		verify: func(context.Context, string) (auth.AppleIdentity, error) {
+			return auth.AppleIdentity{Sub: "sub-1", Email: "known@example.com", EmailVerified: true}, nil
+		},
+	}
+
+	result, err := newAuthSvcWithApple(repo, apple).AppleSignIn(context.Background(), "tok", "", "", "", "", "")
+	require.NoError(t, err)
+	assert.False(t, result.IsNewUser)
+	assert.Equal(t, "es", result.Language)
+}
+
+func TestAppleSignIn_InvalidToken(t *testing.T) {
+	apple := &mockAppleAuth{
+		verify: func(context.Context, string) (auth.AppleIdentity, error) {
+			return auth.AppleIdentity{}, errors.New("signature mismatch")
+		},
+	}
+	_, err := newAuthSvcWithApple(&mockUserRepo{}, apple).AppleSignIn(context.Background(), "bad", "", "", "", "", "")
+	require.Error(t, err)
+	var ve *apperr.ValidationError
+	require.ErrorAs(t, err, &ve)
+}
+
+// Adopting a pre-existing account on the strength of an unverified email
+// claim would be an account-takeover vector.
+func TestAppleSignIn_UnverifiedEmail_RefusesToLinkExistingAccount(t *testing.T) {
+	repo := &mockUserRepo{
+		getByEmail: func(_ context.Context, email string) (db.User, error) {
+			return db.User{ID: uuid.New(), Email: email, IsActive: true}, nil
+		},
+		createOAuth: func(context.Context, db.CreateOAuthAccountParams) (db.OauthAccount, error) {
+			t.Fatal("must not link an unverified claim to an existing account")
+			return db.OauthAccount{}, nil
+		},
+	}
+	apple := &mockAppleAuth{
+		verify: func(context.Context, string) (auth.AppleIdentity, error) {
+			return auth.AppleIdentity{Sub: "sub-1", Email: "victim@example.com", EmailVerified: false}, nil
+		},
+	}
+
+	_, err := newAuthSvcWithApple(repo, apple).AppleSignIn(context.Background(), "tok", "", "", "", "", "")
+	require.Error(t, err)
+	var ve *apperr.ValidationError
+	require.ErrorAs(t, err, &ve)
+}
+
+// An unverified claim for an address nobody owns is harmless — there is no
+// account to take over, so a fresh one is created as normal.
+func TestAppleSignIn_UnverifiedEmail_StillCreatesBrandNewAccount(t *testing.T) {
+	apple := &mockAppleAuth{
+		verify: func(context.Context, string) (auth.AppleIdentity, error) {
+			return auth.AppleIdentity{Sub: "sub-1", Email: "fresh@example.com", EmailVerified: false}, nil
+		},
+	}
+	result, err := newAuthSvcWithApple(&mockUserRepo{}, apple).AppleSignIn(context.Background(), "tok", "", "", "", "", "")
+	require.NoError(t, err)
+	assert.True(t, result.IsNewUser)
+}
+
+func TestAppleSignIn_StoresEncryptedRefreshToken(t *testing.T) {
+	var stored db.UpdateOAuthAccountRefreshTokenParams
+	repo := &mockUserRepo{
+		updateOAuthRefresh: func(_ context.Context, arg db.UpdateOAuthAccountRefreshTokenParams) error {
+			stored = arg
+			return nil
+		},
+	}
+	apple := &mockAppleAuth{
+		exchange: func(_ context.Context, code string) (string, error) {
+			assert.Equal(t, "the-code", code)
+			return "apple-refresh-token", nil
+		},
+	}
+
+	_, err := newAuthSvcWithApple(repo, apple).AppleSignIn(context.Background(), "tok", "the-code", "", "", "", "")
+	require.NoError(t, err)
+	require.NotNil(t, stored.RefreshToken)
+	assert.NotEqual(t, "apple-refresh-token", *stored.RefreshToken, "refresh token must not be stored in plaintext")
+
+	decrypted, err := crypto.Decrypt(*stored.RefreshToken, strings.Repeat("ab", 32))
+	require.NoError(t, err)
+	assert.Equal(t, "apple-refresh-token", decrypted)
+}
+
+// Revocation is a nicety; being able to sign in is not. A failed exchange
+// must never block the session.
+func TestAppleSignIn_ExchangeFailure_DoesNotFailSignIn(t *testing.T) {
+	apple := &mockAppleAuth{
+		exchange: func(context.Context, string) (string, error) {
+			return "", errors.New("apple is down")
+		},
+	}
+	result, err := newAuthSvcWithApple(&mockUserRepo{}, apple).AppleSignIn(context.Background(), "tok", "code", "", "", "", "")
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.AccessToken)
+}
+
+func TestAppleSignIn_MissingSigningKey_DoesNotFailSignIn(t *testing.T) {
+	apple := &mockAppleAuth{
+		exchange: func(context.Context, string) (string, error) {
+			return "", auth.ErrAppleKeyNotConfigured
+		},
+	}
+	result, err := newAuthSvcWithApple(&mockUserRepo{}, apple).AppleSignIn(context.Background(), "tok", "code", "", "", "", "")
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.AccessToken)
+}
+
+func TestAppleSignIn_InactiveAccount(t *testing.T) {
+	repo := &mockUserRepo{
+		getOAuth: func(context.Context, db.GetOAuthAccountParams) (db.OauthAccount, error) {
+			return db.OauthAccount{ID: uuid.New(), UserID: uuid.New()}, nil
+		},
+		getByID: func(_ context.Context, id uuid.UUID) (db.User, error) {
+			return db.User{ID: id, IsActive: false, Status: "disabled"}, nil
+		},
+	}
+	_, err := newAuthSvc(repo).AppleSignIn(context.Background(), "tok", "", "", "", "", "")
+	require.Error(t, err)
+	var fe *apperr.ForbiddenError
+	require.ErrorAs(t, err, &fe)
+}
+
+// ── Account deletion revokes Apple credentials ────────────────────────────────
+
+func newUserSvcWithApple(repo *mockUserRepo, apple auth.AppleAuthenticator) *UserService {
+	return NewUserService(repo, apple, strings.Repeat("ab", 32), zap.NewNop())
+}
+
+func encryptedRefreshToken(t *testing.T, plain string) *string {
+	t.Helper()
+	enc, err := crypto.Encrypt(plain, strings.Repeat("ab", 32))
+	require.NoError(t, err)
+	return &enc
+}
+
+func TestDeleteUser_RevokesAppleRefreshToken(t *testing.T) {
+	userID := uuid.New()
+	var revoked string
+	repo := &mockUserRepo{
+		listOAuthByUser: func(context.Context, uuid.UUID) ([]db.OauthAccount, error) {
+			return []db.OauthAccount{
+				{OauthName: "google", AccountID: "g-1"},
+				{OauthName: "apple", AccountID: "a-1", RefreshToken: encryptedRefreshToken(t, "apple-refresh")},
+			}, nil
+		},
+	}
+	apple := &mockAppleAuth{
+		revoke: func(_ context.Context, token string) error {
+			revoked = token
+			return nil
+		},
+	}
+
+	require.NoError(t, newUserSvcWithApple(repo, apple).Delete(context.Background(), userID))
+	assert.Equal(t, "apple-refresh", revoked, "the stored token must be decrypted before being sent to Apple")
+}
+
+// A user who asked to be deleted must end up deleted even if Apple is
+// unreachable.
+func TestDeleteUser_RevocationFailure_StillDeletes(t *testing.T) {
+	deleted := false
+	repo := &mockUserRepo{
+		listOAuthByUser: func(context.Context, uuid.UUID) ([]db.OauthAccount, error) {
+			return []db.OauthAccount{{OauthName: "apple", RefreshToken: encryptedRefreshToken(t, "apple-refresh")}}, nil
+		},
+		softDelete: func(context.Context, uuid.UUID) error {
+			deleted = true
+			return nil
+		},
+	}
+	apple := &mockAppleAuth{
+		revoke: func(context.Context, string) error { return errors.New("apple is down") },
+	}
+
+	require.NoError(t, newUserSvcWithApple(repo, apple).Delete(context.Background(), uuid.New()))
+	assert.True(t, deleted, "the account must still be soft-deleted when Apple's revoke call fails")
+}
+
+func TestDeleteUser_NoAppleAccount_SkipsRevocation(t *testing.T) {
+	repo := &mockUserRepo{
+		listOAuthByUser: func(context.Context, uuid.UUID) ([]db.OauthAccount, error) {
+			return []db.OauthAccount{{OauthName: "google", AccountID: "g-1"}}, nil
+		},
+	}
+	apple := &mockAppleAuth{
+		revoke: func(context.Context, string) error {
+			t.Fatal("must not call Apple for a user with no Apple account")
+			return nil
+		},
+	}
+	require.NoError(t, newUserSvcWithApple(repo, apple).Delete(context.Background(), uuid.New()))
 }

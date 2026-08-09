@@ -37,28 +37,28 @@ func TestLoad_APNSAuthKey_LeavesRealNewlinesUnchanged(t *testing.T) {
 	}
 }
 
-// NormalizeAPNSAuthKey is exercised directly here too, not just through
+// NormalizePEMKey is exercised directly here too, not just through
 // Load(), since cmd/jobs/plaid-sync and cmd/jobs/cycle-budgets build their
 // notification config.Config by hand from os.Getenv (they can't call
 // Load(), which requires DATABASE_URL/JWT_SECRET) and must call this
 // helper themselves to get the same PEM-decodable value.
-func TestNormalizeAPNSAuthKey_UnescapesLiteralNewlines(t *testing.T) {
+func TestNormalizePEMKey_UnescapesLiteralNewlines(t *testing.T) {
 	in := `-----BEGIN PRIVATE KEY-----\nMIGTAgEAMBMGByqGSM49\n-----END PRIVATE KEY-----`
 	want := "-----BEGIN PRIVATE KEY-----\nMIGTAgEAMBMGByqGSM49\n-----END PRIVATE KEY-----"
-	if got := NormalizeAPNSAuthKey(in); got != want {
-		t.Fatalf("NormalizeAPNSAuthKey(%q) = %q, want %q", in, got, want)
+	if got := NormalizePEMKey(in); got != want {
+		t.Fatalf("NormalizePEMKey(%q) = %q, want %q", in, got, want)
 	}
 }
 
-func TestNormalizeAPNSAuthKey_LeavesRealNewlinesUnchanged(t *testing.T) {
+func TestNormalizePEMKey_LeavesRealNewlinesUnchanged(t *testing.T) {
 	real := "-----BEGIN PRIVATE KEY-----\nMIGTAgEAMBMGByqGSM49\n-----END PRIVATE KEY-----"
-	if got := NormalizeAPNSAuthKey(real); got != real {
-		t.Fatalf("NormalizeAPNSAuthKey(%q) = %q, want unchanged %q", real, got, real)
+	if got := NormalizePEMKey(real); got != real {
+		t.Fatalf("NormalizePEMKey(%q) = %q, want unchanged %q", real, got, real)
 	}
 }
 
-func TestNormalizeAPNSAuthKey_Empty(t *testing.T) {
-	if got := NormalizeAPNSAuthKey(""); got != "" {
-		t.Fatalf("NormalizeAPNSAuthKey(\"\") = %q, want empty", got)
+func TestNormalizePEMKey_Empty(t *testing.T) {
+	if got := NormalizePEMKey(""); got != "" {
+		t.Fatalf("NormalizePEMKey(\"\") = %q, want empty", got)
 	}
 }

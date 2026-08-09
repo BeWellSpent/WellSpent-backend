@@ -33,6 +33,19 @@ type Config struct {
 	APNSAuthKey     string `envconfig:"APNS_AUTH_KEY"`
 	APNSBundleID    string `envconfig:"APNS_BUNDLE_ID" default:"com.bewellspent.WellSpent"`
 	APNSEnvironment string `envconfig:"APNS_ENVIRONMENT" default:"sandbox"`
+	// Sign in with Apple. AppleClientID is the expected `aud` claim on the
+	// identity token — for the native iOS flow that is the app's bundle ID
+	// (a web Services ID would be a second, different value). Verifying an
+	// identity token needs nothing but AppleClientID, since Apple's signing
+	// keys are public; AppleTeamID/AppleKeyID/ApplePrivateKey are needed
+	// only to mint the ES256 client secret for the token-exchange and
+	// token-revocation REST calls. Empty key config makes those two no-op
+	// with a log warning, same pattern as ResendAPIKey and the APNs block —
+	// sign-in keeps working, only revocation-on-delete degrades.
+	AppleClientID   string `envconfig:"APPLE_CLIENT_ID" default:"com.bewellspent.WellSpent"`
+	AppleTeamID     string `envconfig:"APPLE_TEAM_ID" default:"76FQ7V92H5"`
+	AppleKeyID      string `envconfig:"APPLE_KEY_ID"`
+	ApplePrivateKey string `envconfig:"APPLE_PRIVATE_KEY"`
 	PlaidClientID   string `envconfig:"PLAID_CLIENT_ID"`
 	PlaidSecret     string `envconfig:"PLAID_SECRET"`
 	PlaidEnv        string `envconfig:"PLAID_ENV" default:"sandbox"`
@@ -70,18 +83,21 @@ func Load() (*Config, error) {
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
-	cfg.APNSAuthKey = NormalizeAPNSAuthKey(cfg.APNSAuthKey)
+	cfg.APNSAuthKey = NormalizePEMKey(cfg.APNSAuthKey)
+	cfg.ApplePrivateKey = NormalizePEMKey(cfg.ApplePrivateKey)
 	return &cfg, nil
 }
 
-// NormalizeAPNSAuthKey converts a literal `\n` two-character sequence (as
-// found in a raw Cloud Run env var, which never goes through godotenv's
-// quote-unescaping) into a real newline, so the PEM parser in
-// notification_service.go can decode it. A value that already contains real
-// newlines (local dev via godotenv, or any other already-unescaped source)
-// passes through unchanged. Every binary that builds a config.Config's
-// APNSAuthKey field directly from os.Getenv (cmd/jobs/*) must call this —
-// Load() does it automatically.
-func NormalizeAPNSAuthKey(key string) string {
+// NormalizePEMKey converts a literal `\n` two-character sequence (as found in
+// a raw Cloud Run env var, which never goes through godotenv's
+// quote-unescaping) into a real newline, so a PEM parser can decode it. A
+// value that already contains real newlines (local dev via godotenv, or any
+// other already-unescaped source) passes through unchanged.
+//
+// Applies to every .p8 the app holds — the APNs auth key
+// (notification_service.go) and the Sign in with Apple key (internal/auth's
+// Apple client). Every binary that builds a config.Config PEM field directly
+// from os.Getenv (cmd/jobs/*) must call this — Load() does it automatically.
+func NormalizePEMKey(key string) string {
 	return strings.ReplaceAll(key, `\n`, "\n")
 }

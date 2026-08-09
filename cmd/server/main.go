@@ -61,10 +61,11 @@ func main() {
 	// Auth
 	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
 	googleOAuth := auth.NewGoogleOAuth(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURI)
+	appleAuth := auth.NewAppleAuth(cfg.AppleClientID, cfg.AppleTeamID, cfg.AppleKeyID, cfg.ApplePrivateKey)
 
 	// Services
-	authSvc := service.NewAuthService(userRepo, jwtSvc, googleOAuth, cfg, logger)
-	userSvc := service.NewUserService(userRepo)
+	authSvc := service.NewAuthService(userRepo, jwtSvc, googleOAuth, appleAuth, cfg, logger)
+	userSvc := service.NewUserService(userRepo, appleAuth, cfg.EncryptionKey, logger)
 	notifSvc := service.NewNotificationService(notifRepo, transactionRepo, budgetProfileRepo, allocationRepo, userRepo, cfg, logger)
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo).WithNotifications(notifSvc)
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo).WithNotifications(notifSvc)
@@ -92,6 +93,7 @@ func main() {
 		wellspentv1connect.AuthServiceLoginProcedure:                   true,
 		wellspentv1connect.AuthServiceGetGoogleAuthURLProcedure:        true,
 		wellspentv1connect.AuthServiceExchangeGoogleCodeProcedure:      true,
+		wellspentv1connect.AuthServiceSignInWithAppleProcedure:         true,
 		wellspentv1connect.AuthServiceVerifyEmailProcedure:             true,
 		wellspentv1connect.AuthServiceResendVerificationEmailProcedure: true,
 		wellspentv1connect.UserServiceListCountriesProcedure:           true,
