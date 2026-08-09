@@ -20,6 +20,8 @@ type UserRepository interface {
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	GetOAuthAccount(ctx context.Context, arg db.GetOAuthAccountParams) (db.OauthAccount, error)
 	CreateOAuthAccount(ctx context.Context, arg db.CreateOAuthAccountParams) (db.OauthAccount, error)
+	UpdateOAuthAccountRefreshToken(ctx context.Context, arg db.UpdateOAuthAccountRefreshTokenParams) error
+	ListOAuthAccountsByUser(ctx context.Context, userID uuid.UUID) ([]db.OauthAccount, error)
 	ListEnabledCountries(ctx context.Context) ([]db.ListEnabledCountriesRow, error)
 	ListCountryFeatures(ctx context.Context) ([]db.CountryFeature, error)
 	SetEmailVerificationToken(ctx context.Context, arg db.SetEmailVerificationTokenParams) (db.User, error)
@@ -84,6 +86,14 @@ func (r *userRepository) GetOAuthAccount(ctx context.Context, arg db.GetOAuthAcc
 
 func (r *userRepository) CreateOAuthAccount(ctx context.Context, arg db.CreateOAuthAccountParams) (db.OauthAccount, error) {
 	return r.q.CreateOAuthAccount(ctx, arg)
+}
+
+func (r *userRepository) UpdateOAuthAccountRefreshToken(ctx context.Context, arg db.UpdateOAuthAccountRefreshTokenParams) error {
+	return r.q.UpdateOAuthAccountRefreshToken(ctx, arg)
+}
+
+func (r *userRepository) ListOAuthAccountsByUser(ctx context.Context, userID uuid.UUID) ([]db.OauthAccount, error) {
+	return r.q.ListOAuthAccountsByUser(ctx, userID)
 }
 
 func (r *userRepository) ListEnabledCountries(ctx context.Context) ([]db.ListEnabledCountriesRow, error) {

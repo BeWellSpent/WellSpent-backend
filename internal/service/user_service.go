@@ -6,20 +6,33 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
+	"github.com/BeWellSpent/wellspent-backend/internal/auth"
+	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type UserService struct {
 	users repository.UserRepository
+	// apple is only used to revoke credentials on account deletion. Nil is
+	// tolerated (unlike the other services' required deps) so the many
+	// existing call sites that only exercise profile reads/writes don't all
+	// have to grow an Apple client they never touch.
+	apple         auth.AppleAuthenticator
+	encryptionKey string
+	log           *zap.Logger
 }
 
-func NewUserService(users repository.UserRepository) *UserService {
+func NewUserService(users repository.UserRepository, apple auth.AppleAuthenticator, encryptionKey string, log *zap.Logger) *UserService {
 	if users == nil {
 		panic("NewUserService: users is required")
 	}
-	return &UserService{users: users}
+	if log == nil {
+		panic("NewUserService: log is required")
+	}
+	return &UserService{users: users, apple: apple, encryptionKey: encryptionKey, log: log}
 }
 
 func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (db.User, error) {
@@ -91,5 +104,44 @@ func (s *UserService) ChangePassword(ctx context.Context, id uuid.UUID, currentP
 }
 
 func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {
+	s.revokeAppleTokens(ctx, id)
 	return s.users.SoftDelete(ctx, id)
+}
+
+// revokeAppleTokens tells Apple to invalidate the user's credentials for this
+// app, which App Store Review 5.1.1(v) requires of any app offering Sign in
+// with Apple.
+//
+// Every failure is logged and swallowed: a user who asked to delete their
+// account must end up deleted regardless of whether Apple's endpoint was
+// reachable, and the deletion is a soft-delete the user can only undo through
+// support anyway.
+func (s *UserService) revokeAppleTokens(ctx context.Context, userID uuid.UUID) {
+	if s.apple == nil {
+		return
+	}
+	accounts, err := s.users.ListOAuthAccountsByUser(ctx, userID)
+	if err != nil {
+		s.log.Error("user.delete.list_oauth_accounts_failed", zap.String("user_id", userID.String()), zap.Error(err))
+		return
+	}
+	for _, acc := range accounts {
+		if acc.OauthName != oauthProviderApple || acc.RefreshToken == nil || *acc.RefreshToken == "" {
+			continue
+		}
+		if s.encryptionKey == "" {
+			s.log.Error("user.delete.apple_revoke_skipped: ENCRYPTION_KEY unset", zap.String("user_id", userID.String()))
+			return
+		}
+		refreshToken, err := crypto.Decrypt(*acc.RefreshToken, s.encryptionKey)
+		if err != nil {
+			s.log.Error("user.delete.apple_refresh_token_decrypt_failed", zap.String("user_id", userID.String()), zap.Error(err))
+			continue
+		}
+		if err := s.apple.RevokeRefreshToken(ctx, refreshToken); err != nil {
+			s.log.Error("user.delete.apple_revoke_failed", zap.String("user_id", userID.String()), zap.Error(err))
+			continue
+		}
+		s.log.Info("user.delete.apple_revoked", zap.String("user_id", userID.String()))
+	}
 }

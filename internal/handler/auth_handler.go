@@ -73,6 +73,20 @@ func (h *AuthHandler) ExchangeGoogleCode(ctx context.Context, req *connect.Reque
 	}), nil
 }
 
+func (h *AuthHandler) SignInWithApple(ctx context.Context, req *connect.Request[v1.SignInWithAppleRequest]) (*connect.Response[v1.SignInWithAppleResponse], error) {
+	result, err := h.svc.AppleSignIn(ctx, req.Msg.IdentityToken, req.Msg.AuthorizationCode, req.Msg.FirstName, req.Msg.LastName, req.Msg.Language, req.Msg.Currency)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	return connect.NewResponse(&v1.SignInWithAppleResponse{
+		AccessToken: result.AccessToken,
+		ExpiresIn:   result.ExpiresIn,
+		IsNewUser:   result.IsNewUser,
+		Language:    result.Language,
+		Currency:    result.Currency,
+	}), nil
+}
+
 func (h *AuthHandler) VerifyEmail(ctx context.Context, req *connect.Request[v1.VerifyEmailRequest]) (*connect.Response[v1.VerifyEmailResponse], error) {
 	if err := h.svc.VerifyEmail(ctx, req.Msg.Token); err != nil {
 		return nil, toConnectError(err)
