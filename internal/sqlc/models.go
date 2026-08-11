@@ -286,4 +286,5 @@ type User struct {
 	Status                      string             `json:"status"`
 	ActiveUntil                 pgtype.Timestamptz `json:"active_until"`
 	Plan                        string             `json:"plan"`
+	AccountType                 string             `json:"account_type"`
 }

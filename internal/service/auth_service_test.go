@@ -37,6 +37,7 @@ type mockUserRepo struct {
 	listOAuthByUser      func(context.Context, uuid.UUID) ([]db.OauthAccount, error)
 	listEnabledCountries func(context.Context) ([]db.ListEnabledCountriesRow, error)
 	listCountryFeatures  func(context.Context) ([]db.CountryFeature, error)
+	listTestAccounts     func(context.Context) ([]db.ListTestAccountsRow, error)
 	setEmailVerification func(context.Context, db.SetEmailVerificationTokenParams) (db.User, error)
 	getByVerification    func(context.Context, uuid.UUID) (db.User, error)
 	markVerified         func(context.Context, uuid.UUID) error
@@ -75,6 +76,13 @@ func (m *mockUserRepo) UpdatePassword(ctx context.Context, arg db.UpdateUserPass
 		return m.updatePassword(ctx, arg)
 	}
 	return nil
+}
+
+func (m *mockUserRepo) ListTestAccounts(ctx context.Context) ([]db.ListTestAccountsRow, error) {
+	if m.listTestAccounts != nil {
+		return m.listTestAccounts(ctx)
+	}
+	return nil, nil
 }
 
 func (m *mockUserRepo) UpdateEmail(ctx context.Context, arg db.UpdateUserEmailParams) (db.User, error) {

@@ -2,7 +2,7 @@
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
        country_code, state_code, filing_status, tax_payment_frequency, language, currency,
        email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-       status, active_until, plan
+       status, active_until, plan, account_type
 FROM users
 WHERE id = $1
 LIMIT 1;
@@ -11,7 +11,7 @@ LIMIT 1;
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
        country_code, state_code, filing_status, tax_payment_frequency, language, currency,
        email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-       status, active_until, plan
+       status, active_until, plan, account_type
 FROM users
 WHERE email = $1
 LIMIT 1;
@@ -22,7 +22,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
           country_code, state_code, filing_status, tax_payment_frequency, language, currency,
           email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-          status, active_until, plan;
+          status, active_until, plan, account_type;
 
 -- name: UpdateUser :one
 UPDATE users
@@ -38,7 +38,7 @@ WHERE id = sqlc.arg('id')
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
           country_code, state_code, filing_status, tax_payment_frequency, language, currency,
           email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-          status, active_until, plan;
+          status, active_until, plan, account_type;
 
 -- name: UpdateUserPassword :exec
 UPDATE users
@@ -55,7 +55,7 @@ WHERE id = sqlc.arg('id')
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
           country_code, state_code, filing_status, tax_payment_frequency, language, currency,
           email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-          status, active_until, plan;
+          status, active_until, plan, account_type;
 
 -- name: DeleteUser :exec
 DELETE FROM users
@@ -70,13 +70,13 @@ WHERE id = sqlc.arg('id')
 RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
           country_code, state_code, filing_status, tax_payment_frequency, language, currency,
           email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-          status, active_until, plan;
+          status, active_until, plan, account_type;
 
 -- name: GetUserByVerificationToken :one
 SELECT id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
        country_code, state_code, filing_status, tax_payment_frequency, language, currency,
        email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
-       status, active_until, plan
+       status, active_until, plan, account_type
 FROM users
 WHERE email_verification_token = sqlc.arg('token')
 LIMIT 1;
@@ -127,3 +127,11 @@ ORDER BY name;
 SELECT country_code, feature_name, is_enabled
 FROM country_features
 ORDER BY country_code, feature_name;
+
+-- name: ListTestAccounts :many
+-- Backs the startup warning: accounts exempt from the email-verification gate
+-- should never sit in production unnoticed.
+SELECT id, email
+FROM users
+WHERE account_type = 'test'
+ORDER BY email;

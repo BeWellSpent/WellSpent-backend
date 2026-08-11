@@ -58,6 +58,8 @@ func main() {
 	reviewRepo := repository.NewTransactionReviewRepository(queries)
 	notifRepo := repository.NewNotificationRepository(queries)
 
+	logVerificationExemptAccounts(ctx, userRepo, cfg.Env, logger)
+
 	// Auth
 	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
 	googleOAuth := auth.NewGoogleOAuth(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURI)
@@ -130,4 +132,39 @@ func main() {
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
 	logger.Info("starting server", zap.String("addr", addr), zap.String("env", cfg.Env))
 	log.Fatal(http.ListenAndServe(addr, h2c.NewHandler(rateLimiter.Middleware(corsHandler.Handler(mux)), &http2.Server{})))
+}
+
+// logVerificationExemptAccounts announces, at boot, every account exempt from
+// the email-verification gate.
+//
+// These accounts exist for QA and automated tests, and they are the one thing
+// in the system that can use the app without ever proving an address. Leaving
+// one behind in production is the failure mode worth catching, so prod logs it
+// at Error — loud enough to surface in alerting rather than scroll past.
+//
+// Never fatal: an unreachable database here would otherwise stop the server
+// from starting over a diagnostic.
+func logVerificationExemptAccounts(ctx context.Context, users repository.UserRepository, env string, logger *zap.Logger) {
+	accounts, err := users.ListTestAccounts(ctx)
+	if err != nil {
+		logger.Warn("startup.test_accounts.lookup_failed", zap.Error(err))
+		return
+	}
+	if len(accounts) == 0 {
+		return
+	}
+	emails := make([]string, 0, len(accounts))
+	for _, a := range accounts {
+		emails = append(emails, a.Email)
+	}
+	fields := []zap.Field{
+		zap.Int("count", len(emails)),
+		zap.Strings("emails", emails),
+		zap.String("env", env),
+	}
+	if env == "prod" {
+		logger.Error("startup.test_accounts.present_in_prod: these accounts skip email verification", fields...)
+		return
+	}
+	logger.Warn("startup.test_accounts.present: these accounts skip email verification", fields...)
 }

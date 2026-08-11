@@ -31,6 +31,7 @@ type UserRepository interface {
 	ListOAuthAccountsByUser(ctx context.Context, userID uuid.UUID) ([]db.OauthAccount, error)
 	ListEnabledCountries(ctx context.Context) ([]db.ListEnabledCountriesRow, error)
 	ListCountryFeatures(ctx context.Context) ([]db.CountryFeature, error)
+	ListTestAccounts(ctx context.Context) ([]db.ListTestAccountsRow, error)
 	SetEmailVerificationToken(ctx context.Context, arg db.SetEmailVerificationTokenParams) (db.User, error)
 	GetByVerificationToken(ctx context.Context, token uuid.UUID) (db.User, error)
 	MarkVerified(ctx context.Context, id uuid.UUID) error
@@ -73,6 +74,10 @@ func (r *userRepository) Update(ctx context.Context, arg db.UpdateUserParams) (d
 
 func (r *userRepository) UpdatePassword(ctx context.Context, arg db.UpdateUserPasswordParams) error {
 	return r.q.UpdateUserPassword(ctx, arg)
+}
+
+func (r *userRepository) ListTestAccounts(ctx context.Context) ([]db.ListTestAccountsRow, error) {
+	return r.q.ListTestAccounts(ctx)
 }
 
 func (r *userRepository) UpdateEmail(ctx context.Context, arg db.UpdateUserEmailParams) (db.User, error) {

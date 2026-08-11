@@ -47,6 +47,7 @@ sql:
       - "internal/db/migrations/000042_device_tokens.sql"
       - "internal/db/migrations/000043_backfill_fixed_expense_payment_method.sql"
       - "internal/db/migrations/000044_oauth_refresh_token.sql"
+      - "internal/db/migrations/000045_account_type.sql"
     gen:
       go:
         package: "db"
