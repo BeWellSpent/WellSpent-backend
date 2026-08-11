@@ -65,7 +65,7 @@ func main() {
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, jwtSvc, googleOAuth, appleAuth, cfg, logger)
-	userSvc := service.NewUserService(userRepo, appleAuth, cfg.EncryptionKey, logger)
+	userSvc := service.NewUserService(userRepo, appleAuth, cfg.EncryptionKey, cfg, logger)
 	notifSvc := service.NewNotificationService(notifRepo, transactionRepo, budgetProfileRepo, allocationRepo, userRepo, cfg, logger)
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo).WithNotifications(notifSvc)
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo).WithNotifications(notifSvc)

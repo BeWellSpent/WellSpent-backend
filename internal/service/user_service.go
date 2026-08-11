@@ -2,11 +2,15 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/mail"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/auth"
+	"github.com/BeWellSpent/wellspent-backend/internal/config"
 	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
@@ -23,16 +27,26 @@ type UserService struct {
 	apple         auth.AppleAuthenticator
 	encryptionKey string
 	log           *zap.Logger
+	mailer        *VerificationMailer
 }
 
-func NewUserService(users repository.UserRepository, apple auth.AppleAuthenticator, encryptionKey string, log *zap.Logger) *UserService {
+func NewUserService(users repository.UserRepository, apple auth.AppleAuthenticator, encryptionKey string, cfg *config.Config, log *zap.Logger) *UserService {
 	if users == nil {
 		panic("NewUserService: users is required")
+	}
+	if cfg == nil {
+		panic("NewUserService: cfg is required")
 	}
 	if log == nil {
 		panic("NewUserService: log is required")
 	}
-	return &UserService{users: users, apple: apple, encryptionKey: encryptionKey, log: log}
+	return &UserService{
+		users:         users,
+		apple:         apple,
+		encryptionKey: encryptionKey,
+		log:           log,
+		mailer:        NewVerificationMailer(users, cfg, log),
+	}
 }
 
 func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (db.User, error) {
@@ -101,6 +115,57 @@ func (s *UserService) ChangePassword(ctx context.Context, id uuid.UUID, currentP
 		ID:             id,
 		HashedPassword: &hashedStr,
 	})
+}
+
+// ChangeEmail replaces the account's address and re-opens verification for
+// the new one, then sends the verification link.
+//
+// This is the only recourse for an address mistyped at registration — resend
+// can't help, since it sends to the same wrong address — which matters now
+// that both clients block an unverified account outright.
+//
+// Deliberately does not ask for the current password, unlike ChangePassword:
+// the JWT already proves the session, and the new address grants nothing
+// until its own verification link is redeemed. Requiring a password would
+// also lock out an OAuth account, which has none.
+func (s *UserService) ChangeEmail(ctx context.Context, id uuid.UUID, newEmail string) (db.User, error) {
+	email := strings.ToLower(strings.TrimSpace(newEmail))
+	if _, err := mail.ParseAddress(email); err != nil {
+		return db.User{}, apperr.Invalid("invalid email address")
+	}
+
+	current, err := s.users.GetByID(ctx, id)
+	if err != nil {
+		return db.User{}, err
+	}
+	if current.Email == email {
+		// Silently succeeding here would be worse than it looks: the caller
+		// is a user staring at a verification wall, and "saved" with nothing
+		// arriving reads as the feature being broken.
+		return db.User{}, apperr.Invalid("that is already your email address")
+	}
+
+	existing, err := s.users.GetByEmail(ctx, email)
+	if err == nil && existing.ID != id {
+		return db.User{}, apperr.Duplicate("user", "email", email)
+	}
+	var notFound *apperr.NotFoundError
+	if err != nil && !errors.As(err, &notFound) {
+		return db.User{}, err
+	}
+
+	updated, err := s.users.UpdateEmail(ctx, db.UpdateUserEmailParams{ID: id, Email: email})
+	if err != nil {
+		return db.User{}, err
+	}
+
+	// Best-effort, matching Register: the address is already changed, and the
+	// user can fall back to "resend verification email" — which now goes to
+	// the corrected address.
+	if err := s.mailer.Send(ctx, updated); err != nil {
+		s.log.Error("user.change_email.verification_email_failed", zap.String("to", updated.Email), zap.Error(err))
+	}
+	return updated, nil
 }
 
 func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {

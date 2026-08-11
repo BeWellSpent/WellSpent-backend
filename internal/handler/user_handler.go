@@ -94,6 +94,18 @@ func (h *UserHandler) ChangePassword(ctx context.Context, req *connect.Request[v
 	return connect.NewResponse(&v1.ChangePasswordResponse{}), nil
 }
 
+func (h *UserHandler) ChangeEmail(ctx context.Context, req *connect.Request[v1.ChangeEmailRequest]) (*connect.Response[v1.ChangeEmailResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	user, svcErr := h.svc.ChangeEmail(ctx, userID, req.Msg.NewEmail)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.ChangeEmailResponse{User: toProtoUser(user)}), nil
+}
+
 func (h *UserHandler) DeleteMe(ctx context.Context, _ *connect.Request[v1.DeleteMeRequest]) (*connect.Response[v1.DeleteMeResponse], error) {
 	userID, err := h.currentUserID(ctx)
 	if err != nil {

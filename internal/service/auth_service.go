@@ -16,8 +16,6 @@ import (
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-	resend "github.com/resend/resend-go/v2"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -37,9 +35,6 @@ const (
 	defaultTokenLifetime    = 24 * time.Hour
 	rememberMeTokenLifetime = 90 * 24 * time.Hour
 
-	// emailVerificationTTL is the business-rule cap on how long a
-	// verification link stays valid (issue #7: "maximum 10 minutes").
-	emailVerificationTTL = 10 * time.Minute
 	// verificationResendCooldown throttles ResendVerificationEmail so a
 	// user (or an attacker) can't trigger unlimited emails to an address.
 	verificationResendCooldown = 60 * time.Second
@@ -58,6 +53,7 @@ type AuthService struct {
 	apple  auth.AppleAuthenticator
 	cfg    *config.Config
 	log    *zap.Logger
+	mailer *VerificationMailer
 }
 
 func NewAuthService(users repository.UserRepository, jwt *auth.JWTService, google *auth.GoogleOAuth, apple auth.AppleAuthenticator, cfg *config.Config, log *zap.Logger) *AuthService {
@@ -79,7 +75,18 @@ func NewAuthService(users repository.UserRepository, jwt *auth.JWTService, googl
 	if log == nil {
 		panic("NewAuthService: log is required")
 	}
-	return &AuthService{users: users, jwt: jwt, google: google, apple: apple, cfg: cfg, log: log}
+	return &AuthService{
+		users:  users,
+		jwt:    jwt,
+		google: google,
+		apple:  apple,
+		cfg:    cfg,
+		log:    log,
+		// Built here rather than injected: every dependency it needs is
+		// already a required argument, so an extra parameter would add
+		// churn at every call site for no added flexibility.
+		mailer: NewVerificationMailer(users, cfg, log),
+	}
 }
 
 type LoginResult struct {
@@ -458,7 +465,7 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 
 	// Best-effort — the account is already created; a failed send just
 	// means the user falls back to "resend verification email" later.
-	if err := s.sendVerificationEmail(ctx, user); err != nil {
+	if err := s.mailer.Send(ctx, user); err != nil {
 		s.log.Error("auth.verification_email.failed", zap.String("to", user.Email), zap.Error(err))
 	}
 
@@ -516,51 +523,9 @@ func (s *AuthService) ResendVerificationEmail(ctx context.Context, email string)
 		time.Since(user.EmailVerificationLastSentAt.Time) < verificationResendCooldown {
 		return apperr.Invalid("please wait before requesting another verification email")
 	}
-	return s.sendVerificationEmail(ctx, user)
+	return s.mailer.Send(ctx, user)
 }
 
-// sendVerificationEmail mints a fresh token (10-minute TTL) and emails it.
-// Non-fatal Resend failures are the caller's responsibility to log —
-// this returns the error rather than swallowing it so Register and
-// ResendVerificationEmail can each decide how to surface it.
-func (s *AuthService) sendVerificationEmail(ctx context.Context, user db.User) error {
-	token := uuid.New()
-	now := time.Now().UTC()
-	if _, err := s.users.SetEmailVerificationToken(ctx, db.SetEmailVerificationTokenParams{
-		ID:         user.ID,
-		Token:      &token,
-		ExpiresAt:  pgtype.Timestamptz{Time: now.Add(emailVerificationTTL), Valid: true},
-		LastSentAt: pgtype.Timestamptz{Time: now, Valid: true},
-	}); err != nil {
-		return fmt.Errorf("auth: set verification token: %w", err)
-	}
-
-	if s.cfg.ResendAPIKey == "" {
-		s.log.Warn("auth.verification_email.skipped: RESEND_API_KEY not set", zap.String("to", user.Email))
-		return nil
-	}
-	client := resend.NewClient(s.cfg.ResendAPIKey)
-	link := fmt.Sprintf("%s/en/verify-email/%s", strings.TrimRight(s.cfg.FrontendURL, "/"), token.String())
-	body := fmt.Sprintf(
-		`<p>Welcome to WellSpent! Please confirm your email address to finish setting up your account.</p>`+
-			`<p><a href="%s" style="display:inline-block;padding:10px 20px;background:#1976d2;color:#fff;text-decoration:none;border-radius:4px;">Verify email</a></p>`+
-			`<p>If the button above doesn't work, copy and paste this link into your browser:</p>`+
-			`<p>%s</p>`+
-			`<p>This link expires in 10 minutes.</p>`,
-		link, link,
-	)
-	_, err := client.Emails.Send(&resend.SendEmailRequest{
-		From:    s.cfg.ResendFromEmail,
-		To:      []string{user.Email},
-		Subject: "Verify your WellSpent email address",
-		Html:    body,
-	})
-	if err != nil {
-		return err
-	}
-	s.log.Info("auth.verification_email.sent", zap.String("to", user.Email))
-	return nil
-}
 
 func validatePassword(password string) error {
 	if len(password) < 8 {

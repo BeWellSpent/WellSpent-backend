@@ -45,6 +45,18 @@ UPDATE users
 SET hashed_password = $2
 WHERE id = $1;
 
+-- name: UpdateUserEmail :one
+-- Clearing is_verified is the point, not a side effect: the new address is
+-- unproven until its own verification link is redeemed.
+UPDATE users
+SET email       = sqlc.arg('email'),
+    is_verified = FALSE
+WHERE id = sqlc.arg('id')
+RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
+          country_code, state_code, filing_status, tax_payment_frequency, language, currency,
+          email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
+          status, active_until, plan;
+
 -- name: DeleteUser :exec
 DELETE FROM users
 WHERE id = $1;
