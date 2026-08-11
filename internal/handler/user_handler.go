@@ -136,7 +136,7 @@ func toProtoUser(u db.User) *v1.User {
 		FirstName:           nullStr(u.FirstName),
 		LastName:            nullStr(u.LastName),
 		IsActive:            u.IsActive,
-		IsVerified:          u.IsVerified,
+		IsVerified:          isVerificationSatisfied(u),
 		CreatedAt:           timestamppb.New(u.CreatedAt.Time),
 		CountryCode:         nullStr(u.CountryCode),
 		StateCode:           nullStr(u.StateCode),
@@ -148,6 +148,24 @@ func toProtoUser(u db.User) *v1.User {
 
 		HasApplePrivateEmail: isApplePrivateEmail(u.Email),
 	}
+}
+
+// accountTypeTest marks an account exempt from the email-verification gate,
+// for QA and automated tests that have no real inbox to receive a link at.
+// Set by hand only — see migration 000045.
+const accountTypeTest = "test"
+
+// isVerificationSatisfied answers "may this account use the app", which is
+// what User.is_verified means to a client — both clients gate on it and
+// nothing else reads it.
+//
+// A test account therefore reports verified on the wire while its stored
+// is_verified stays false. That split is deliberate: the database keeps the
+// truth about whether an address was ever proven, and the exemption stays
+// visible as its own column rather than being laundered into the
+// verification record.
+func isVerificationSatisfied(u db.User) bool {
+	return u.IsVerified || u.AccountType == accountTypeTest
 }
 
 // applePrivateRelayDomain is the domain Apple issues "Hide My Email" aliases
