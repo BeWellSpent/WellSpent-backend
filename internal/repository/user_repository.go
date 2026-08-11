@@ -8,7 +8,13 @@ import (
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// uniqueViolationCode is PostgreSQL's SQLSTATE for a unique-constraint
+// violation. Spelled out rather than pulled from github.com/jackc/pgerrcode —
+// that module isn't a dependency here, and this is the only code we match on.
+const uniqueViolationCode = "23505"
 
 type UserRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (db.User, error)
@@ -16,6 +22,7 @@ type UserRepository interface {
 	Create(ctx context.Context, arg db.CreateUserParams) (db.User, error)
 	Update(ctx context.Context, arg db.UpdateUserParams) (db.User, error)
 	UpdatePassword(ctx context.Context, arg db.UpdateUserPasswordParams) error
+	UpdateEmail(ctx context.Context, arg db.UpdateUserEmailParams) (db.User, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	GetOAuthAccount(ctx context.Context, arg db.GetOAuthAccountParams) (db.OauthAccount, error)
@@ -66,6 +73,18 @@ func (r *userRepository) Update(ctx context.Context, arg db.UpdateUserParams) (d
 
 func (r *userRepository) UpdatePassword(ctx context.Context, arg db.UpdateUserPasswordParams) error {
 	return r.q.UpdateUserPassword(ctx, arg)
+}
+
+func (r *userRepository) UpdateEmail(ctx context.Context, arg db.UpdateUserEmailParams) (db.User, error) {
+	u, err := r.q.UpdateUserEmail(ctx, arg)
+	// The service checks for a taken address first, but that check and this
+	// write aren't atomic — two accounts racing for the same address land
+	// here, and the unique index is what actually decides it.
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolationCode {
+		return db.User{}, apperr.Duplicate("user", "email", arg.Email)
+	}
+	return u, err
 }
 
 func (r *userRepository) Delete(ctx context.Context, id uuid.UUID) error {

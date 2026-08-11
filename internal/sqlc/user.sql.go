@@ -513,6 +513,53 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 	return i, err
 }
 
+const updateUserEmail = `-- name: UpdateUserEmail :one
+UPDATE users
+SET email       = $1,
+    is_verified = FALSE
+WHERE id = $2
+RETURNING id, email, hashed_password, first_name, last_name, is_active, is_superuser, is_verified, created_at,
+          country_code, state_code, filing_status, tax_payment_frequency, language, currency,
+          email_verification_token, email_verification_expires_at, email_verification_last_sent_at,
+          status, active_until, plan
+`
+
+type UpdateUserEmailParams struct {
+	Email string    `json:"email"`
+	ID    uuid.UUID `json:"id"`
+}
+
+// Clearing is_verified is the point, not a side effect: the new address is
+// unproven until its own verification link is redeemed.
+func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserEmail, arg.Email, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.HashedPassword,
+		&i.FirstName,
+		&i.LastName,
+		&i.IsActive,
+		&i.IsSuperuser,
+		&i.IsVerified,
+		&i.CreatedAt,
+		&i.CountryCode,
+		&i.StateCode,
+		&i.FilingStatus,
+		&i.TaxPaymentFrequency,
+		&i.Language,
+		&i.Currency,
+		&i.EmailVerificationToken,
+		&i.EmailVerificationExpiresAt,
+		&i.EmailVerificationLastSentAt,
+		&i.Status,
+		&i.ActiveUntil,
+		&i.Plan,
+	)
+	return i, err
+}
+
 const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE users
 SET hashed_password = $2

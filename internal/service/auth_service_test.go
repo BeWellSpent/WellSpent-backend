@@ -28,6 +28,7 @@ type mockUserRepo struct {
 	create               func(context.Context, db.CreateUserParams) (db.User, error)
 	update               func(context.Context, db.UpdateUserParams) (db.User, error)
 	updatePassword       func(context.Context, db.UpdateUserPasswordParams) error
+	updateEmail          func(context.Context, db.UpdateUserEmailParams) (db.User, error)
 	delete               func(context.Context, uuid.UUID) error
 	softDelete           func(context.Context, uuid.UUID) error
 	getOAuth             func(context.Context, db.GetOAuthAccountParams) (db.OauthAccount, error)
@@ -74,6 +75,13 @@ func (m *mockUserRepo) UpdatePassword(ctx context.Context, arg db.UpdateUserPass
 		return m.updatePassword(ctx, arg)
 	}
 	return nil
+}
+
+func (m *mockUserRepo) UpdateEmail(ctx context.Context, arg db.UpdateUserEmailParams) (db.User, error) {
+	if m.updateEmail != nil {
+		return m.updateEmail(ctx, arg)
+	}
+	return db.User{ID: arg.ID, Email: arg.Email}, nil
 }
 
 func (m *mockUserRepo) Delete(ctx context.Context, id uuid.UUID) error {
@@ -527,7 +535,7 @@ func TestUserService_Update_PassesNewFields(t *testing.T) {
 			return db.User{}, nil
 		},
 	}
-	svc := NewUserService(repo, &mockAppleAuth{}, "", zap.NewNop())
+	svc := NewUserService(repo, &mockAppleAuth{}, "", &config.Config{}, zap.NewNop())
 	_, err := svc.Update(context.Background(), id, UpdateUserInput{
 		CountryCode:         &cc,
 		StateCode:           &sc,
@@ -555,7 +563,7 @@ func TestUserService_ListCountries_MergesFeatures(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewUserService(repo, &mockAppleAuth{}, "", zap.NewNop())
+	svc := NewUserService(repo, &mockAppleAuth{}, "", &config.Config{}, zap.NewNop())
 	countries, byCode, err := svc.ListCountries(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, countries, 2)
@@ -770,7 +778,7 @@ func TestAppleSignIn_InactiveAccount(t *testing.T) {
 // ── Account deletion revokes Apple credentials ────────────────────────────────
 
 func newUserSvcWithApple(repo *mockUserRepo, apple auth.AppleAuthenticator) *UserService {
-	return NewUserService(repo, apple, strings.Repeat("ab", 32), zap.NewNop())
+	return NewUserService(repo, apple, strings.Repeat("ab", 32), &config.Config{}, zap.NewNop())
 }
 
 func encryptedRefreshToken(t *testing.T, plain string) *string {
@@ -836,4 +844,122 @@ func TestDeleteUser_NoAppleAccount_SkipsRevocation(t *testing.T) {
 		},
 	}
 	require.NoError(t, newUserSvcWithApple(repo, apple).Delete(context.Background(), uuid.New()))
+}
+
+// ── ChangeEmail ───────────────────────────────────────────────────────────────
+
+func newUserSvc(repo *mockUserRepo) *UserService {
+	return NewUserService(repo, &mockAppleAuth{}, "", &config.Config{}, zap.NewNop())
+}
+
+func TestChangeEmail_Success_NormalizesAndResetsVerification(t *testing.T) {
+	userID := uuid.New()
+	var wrote db.UpdateUserEmailParams
+	var tokenSetFor uuid.UUID
+	repo := &mockUserRepo{
+		getByID: func(context.Context, uuid.UUID) (db.User, error) {
+			return db.User{ID: userID, Email: "typo@example.com", IsVerified: false}, nil
+		},
+		getByEmail: func(_ context.Context, email string) (db.User, error) {
+			return db.User{}, apperr.NotFound("user", email)
+		},
+		updateEmail: func(_ context.Context, arg db.UpdateUserEmailParams) (db.User, error) {
+			wrote = arg
+			return db.User{ID: arg.ID, Email: arg.Email, IsVerified: false}, nil
+		},
+		setEmailVerification: func(_ context.Context, arg db.SetEmailVerificationTokenParams) (db.User, error) {
+			tokenSetFor = arg.ID
+			return db.User{}, nil
+		},
+	}
+
+	user, err := newUserSvc(repo).ChangeEmail(context.Background(), userID, "  Correct@Example.COM ")
+
+	require.NoError(t, err)
+	assert.Equal(t, "correct@example.com", wrote.Email, "the address must be lowercased and trimmed before storage")
+	assert.Equal(t, "correct@example.com", user.Email)
+	assert.False(t, user.IsVerified, "the new address is unproven, so verification must re-open")
+	assert.Equal(t, userID, tokenSetFor, "a fresh verification link must be sent to the new address")
+}
+
+// A send failure must not roll the change back — the address is already
+// corrected, and the user can fall back to resend, which now reaches them.
+func TestChangeEmail_SendFailureStillChangesTheAddress(t *testing.T) {
+	userID := uuid.New()
+	repo := &mockUserRepo{
+		getByID: func(context.Context, uuid.UUID) (db.User, error) {
+			return db.User{ID: userID, Email: "old@example.com"}, nil
+		},
+		setEmailVerification: func(context.Context, db.SetEmailVerificationTokenParams) (db.User, error) {
+			return db.User{}, errors.New("resend is down")
+		},
+	}
+
+	user, err := newUserSvc(repo).ChangeEmail(context.Background(), userID, "new@example.com")
+
+	require.NoError(t, err)
+	assert.Equal(t, "new@example.com", user.Email)
+}
+
+func TestChangeEmail_RejectsAddressTakenByAnotherAccount(t *testing.T) {
+	userID := uuid.New()
+	repo := &mockUserRepo{
+		getByID: func(context.Context, uuid.UUID) (db.User, error) {
+			return db.User{ID: userID, Email: "mine@example.com"}, nil
+		},
+		getByEmail: func(context.Context, string) (db.User, error) {
+			return db.User{ID: uuid.New(), Email: "taken@example.com"}, nil
+		},
+		updateEmail: func(context.Context, db.UpdateUserEmailParams) (db.User, error) {
+			t.Fatal("must not write an address that belongs to another account")
+			return db.User{}, nil
+		},
+	}
+
+	_, err := newUserSvc(repo).ChangeEmail(context.Background(), userID, "taken@example.com")
+
+	require.Error(t, err)
+	var dup *apperr.DuplicateError
+	require.ErrorAs(t, err, &dup)
+}
+
+// Succeeding silently here would read as the feature being broken: the caller
+// is staring at a verification wall waiting for mail that never comes.
+func TestChangeEmail_RejectsTheAddressAlreadyOnTheAccount(t *testing.T) {
+	userID := uuid.New()
+	repo := &mockUserRepo{
+		getByID: func(context.Context, uuid.UUID) (db.User, error) {
+			return db.User{ID: userID, Email: "same@example.com"}, nil
+		},
+		updateEmail: func(context.Context, db.UpdateUserEmailParams) (db.User, error) {
+			t.Fatal("must not rewrite the address to itself")
+			return db.User{}, nil
+		},
+	}
+
+	// Also proves the comparison happens after normalization.
+	_, err := newUserSvc(repo).ChangeEmail(context.Background(), userID, "SAME@example.com")
+
+	require.Error(t, err)
+	var invalid *apperr.ValidationError
+	require.ErrorAs(t, err, &invalid)
+}
+
+func TestChangeEmail_RejectsMalformedAddress(t *testing.T) {
+	for _, email := range []string{"", "   ", "not-an-email", "@example.com", "user@"} {
+		t.Run(email, func(t *testing.T) {
+			repo := &mockUserRepo{
+				getByID: func(context.Context, uuid.UUID) (db.User, error) {
+					t.Fatal("must reject before touching the database")
+					return db.User{}, nil
+				},
+			}
+
+			_, err := newUserSvc(repo).ChangeEmail(context.Background(), uuid.New(), email)
+
+			require.Error(t, err)
+			var invalid *apperr.ValidationError
+			require.ErrorAs(t, err, &invalid)
+		})
+	}
 }
