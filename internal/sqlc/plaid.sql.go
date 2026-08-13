@@ -9,13 +9,14 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createPlaidItem = `-- name: CreatePlaidItem :one
 INSERT INTO plaid_item (user_id, budget_profile_id, access_token, item_id, institution_id, institution_name)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
-          status, cursor, last_synced_at, created_at
+          status, cursor, last_synced_at, created_at, last_manual_resync_at
 `
 
 type CreatePlaidItemParams struct {
@@ -49,6 +50,7 @@ func (q *Queries) CreatePlaidItem(ctx context.Context, arg CreatePlaidItemParams
 		&i.Cursor,
 		&i.LastSyncedAt,
 		&i.CreatedAt,
+		&i.LastManualResyncAt,
 	)
 	return i, err
 }
@@ -64,7 +66,7 @@ func (q *Queries) DeletePlaidItem(ctx context.Context, id uuid.UUID) error {
 
 const getPlaidItemByID = `-- name: GetPlaidItemByID :one
 SELECT id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
-       status, cursor, last_synced_at, created_at
+       status, cursor, last_synced_at, created_at, last_manual_resync_at
 FROM plaid_item
 WHERE id = $1
 LIMIT 1
@@ -85,13 +87,14 @@ func (q *Queries) GetPlaidItemByID(ctx context.Context, id uuid.UUID) (PlaidItem
 		&i.Cursor,
 		&i.LastSyncedAt,
 		&i.CreatedAt,
+		&i.LastManualResyncAt,
 	)
 	return i, err
 }
 
 const getPlaidItemByItemID = `-- name: GetPlaidItemByItemID :one
 SELECT id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
-       status, cursor, last_synced_at, created_at
+       status, cursor, last_synced_at, created_at, last_manual_resync_at
 FROM plaid_item
 WHERE item_id = $1
 LIMIT 1
@@ -112,6 +115,7 @@ func (q *Queries) GetPlaidItemByItemID(ctx context.Context, itemID string) (Plai
 		&i.Cursor,
 		&i.LastSyncedAt,
 		&i.CreatedAt,
+		&i.LastManualResyncAt,
 	)
 	return i, err
 }
@@ -119,7 +123,7 @@ func (q *Queries) GetPlaidItemByItemID(ctx context.Context, itemID string) (Plai
 const listActivePlaidItemsForSync = `-- name: ListActivePlaidItemsForSync :many
 SELECT pi.id, pi.user_id, pi.budget_profile_id, pi.access_token, pi.item_id,
        pi.institution_id, pi.institution_name, pi.status, pi.cursor,
-       pi.last_synced_at, pi.created_at
+       pi.last_synced_at, pi.created_at, pi.last_manual_resync_at
 FROM plaid_item pi
 WHERE pi.status IN ('active', 'error')
   AND (pi.last_synced_at IS NULL OR pi.last_synced_at < NOW() - INTERVAL '1 day')
@@ -166,6 +170,83 @@ func (q *Queries) ListActivePlaidItemsForSync(ctx context.Context) ([]PlaidItem,
 			&i.Cursor,
 			&i.LastSyncedAt,
 			&i.CreatedAt,
+			&i.LastManualResyncAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActivePlaidItemsWithOwnerByBudgetProfile = `-- name: ListActivePlaidItemsWithOwnerByBudgetProfile :many
+SELECT pi.id, pi.user_id, pi.budget_profile_id, pi.access_token, pi.item_id,
+       pi.institution_id, pi.institution_name, pi.status, pi.cursor,
+       pi.last_synced_at, pi.created_at, pi.last_manual_resync_at,
+       COALESCE(NULLIF(TRIM(CONCAT(owner.first_name, ' ', owner.last_name)), ''), owner.email)::text AS owner_name,
+       owner.plan::text AS owner_plan
+FROM plaid_item pi
+JOIN users owner ON owner.id = pi.user_id
+WHERE pi.budget_profile_id = $1
+  AND pi.status <> 'disconnected'
+ORDER BY owner_name, pi.created_at DESC
+`
+
+type ListActivePlaidItemsWithOwnerByBudgetProfileRow struct {
+	ID                 uuid.UUID          `json:"id"`
+	UserID             uuid.UUID          `json:"user_id"`
+	BudgetProfileID    uuid.UUID          `json:"budget_profile_id"`
+	AccessToken        string             `json:"access_token"`
+	ItemID             string             `json:"item_id"`
+	InstitutionID      *string            `json:"institution_id"`
+	InstitutionName    *string            `json:"institution_name"`
+	Status             string             `json:"status"`
+	Cursor             *string            `json:"cursor"`
+	LastSyncedAt       pgtype.Timestamptz `json:"last_synced_at"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	LastManualResyncAt pgtype.Timestamptz `json:"last_manual_resync_at"`
+	OwnerName          string             `json:"owner_name"`
+	OwnerPlan          string             `json:"owner_plan"`
+}
+
+// Every live connection feeding one budget, with the member who linked it.
+//
+// Unlike ListPlaidItemsByBudgetProfile this crosses into `users` for the
+// owner's display name and plan, because a budget's manage view shows several
+// members' banks side by side: a bare "Error" row is unactionable without
+// knowing whose connection it is, and a perfectly healthy row that imports
+// nothing (free-plan owner, skipped by the sync job on every run) is
+// indistinguishable from a working one without the plan.
+//
+// Disconnected items are excluded — the owner already removed them, and they
+// would otherwise accumulate in a shared view nobody else can act on.
+func (q *Queries) ListActivePlaidItemsWithOwnerByBudgetProfile(ctx context.Context, budgetProfileID uuid.UUID) ([]ListActivePlaidItemsWithOwnerByBudgetProfileRow, error) {
+	rows, err := q.db.Query(ctx, listActivePlaidItemsWithOwnerByBudgetProfile, budgetProfileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActivePlaidItemsWithOwnerByBudgetProfileRow
+	for rows.Next() {
+		var i ListActivePlaidItemsWithOwnerByBudgetProfileRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.BudgetProfileID,
+			&i.AccessToken,
+			&i.ItemID,
+			&i.InstitutionID,
+			&i.InstitutionName,
+			&i.Status,
+			&i.Cursor,
+			&i.LastSyncedAt,
+			&i.CreatedAt,
+			&i.LastManualResyncAt,
+			&i.OwnerName,
+			&i.OwnerPlan,
 		); err != nil {
 			return nil, err
 		}
@@ -179,7 +260,7 @@ func (q *Queries) ListActivePlaidItemsForSync(ctx context.Context) ([]PlaidItem,
 
 const listPlaidItemsByBudgetProfile = `-- name: ListPlaidItemsByBudgetProfile :many
 SELECT id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
-       status, cursor, last_synced_at, created_at
+       status, cursor, last_synced_at, created_at, last_manual_resync_at
 FROM plaid_item
 WHERE budget_profile_id = $1
 ORDER BY created_at DESC
@@ -206,6 +287,7 @@ func (q *Queries) ListPlaidItemsByBudgetProfile(ctx context.Context, budgetProfi
 			&i.Cursor,
 			&i.LastSyncedAt,
 			&i.CreatedAt,
+			&i.LastManualResyncAt,
 		); err != nil {
 			return nil, err
 		}
@@ -219,7 +301,7 @@ func (q *Queries) ListPlaidItemsByBudgetProfile(ctx context.Context, budgetProfi
 
 const listPlaidItemsByUser = `-- name: ListPlaidItemsByUser :many
 SELECT id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
-       status, cursor, last_synced_at, created_at
+       status, cursor, last_synced_at, created_at, last_manual_resync_at
 FROM plaid_item
 WHERE user_id = $1
 ORDER BY created_at DESC
@@ -246,6 +328,7 @@ func (q *Queries) ListPlaidItemsByUser(ctx context.Context, userID uuid.UUID) ([
 			&i.Cursor,
 			&i.LastSyncedAt,
 			&i.CreatedAt,
+			&i.LastManualResyncAt,
 		); err != nil {
 			return nil, err
 		}
@@ -323,12 +406,50 @@ func (q *Queries) ListUnsyncableConnectionsForUser(ctx context.Context, userID u
 	return items, nil
 }
 
+const resetPlaidItemCursor = `-- name: ResetPlaidItemCursor :one
+UPDATE plaid_item
+SET cursor = NULL, last_synced_at = NULL, last_manual_resync_at = NOW(), status = 'active'
+WHERE id = $1
+RETURNING id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
+          status, cursor, last_synced_at, created_at, last_manual_resync_at
+`
+
+// Clears the sync cursor so the next sync replays the item's full history
+// from Plaid, and stamps the manual-resync time the cooldown is measured
+// against.
+//
+// last_synced_at is cleared too, so the scheduled job treats the item as never
+// synced and picks it up even if this run's immediate sync fails. Status
+// returns to 'active' for the same reason UpdatePlaidItemSync resets it: a
+// resync is an explicit "try again" on a connection that may have been left
+// in 'error', and the sync that follows immediately will set it back if the
+// underlying problem is still there.
+func (q *Queries) ResetPlaidItemCursor(ctx context.Context, id uuid.UUID) (PlaidItem, error) {
+	row := q.db.QueryRow(ctx, resetPlaidItemCursor, id)
+	var i PlaidItem
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.BudgetProfileID,
+		&i.AccessToken,
+		&i.ItemID,
+		&i.InstitutionID,
+		&i.InstitutionName,
+		&i.Status,
+		&i.Cursor,
+		&i.LastSyncedAt,
+		&i.CreatedAt,
+		&i.LastManualResyncAt,
+	)
+	return i, err
+}
+
 const updatePlaidItemStatus = `-- name: UpdatePlaidItemStatus :one
 UPDATE plaid_item
 SET status = $2
 WHERE id = $1
 RETURNING id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
-          status, cursor, last_synced_at, created_at
+          status, cursor, last_synced_at, created_at, last_manual_resync_at
 `
 
 type UpdatePlaidItemStatusParams struct {
@@ -351,6 +472,7 @@ func (q *Queries) UpdatePlaidItemStatus(ctx context.Context, arg UpdatePlaidItem
 		&i.Cursor,
 		&i.LastSyncedAt,
 		&i.CreatedAt,
+		&i.LastManualResyncAt,
 	)
 	return i, err
 }
@@ -360,7 +482,7 @@ UPDATE plaid_item
 SET cursor = $1, last_synced_at = NOW(), status = 'active'
 WHERE id = $2::uuid
 RETURNING id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
-          status, cursor, last_synced_at, created_at
+          status, cursor, last_synced_at, created_at, last_manual_resync_at
 `
 
 type UpdatePlaidItemSyncParams struct {
@@ -385,6 +507,7 @@ func (q *Queries) UpdatePlaidItemSync(ctx context.Context, arg UpdatePlaidItemSy
 		&i.Cursor,
 		&i.LastSyncedAt,
 		&i.CreatedAt,
+		&i.LastManualResyncAt,
 	)
 	return i, err
 }

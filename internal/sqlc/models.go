@@ -196,17 +196,18 @@ type PaymentType struct {
 }
 
 type PlaidItem struct {
-	ID              uuid.UUID          `json:"id"`
-	UserID          uuid.UUID          `json:"user_id"`
-	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
-	AccessToken     string             `json:"access_token"`
-	ItemID          string             `json:"item_id"`
-	InstitutionID   *string            `json:"institution_id"`
-	InstitutionName *string            `json:"institution_name"`
-	Status          string             `json:"status"`
-	Cursor          *string            `json:"cursor"`
-	LastSyncedAt    pgtype.Timestamptz `json:"last_synced_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ID                 uuid.UUID          `json:"id"`
+	UserID             uuid.UUID          `json:"user_id"`
+	BudgetProfileID    uuid.UUID          `json:"budget_profile_id"`
+	AccessToken        string             `json:"access_token"`
+	ItemID             string             `json:"item_id"`
+	InstitutionID      *string            `json:"institution_id"`
+	InstitutionName    *string            `json:"institution_name"`
+	Status             string             `json:"status"`
+	Cursor             *string            `json:"cursor"`
+	LastSyncedAt       pgtype.Timestamptz `json:"last_synced_at"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	LastManualResyncAt pgtype.Timestamptz `json:"last_manual_resync_at"`
 }
 
 type SavingsSource struct {

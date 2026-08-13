@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
-	"github.com/google/uuid"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	plaidclient "github.com/BeWellSpent/wellspent-backend/internal/plaid"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
 )
 
 type PlaidService struct {
@@ -274,17 +275,175 @@ func (s *PlaidService) ListSyncWarnings(ctx context.Context, userID uuid.UUID) (
 	return warnings, nil
 }
 
-func (s *PlaidService) GetConnections(ctx context.Context, userID uuid.UUID, profileID *uuid.UUID) ([]db.PlaidItem, error) {
+// ConnectionView is a connection plus the context a client needs to render
+// and act on it: who linked it, whether the caller may touch it, and whether
+// the sync job is actually picking it up.
+//
+// The budget-scoped list returns every member's connections, so none of this
+// can be inferred client-side the way it could when a user only ever saw
+// their own.
+type ConnectionView struct {
+	Item        db.PlaidItem
+	OwnerName   string
+	IsOwner     bool
+	SyncEnabled bool
+	// ResyncAvailableAt is nil when a manual resync is allowed right now.
+	ResyncAvailableAt *time.Time
+}
+
+// manualResyncCooldown is how long a connection's owner must wait between
+// manual resyncs of it.
+//
+// A resync replays the item's entire transaction history from Plaid, making
+// it both the most expensive call this service makes and the one most likely
+// to be hammered — it's reached for precisely when someone is waiting on a
+// transaction that hasn't landed, which is exactly when repeating it feels
+// productive and isn't.
+const manualResyncCooldown = 24 * time.Hour
+
+// resyncAvailableAt returns when the next manual resync is allowed, or nil if
+// one is allowed now.
+func resyncAvailableAt(item db.PlaidItem, now time.Time) *time.Time {
+	if !item.LastManualResyncAt.Valid {
+		return nil
+	}
+	next := item.LastManualResyncAt.Time.Add(manualResyncCooldown)
+	if !now.Before(next) {
+		return nil
+	}
+	return &next
+}
+
+func (s *PlaidService) GetConnections(ctx context.Context, userID uuid.UUID, profileID *uuid.UUID) ([]ConnectionView, error) {
 	if err := s.requireUS(ctx, userID); err != nil {
 		return nil, err
 	}
+	now := time.Now()
+
 	if profileID != nil {
 		if err := s.requireProfileOwnerOrMember(ctx, *profileID, userID); err != nil {
 			return nil, err
 		}
-		return s.items.ListByBudgetProfile(ctx, *profileID)
+		rows, err := s.items.ListActiveWithOwnerByBudgetProfile(ctx, *profileID)
+		if err != nil {
+			return nil, err
+		}
+		views := make([]ConnectionView, 0, len(rows))
+		for _, row := range rows {
+			item := db.PlaidItem{
+				ID:                 row.ID,
+				UserID:             row.UserID,
+				BudgetProfileID:    row.BudgetProfileID,
+				AccessToken:        row.AccessToken,
+				ItemID:             row.ItemID,
+				InstitutionID:      row.InstitutionID,
+				InstitutionName:    row.InstitutionName,
+				Status:             row.Status,
+				Cursor:             row.Cursor,
+				LastSyncedAt:       row.LastSyncedAt,
+				CreatedAt:          row.CreatedAt,
+				LastManualResyncAt: row.LastManualResyncAt,
+			}
+			isOwner := row.UserID == userID
+			view := ConnectionView{
+				Item:        item,
+				OwnerName:   row.OwnerName,
+				IsOwner:     isOwner,
+				SyncEnabled: row.OwnerPlan != "free",
+			}
+			// Only the owner can act on a resync, so telling anyone else when
+			// one becomes available is noise on a button they don't have.
+			if isOwner {
+				view.ResyncAvailableAt = resyncAvailableAt(item, now)
+			}
+			views = append(views, view)
+		}
+		return views, nil
 	}
-	return s.items.ListByUser(ctx, userID)
+
+	items, err := s.items.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	caller, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	ownerName := userDisplayName(caller)
+	views := make([]ConnectionView, 0, len(items))
+	for _, item := range items {
+		views = append(views, ConnectionView{
+			Item:              item,
+			OwnerName:         ownerName,
+			IsOwner:           true,
+			SyncEnabled:       caller.Plan != "free",
+			ResyncAvailableAt: resyncAvailableAt(item, now),
+		})
+	}
+	return views, nil
+}
+
+// ResyncConnection clears a connection's sync cursor so the next sync replays
+// the item's full history from Plaid, then starts that sync immediately.
+//
+// The immediate sync is the point. Clearing the cursor alone would only make
+// the connection eligible for the scheduled job, which runs Mon/Wed/Fri — so
+// a button that did just that would appear to do nothing for up to three
+// days, on the one screen where a user has gone looking because something
+// already isn't arriving.
+func (s *PlaidService) ResyncConnection(ctx context.Context, userID, connectionID uuid.UUID) (ConnectionView, error) {
+	if err := s.requireUS(ctx, userID); err != nil {
+		return ConnectionView{}, err
+	}
+	item, err := s.items.GetByID(ctx, connectionID)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	if item.UserID != userID {
+		return ConnectionView{}, apperr.Forbidden("only the member who linked this connection can resync it")
+	}
+	if item.Status == "disconnected" {
+		return ConnectionView{}, apperr.Invalid("this connection is disconnected — reconnect it to import transactions again")
+	}
+
+	owner, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	// Pointless rather than merely unentitled: the sync job skips free-tier
+	// owners on every run, so a resync would clear the cursor and import
+	// nothing, losing the user's place for no benefit.
+	if owner.Plan == "free" {
+		return ConnectionView{}, apperr.Invalid("free tier: Plaid bank sync requires a Pro subscription")
+	}
+	if next := resyncAvailableAt(item, time.Now()); next != nil {
+		return ConnectionView{}, apperr.Invalid(fmt.Sprintf(
+			"this connection was already resynced recently — the next one is available after %s",
+			next.UTC().Format(time.RFC3339),
+		))
+	}
+
+	reset, err := s.items.ResetCursor(ctx, connectionID)
+	if err != nil {
+		return ConnectionView{}, fmt.Errorf("plaid: reset cursor: %w", err)
+	}
+	log.Printf("plaid: item %s resync requested by user %s — cursor cleared, full history will be replayed", reset.ID, userID)
+
+	// Detached from the request context for the same reason the post-connect
+	// sync is: replaying a full history outlives the RPC that asked for it.
+	go func() {
+		if syncErr := s.SyncItem(context.Background(), reset); syncErr != nil {
+			log.Printf("plaid: resync for item %s: %v", reset.ID, syncErr)
+		}
+	}()
+
+	return ConnectionView{
+		OwnerName:         userDisplayName(owner),
+		Item:              reset,
+		IsOwner:           true,
+		SyncEnabled:       true,
+		ResyncAvailableAt: resyncAvailableAt(reset, time.Now()),
+	}, nil
 }
 
 func (s *PlaidService) Disconnect(ctx context.Context, userID, connectionID uuid.UUID) error {

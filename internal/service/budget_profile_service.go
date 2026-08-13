@@ -6,15 +6,14 @@ import (
 	"math"
 	"math/big"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/BeWellSpent/wellspent-backend/internal/tax"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type BudgetProfileService struct {
@@ -167,17 +166,7 @@ func (s *BudgetProfileService) Create(ctx context.Context, userID uuid.UUID, nam
 	// Auto-add budget owner as the first person on the profile.
 	owner, err := s.users.GetByID(ctx, userID)
 	if err == nil {
-		parts := []string{}
-		if owner.FirstName != nil {
-			parts = append(parts, *owner.FirstName)
-		}
-		if owner.LastName != nil {
-			parts = append(parts, *owner.LastName)
-		}
-		displayName := strings.Join(parts, " ")
-		if displayName == "" {
-			displayName = owner.Email
-		}
+		displayName := userDisplayName(owner)
 		_, _ = s.profiles.AddPerson(ctx, db.AddBudgetPersonToProfileParams{
 			BudgetProfileID: profile.ID,
 			UserName:        &displayName,
