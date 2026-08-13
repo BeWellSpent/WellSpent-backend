@@ -94,13 +94,13 @@ func (h *PlaidHandler) GetPlaidConnections(ctx context.Context, req *connect.Req
 		}
 		profileID = &id
 	}
-	items, svcErr := h.svc.GetConnections(ctx, userID, profileID)
+	views, svcErr := h.svc.GetConnections(ctx, userID, profileID)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
-	conns := make([]*v1.PlaidConnection, len(items))
-	for i, item := range items {
-		conns[i] = toProtoPlaidConnection(item)
+	conns := make([]*v1.PlaidConnection, len(views))
+	for i, view := range views {
+		conns[i] = toProtoPlaidConnectionView(view)
 	}
 
 	// Best-effort: the connection list is the useful payload, and failing the
@@ -160,6 +160,41 @@ func (h *PlaidHandler) RefreshPlaidAccounts(ctx context.Context, req *connect.Re
 	}), nil
 }
 
+func (h *PlaidHandler) ResyncPlaidConnection(ctx context.Context, req *connect.Request[v1.ResyncPlaidConnectionRequest]) (*connect.Response[v1.ResyncPlaidConnectionResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	connID, err := uuid.Parse(req.Msg.ConnectionId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	view, svcErr := h.svc.ResyncConnection(ctx, userID, connID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.ResyncPlaidConnectionResponse{
+		Connection: toProtoPlaidConnectionView(view),
+	}), nil
+}
+
+// toProtoPlaidConnectionView adds the per-caller fields that only make sense
+// once a budget's connections from several members appear in one list.
+func toProtoPlaidConnectionView(view service.ConnectionView) *v1.PlaidConnection {
+	conn := toProtoPlaidConnection(view.Item)
+	conn.OwnerName = view.OwnerName
+	conn.IsOwner = view.IsOwner
+	conn.SyncEnabled = view.SyncEnabled
+	if view.ResyncAvailableAt != nil {
+		conn.ResyncAvailableAt = timestamppb.New(*view.ResyncAvailableAt)
+	}
+	return conn
+}
+
+// toProtoPlaidConnection maps the stored row only. The owner/entitlement
+// fields are left unset, since they depend on who is asking — the connect and
+// refresh responses that use this directly are always about the caller's own
+// connection, and both clients refetch the list rather than rendering it.
 func toProtoPlaidConnection(item db.PlaidItem) *v1.PlaidConnection {
 	conn := &v1.PlaidConnection{
 		Id:              item.ID.String(),

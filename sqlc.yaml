@@ -49,6 +49,7 @@ sql:
       - "internal/db/migrations/000044_oauth_refresh_token.sql"
       - "internal/db/migrations/000045_account_type.sql"
       - "internal/db/migrations/000046_transportation_utilities_categories.sql"
+      - "internal/db/migrations/000047_plaid_manual_resync.sql"
     gen:
       go:
         package: "db"

@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	plaidclient "github.com/BeWellSpent/wellspent-backend/internal/plaid"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -74,10 +76,12 @@ type mockPlaidRepo struct {
 	getByItemID    func(context.Context, string) (db.PlaidItem, error)
 	listByUser     func(context.Context, uuid.UUID) ([]db.PlaidItem, error)
 	listByProfile  func(context.Context, uuid.UUID) ([]db.PlaidItem, error)
+	listWithOwner  func(context.Context, uuid.UUID) ([]db.ListActivePlaidItemsWithOwnerByBudgetProfileRow, error)
 	listForSync    func(context.Context) ([]db.PlaidItem, error)
 	listUnsyncable func(context.Context, uuid.UUID) ([]db.ListUnsyncableConnectionsForUserRow, error)
 	updateStatus   func(context.Context, db.UpdatePlaidItemStatusParams) (db.PlaidItem, error)
 	updateSync     func(context.Context, db.UpdatePlaidItemSyncParams) (db.PlaidItem, error)
+	resetCursor    func(context.Context, uuid.UUID) (db.PlaidItem, error)
 	delete         func(context.Context, uuid.UUID) error
 }
 
@@ -117,6 +121,18 @@ func (m *mockPlaidRepo) ListByBudgetProfile(ctx context.Context, profileID uuid.
 		return m.listByProfile(ctx, profileID)
 	}
 	return nil, nil
+}
+func (m *mockPlaidRepo) ListActiveWithOwnerByBudgetProfile(ctx context.Context, profileID uuid.UUID) ([]db.ListActivePlaidItemsWithOwnerByBudgetProfileRow, error) {
+	if m.listWithOwner != nil {
+		return m.listWithOwner(ctx, profileID)
+	}
+	return nil, nil
+}
+func (m *mockPlaidRepo) ResetCursor(ctx context.Context, id uuid.UUID) (db.PlaidItem, error) {
+	if m.resetCursor != nil {
+		return m.resetCursor(ctx, id)
+	}
+	return db.PlaidItem{ID: id, Status: "active"}, nil
 }
 func (m *mockPlaidRepo) ListActiveForSync(ctx context.Context) ([]db.PlaidItem, error) {
 	if m.listForSync != nil {
@@ -526,4 +542,188 @@ func TestPlaid_RefreshAccounts_WrongUser_Forbidden(t *testing.T) {
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	assert.ErrorAs(t, err, &forbidden)
+}
+
+// ── Budget-scoped connection list ─────────────────────────────────────────────
+
+func TestPlaid_GetConnections_ByBudget_MarksOwnershipAndEntitlement(t *testing.T) {
+	caller := usUser()
+	profileID := uuid.New()
+	otherUserID := uuid.New()
+
+	budgetRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: id, UserID: caller.ID}, nil
+		},
+	}
+	plaidRepo := &mockPlaidRepo{
+		listWithOwner: func(_ context.Context, _ uuid.UUID) ([]db.ListActivePlaidItemsWithOwnerByBudgetProfileRow, error) {
+			return []db.ListActivePlaidItemsWithOwnerByBudgetProfileRow{
+				{ID: uuid.New(), UserID: caller.ID, Status: "active", OwnerName: "Ada Lovelace", OwnerPlan: "lifetime"},
+				{ID: uuid.New(), UserID: otherUserID, Status: "active", OwnerName: "Grace Hopper", OwnerPlan: "free"},
+			}, nil
+		},
+	}
+	svc := NewPlaidService(&mockPlaidClient{}, plaidRepo, budgetRepo, &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return caller, nil },
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
+
+	views, err := svc.GetConnections(context.Background(), caller.ID, &profileID)
+	require.NoError(t, err)
+	require.Len(t, views, 2)
+
+	assert.True(t, views[0].IsOwner)
+	assert.Equal(t, "Ada Lovelace", views[0].OwnerName)
+	assert.True(t, views[0].SyncEnabled)
+
+	// A co-member's connection: visible, attributed, but not actionable — and
+	// flagged as never syncing, which `status` alone would report as healthy.
+	assert.False(t, views[1].IsOwner)
+	assert.Equal(t, "Grace Hopper", views[1].OwnerName)
+	assert.False(t, views[1].SyncEnabled)
+}
+
+func TestPlaid_GetConnections_ByBudget_NotAMember_Forbidden(t *testing.T) {
+	caller := usUser()
+	profileID := uuid.New()
+
+	budgetRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: id, UserID: uuid.New()}, nil
+		},
+		existsPersonForUser: func(_ context.Context, _, _ uuid.UUID) (bool, error) { return false, nil },
+	}
+	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, budgetRepo, &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return caller, nil },
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
+
+	_, err := svc.GetConnections(context.Background(), caller.ID, &profileID)
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	assert.ErrorAs(t, err, &forbidden)
+}
+
+// ── Resync ────────────────────────────────────────────────────────────────────
+
+// resyncSvc wires a service whose GetByID returns `item` and whose user lookup
+// returns `user`, capturing whether the cursor was actually reset.
+func resyncSvc(item db.PlaidItem, user db.User, reset *bool) *PlaidService {
+	plaidRepo := &mockPlaidRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.PlaidItem, error) { return item, nil },
+		resetCursor: func(_ context.Context, id uuid.UUID) (db.PlaidItem, error) {
+			*reset = true
+			return db.PlaidItem{ID: id, UserID: item.UserID, Status: "active"}, nil
+		},
+	}
+	return NewPlaidService(&mockPlaidClient{}, plaidRepo, &mockBudgetProfileRepo{}, &mockUserRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
+	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
+}
+
+func TestPlaid_Resync_Success(t *testing.T) {
+	user := usUser()
+	user.Plan = "lifetime"
+	item := db.PlaidItem{ID: uuid.New(), UserID: user.ID, Status: "active"}
+
+	reset := false
+	svc := resyncSvc(item, user, &reset)
+
+	view, err := svc.ResyncConnection(context.Background(), user.ID, item.ID)
+	require.NoError(t, err)
+	assert.True(t, reset, "expected the cursor to be cleared")
+	assert.True(t, view.IsOwner)
+	assert.Nil(t, view.ResyncAvailableAt, "a fresh resync response reports no pending cooldown")
+}
+
+func TestPlaid_Resync_WrongUser_Forbidden(t *testing.T) {
+	user := usUser()
+	user.Plan = "lifetime"
+	item := db.PlaidItem{ID: uuid.New(), UserID: uuid.New(), Status: "active"}
+
+	reset := false
+	svc := resyncSvc(item, user, &reset)
+
+	_, err := svc.ResyncConnection(context.Background(), user.ID, item.ID)
+	var forbidden *apperr.ForbiddenError
+	assert.ErrorAs(t, err, &forbidden)
+	assert.False(t, reset, "a non-owner must not clear anyone's cursor")
+}
+
+func TestPlaid_Resync_FreeTier_Invalid(t *testing.T) {
+	user := freeUser()
+	item := db.PlaidItem{ID: uuid.New(), UserID: user.ID, Status: "active"}
+
+	reset := false
+	svc := resyncSvc(item, user, &reset)
+
+	_, err := svc.ResyncConnection(context.Background(), user.ID, item.ID)
+	require.Error(t, err)
+	// Clearing the cursor for an owner the sync job skips would throw away the
+	// user's place in the feed and import nothing in exchange.
+	assert.False(t, reset, "an unentitled connection must keep its cursor")
+}
+
+func TestPlaid_Resync_Disconnected_Invalid(t *testing.T) {
+	user := usUser()
+	user.Plan = "pro"
+	item := db.PlaidItem{ID: uuid.New(), UserID: user.ID, Status: "disconnected"}
+
+	reset := false
+	svc := resyncSvc(item, user, &reset)
+
+	_, err := svc.ResyncConnection(context.Background(), user.ID, item.ID)
+	require.Error(t, err)
+	assert.False(t, reset)
+}
+
+func TestPlaid_Resync_WithinCooldown_Invalid(t *testing.T) {
+	user := usUser()
+	user.Plan = "pro"
+	item := db.PlaidItem{
+		ID:                 uuid.New(),
+		UserID:             user.ID,
+		Status:             "active",
+		LastManualResyncAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Hour), Valid: true},
+	}
+
+	reset := false
+	svc := resyncSvc(item, user, &reset)
+
+	_, err := svc.ResyncConnection(context.Background(), user.ID, item.ID)
+	require.Error(t, err)
+	assert.False(t, reset, "a second resync inside the cooldown must not replay the history again")
+}
+
+func TestPlaid_Resync_AfterCooldownElapsed_Allowed(t *testing.T) {
+	user := usUser()
+	user.Plan = "pro"
+	item := db.PlaidItem{
+		ID:                 uuid.New(),
+		UserID:             user.ID,
+		Status:             "active",
+		LastManualResyncAt: pgtype.Timestamptz{Time: time.Now().Add(-manualResyncCooldown - time.Minute), Valid: true},
+	}
+
+	reset := false
+	svc := resyncSvc(item, user, &reset)
+
+	_, err := svc.ResyncConnection(context.Background(), user.ID, item.ID)
+	require.NoError(t, err)
+	assert.True(t, reset)
+}
+
+func TestResyncAvailableAt_NeverResyncedIsAllowedNow(t *testing.T) {
+	assert.Nil(t, resyncAvailableAt(db.PlaidItem{}, time.Now()))
+}
+
+func TestResyncAvailableAt_ReportsExactUnlockTime(t *testing.T) {
+	last := time.Date(2026, 8, 13, 9, 0, 0, 0, time.UTC)
+	item := db.PlaidItem{LastManualResyncAt: pgtype.Timestamptz{Time: last, Valid: true}}
+
+	next := resyncAvailableAt(item, last.Add(time.Hour))
+	require.NotNil(t, next)
+	assert.Equal(t, last.Add(manualResyncCooldown), *next)
+
+	// Exactly at the boundary the cooldown is over, not still running.
+	assert.Nil(t, resyncAvailableAt(item, last.Add(manualResyncCooldown)))
 }

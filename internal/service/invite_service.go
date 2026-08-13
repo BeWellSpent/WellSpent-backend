@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/config"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	resend "github.com/resend/resend-go/v2"
 	"go.uber.org/zap"
 )
@@ -211,17 +211,7 @@ func (s *InviteService) Accept(ctx context.Context, token uuid.UUID, callerID uu
 		if userErr != nil {
 			return uuid.UUID{}, userErr
 		}
-		parts := []string{}
-		if caller.FirstName != nil {
-			parts = append(parts, *caller.FirstName)
-		}
-		if caller.LastName != nil {
-			parts = append(parts, *caller.LastName)
-		}
-		displayName := strings.Join(parts, " ")
-		if displayName == "" {
-			displayName = caller.Email
-		}
+		displayName := userDisplayName(caller)
 		_, err = s.profiles.AddPerson(ctx, db.AddBudgetPersonToProfileParams{
 			BudgetProfileID: row.BudgetProfileID,
 			UserName:        &displayName,

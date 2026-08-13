@@ -16,10 +16,12 @@ type PlaidRepository interface {
 	GetByItemID(ctx context.Context, itemID string) (db.PlaidItem, error)
 	ListByUser(ctx context.Context, userID uuid.UUID) ([]db.PlaidItem, error)
 	ListByBudgetProfile(ctx context.Context, profileID uuid.UUID) ([]db.PlaidItem, error)
+	ListActiveWithOwnerByBudgetProfile(ctx context.Context, profileID uuid.UUID) ([]db.ListActivePlaidItemsWithOwnerByBudgetProfileRow, error)
 	ListActiveForSync(ctx context.Context) ([]db.PlaidItem, error)
 	ListUnsyncableForUser(ctx context.Context, userID uuid.UUID) ([]db.ListUnsyncableConnectionsForUserRow, error)
 	UpdateStatus(ctx context.Context, arg db.UpdatePlaidItemStatusParams) (db.PlaidItem, error)
 	UpdateSync(ctx context.Context, arg db.UpdatePlaidItemSyncParams) (db.PlaidItem, error)
+	ResetCursor(ctx context.Context, id uuid.UUID) (db.PlaidItem, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
@@ -62,6 +64,10 @@ func (r *plaidRepository) ListByBudgetProfile(ctx context.Context, profileID uui
 	return r.q.ListPlaidItemsByBudgetProfile(ctx, profileID)
 }
 
+func (r *plaidRepository) ListActiveWithOwnerByBudgetProfile(ctx context.Context, profileID uuid.UUID) ([]db.ListActivePlaidItemsWithOwnerByBudgetProfileRow, error) {
+	return r.q.ListActivePlaidItemsWithOwnerByBudgetProfile(ctx, profileID)
+}
+
 func (r *plaidRepository) ListActiveForSync(ctx context.Context) ([]db.PlaidItem, error) {
 	return r.q.ListActivePlaidItemsForSync(ctx)
 }
@@ -76,6 +82,10 @@ func (r *plaidRepository) UpdateStatus(ctx context.Context, arg db.UpdatePlaidIt
 
 func (r *plaidRepository) UpdateSync(ctx context.Context, arg db.UpdatePlaidItemSyncParams) (db.PlaidItem, error) {
 	return r.q.UpdatePlaidItemSync(ctx, arg)
+}
+
+func (r *plaidRepository) ResetCursor(ctx context.Context, id uuid.UUID) (db.PlaidItem, error) {
+	return r.q.ResetPlaidItemCursor(ctx, id)
 }
 
 func (r *plaidRepository) Delete(ctx context.Context, id uuid.UUID) error {

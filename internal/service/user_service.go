@@ -210,3 +210,23 @@ func (s *UserService) revokeAppleTokens(ctx context.Context, userID uuid.UUID) {
 		s.log.Info("user.delete.apple_revoked", zap.String("user_id", userID.String()))
 	}
 }
+
+// userDisplayName renders a user's name for other people to read, falling
+// back to their email when they haven't set one.
+//
+// Mirrors the COALESCE/NULLIF/TRIM/CONCAT expression used wherever the same
+// name is derived in SQL (see ListActivePlaidItemsWithOwnerByBudgetProfile),
+// so a member's name doesn't differ depending on which layer produced it.
+func userDisplayName(u db.User) string {
+	parts := []string{}
+	if u.FirstName != nil {
+		parts = append(parts, *u.FirstName)
+	}
+	if u.LastName != nil {
+		parts = append(parts, *u.LastName)
+	}
+	if name := strings.TrimSpace(strings.Join(parts, " ")); name != "" {
+		return name
+	}
+	return u.Email
+}
