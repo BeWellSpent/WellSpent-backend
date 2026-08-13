@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -15,20 +16,156 @@ import (
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 )
 
-// SyncItem performs an incremental Plaid transactions sync for a single connected
-// item. It imports new transactions, handles modifications and removals, and
-// queues or auto-confirms matches against active fixed expenses in the same budget.
-// Safe to call from a goroutine; uses a separate context so the caller's request
-// context doesn't cancel the background work.
+// AccountImport is how many transactions one connected account contributed in
+// a sync run. Kept sorted by account name so a run's output — and its tests —
+// are deterministic rather than depending on map iteration order.
+type AccountImport struct {
+	Account string
+	Count   int
+}
+
+// ItemSyncResult is the outcome of syncing one connection.
+type ItemSyncResult struct {
+	ItemID           uuid.UUID
+	InstitutionName  string
+	Imported         int
+	AutoConfirmed    int
+	Queued           int
+	SkippedNoPeriod  int
+	SkippedDuplicate int
+	Modified         int
+	Removed          int
+	// ByAccount counts only transactions that ended up newly available to the
+	// user — auto-confirmed and queued-for-review ones are reported through
+	// their own channels, so counting them here would double-notify.
+	ByAccount []AccountImport
+	// SkippedUnentitled is set when the connection's owner is on the free
+	// plan and the sync was skipped. Deliberately a reported outcome rather
+	// than a silent no-op: this state went unnoticed in production for 16
+	// days because the skip returned nil and logged one line.
+	SkippedUnentitled bool
+	Err               error
+}
+
+// ProfileSyncResult groups the connections of one budget profile.
+type ProfileSyncResult struct {
+	ProfileID uuid.UUID
+	Items     []ItemSyncResult
+}
+
+// SyncAll syncs every connection currently due, grouped by budget profile.
+//
+// Grouping is the point: entitlement, budget periods, and notifications are
+// all per-profile, so processing a flat list of connections meant a budget
+// with several banks sent one notification per bank and reported failures
+// against a bare item UUID with no indication of whose budget it was.
+func (s *PlaidService) SyncAll(ctx context.Context) ([]ProfileSyncResult, error) {
+	items, err := s.items.ListActiveForSync(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var profiles []ProfileSyncResult
+	indexByProfile := make(map[uuid.UUID]int, len(items))
+	for _, item := range items {
+		res, syncErr := s.syncItemCore(ctx, item)
+		res.Err = syncErr
+
+		idx, seen := indexByProfile[item.BudgetProfileID]
+		if !seen {
+			profiles = append(profiles, ProfileSyncResult{ProfileID: item.BudgetProfileID})
+			idx = len(profiles) - 1
+			indexByProfile[item.BudgetProfileID] = idx
+		}
+		profiles[idx].Items = append(profiles[idx].Items, res)
+	}
+
+	// Notify once per profile, after all of its connections are done, so a
+	// budget with four banks gets one summary naming each rather than four
+	// separate "new transactions imported" notifications.
+	for _, profile := range profiles {
+		s.notifyProfile(ctx, profile)
+	}
+	return profiles, nil
+}
+
+// SyncItem syncs a single connection and notifies for it directly.
+//
+// Kept for the immediate sync fired after a connection is created, where
+// there's no run to aggregate into.
 func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
-	// Plaid sync requires Pro or Lifetime — skip free-tier accounts.
-	if owner, err := s.users.GetByID(ctx, item.UserID); err == nil && owner.Plan == "free" {
-		log.Printf("plaid sync: skipping item %s — user %s is on free tier", item.ID, item.UserID)
+	res, err := s.syncItemCore(ctx, item)
+	res.Err = err
+	s.notifyProfile(ctx, ProfileSyncResult{ProfileID: item.BudgetProfileID, Items: []ItemSyncResult{res}})
+	return err
+}
+
+// notifyProfile sends the per-budget summaries for one profile's run.
+func (s *PlaidService) notifyProfile(ctx context.Context, profile ProfileSyncResult) {
+	if s.notifs == nil {
+		return
+	}
+	totals := map[string]int{}
+	queued := 0
+	for _, item := range profile.Items {
+		for _, acct := range item.ByAccount {
+			totals[acct.Account] += acct.Count
+		}
+		queued += item.Queued
+	}
+	if imports := sortedAccountImports(totals); len(imports) > 0 {
+		s.notifs.HandlePlaidTransactionsImported(ctx, profile.ProfileID, imports)
+	}
+	if queued > 0 {
+		s.notifs.HandleReviewPendingBatch(ctx, profile.ProfileID, queued)
+	}
+}
+
+// sortedAccountImports flattens per-account counts into a stable order:
+// busiest account first, then by name so ties never reorder between runs.
+func sortedAccountImports(totals map[string]int) []AccountImport {
+	if len(totals) == 0 {
 		return nil
+	}
+	out := make([]AccountImport, 0, len(totals))
+	for account, count := range totals {
+		out = append(out, AccountImport{Account: account, Count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Account < out[j].Account
+	})
+	return out
+}
+
+// syncItemCore performs an incremental Plaid transactions sync for a single
+// connected item. It imports new transactions, handles modifications and
+// removals, and queues or auto-confirms matches against active fixed expenses
+// in the same budget. Notification is the caller's job, so a run can
+// aggregate across a budget's connections.
+//
+// Safe to call from a goroutine; uses a separate context so the caller's
+// request context doesn't cancel the background work.
+func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (ItemSyncResult, error) {
+	result := ItemSyncResult{ItemID: item.ID}
+	if item.InstitutionName != nil {
+		result.InstitutionName = *item.InstitutionName
+	}
+
+	// Plaid sync is entitled per connection owner, not per budget — a paid
+	// budget shared with a free-tier member does not cover that member's own
+	// connections. Reported rather than silently skipped so it shows up in
+	// the run summary and in the clients' warning banner.
+	if owner, err := s.users.GetByID(ctx, item.UserID); err == nil && owner.Plan == "free" {
+		log.Printf("plaid sync: skipping item %s (%s) — owner %s is on free tier", item.ID, result.InstitutionName, item.UserID)
+		result.SkippedUnentitled = true
+		return result, nil
 	}
 	categoryIDs, err := s.transactions.ListSystemCategories(ctx)
 	if err != nil {
-		return err
+		return result, err
 	}
 
 	cursor := ""
@@ -38,7 +175,7 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 
 	accessToken, err := crypto.Decrypt(item.AccessToken, s.encryptionKey)
 	if err != nil {
-		return err
+		return result, err
 	}
 
 	added, modified, removedIDs, nextCursor, err := s.plaid.SyncTransactions(ctx, accessToken, cursor)
@@ -47,7 +184,7 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 			ID:     item.ID,
 			Status: "error",
 		})
-		return err
+		return result, err
 	}
 
 	log.Printf("plaid item %s: %d added, %d modified, %d removed", item.ID, len(added), len(modified), len(removedIDs))
@@ -55,7 +192,16 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 	const variableTypeID = 2
 	const oneOffFreqID = 1
 
-	pmCache := map[string]*uuid.UUID{}
+	// Resolved once per Plaid account: the payment method it maps to, and the
+	// name to report it under. Name is resolved even when there's no payment
+	// method, so an unmapped account still shows up in the summary instead of
+	// vanishing from it.
+	type accountRef struct {
+		paymentMethodID *uuid.UUID
+		name            string
+	}
+	pmCache := map[string]accountRef{}
+	byAccount := map[string]int{}
 
 	fixedExpenses, _ := s.fixedExpenses.List(ctx, item.BudgetProfileID)
 	aliasesByFE := make(map[uuid.UUID][]string, len(fixedExpenses))
@@ -96,17 +242,24 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 		categoryName, categoryID := syncResolveCategoryID(tx.Name, tx.PFCPrimary, tx.PFCDetailed, categoryIDs)
 
 		var paymentMethodID *uuid.UUID
+		accountName := result.InstitutionName
 		if tx.AccountID != "" {
-			if pmID, cached := pmCache[tx.AccountID]; cached {
-				paymentMethodID = pmID
-			} else {
+			ref, cached := pmCache[tx.AccountID]
+			if !cached {
+				ref = accountRef{name: result.InstitutionName}
 				pm, pmErr := s.transactions.GetPaymentMethodByPlaidAccountID(ctx, tx.AccountID)
 				if pmErr == nil {
 					id := pm.ID
-					paymentMethodID = &id
+					ref.paymentMethodID = &id
+					ref.name = pm.Name
 				}
-				pmCache[tx.AccountID] = paymentMethodID
+				pmCache[tx.AccountID] = ref
 			}
+			paymentMethodID = ref.paymentMethodID
+			accountName = ref.name
+		}
+		if accountName == "" {
+			accountName = "Unknown account"
 		}
 
 		inserted, err := s.transactions.CreateTransactionFromPlaid(ctx, db.CreateTransactionFromPlaidParams{
@@ -129,8 +282,14 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 		log.Printf("plaid item %s: imported %q  %s  $%.2f  category=%s", item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount, syncCategoryLogValue(categoryName, categoryID))
 		importedAdded++
 
+		// Tracks whether this transaction was consumed by the fixed-expense
+		// match below. Anything left unconsumed is "newly available" and is
+		// what the per-account summary counts.
+		consumed := false
+
 		bestScore, bestFE, bestAliasHit, bestAmountOK := syncScoreBestMatch(tx, categoryID, paymentMethodID, fixedExpenses, aliasesByFE)
 		if bestFE == nil {
+			byAccount[accountName]++
 			continue
 		}
 
@@ -164,27 +323,18 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 				Excluded:       true,
 			})
 			autoConfirmed++
+			consumed = true
 			log.Printf("plaid item %s: auto-confirmed %q (alias+amount → %q)", item.ID, tx.Name, bestFE.Name)
 		case bestScore >= 80 && hasUnpaidTarget:
 			if _, rErr := s.reviews.Create(ctx, periodID, inserted.ID, unpaid.ID, bestScore); rErr == nil {
 				queued++
+				consumed = true
 				log.Printf("plaid item %s: queued review for %q (score=%.0f, fixed=%q)", item.ID, tx.Name, bestScore, bestFE.Name)
 			}
 		}
-	}
 
-	// Notify at most once per sync run per budget, not once per transaction —
-	// a single sync can import dozens of transactions and nobody wants a
-	// push per row. "New transactions" excludes anything auto-confirmed
-	// (already handled, no action needed) or queued for review (its own,
-	// separate notification below), so the same transaction never triggers
-	// both.
-	if s.notifs != nil {
-		if newlyAvailable := importedAdded - autoConfirmed - queued; newlyAvailable > 0 {
-			s.notifs.HandlePlaidTransactionsImported(ctx, item.BudgetProfileID, newlyAvailable)
-		}
-		if queued > 0 {
-			s.notifs.HandleReviewPendingBatch(ctx, item.BudgetProfileID, queued)
+		if !consumed {
+			byAccount[accountName]++
 		}
 	}
 
@@ -217,6 +367,15 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 		log.Printf("plaid item %s: update cursor: %v", item.ID, err)
 	}
 
+	result.Imported = importedAdded
+	result.AutoConfirmed = autoConfirmed
+	result.Queued = queued
+	result.SkippedNoPeriod = skippedNoPeriod
+	result.SkippedDuplicate = skippedDuplicate
+	result.Modified = len(modified)
+	result.Removed = len(removedIDs)
+	result.ByAccount = sortedAccountImports(byAccount)
+
 	log.Printf("plaid item %s: done — +%d imported, %d auto-confirmed, %d queued for review, %d modified, %d removed, %d skipped (no period), %d skipped (duplicate)",
 		item.ID, importedAdded, autoConfirmed, queued, len(modified), len(removedIDs), skippedNoPeriod, skippedDuplicate)
 
@@ -226,9 +385,9 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 	// plaid_transaction_id dedup skips re-imports) but should still surface as
 	// a failure so it isn't silently retried forever without anyone noticing.
 	if err != nil {
-		return fmt.Errorf("plaid item %s: persist cursor: %w", item.ID, err)
+		return result, fmt.Errorf("plaid item %s: persist cursor: %w", item.ID, err)
 	}
-	return nil
+	return result, nil
 }
 
 const syncAmountTolerance = 3.0

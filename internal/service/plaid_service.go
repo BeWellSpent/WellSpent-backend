@@ -238,6 +238,42 @@ func (s *PlaidService) ExchangePublicToken(ctx context.Context, userID, profileI
 	return item, nil
 }
 
+// SyncWarning reports that some connections on a budget the caller belongs to
+// will never sync, because the member who linked them is on the free plan.
+//
+// Entitlement is per connection owner rather than per budget — deliberately,
+// so a free account can't join a paid budget and get sync for nothing — which
+// means a paid budget can quietly contain connections that are skipped on
+// every run. Without this the clients have no way to show that: they only
+// ever fetch the caller's own connections.
+type SyncWarning struct {
+	ProfileID       uuid.UUID
+	BudgetName      string
+	MemberName      string
+	ConnectionCount int32
+	IsCurrentUser   bool
+}
+
+// ListSyncWarnings returns one entry per (budget, member) whose connections
+// the sync job skips. Empty for anyone unaffected, which is the common case.
+func (s *PlaidService) ListSyncWarnings(ctx context.Context, userID uuid.UUID) ([]SyncWarning, error) {
+	rows, err := s.items.ListUnsyncableForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	warnings := make([]SyncWarning, 0, len(rows))
+	for _, row := range rows {
+		warnings = append(warnings, SyncWarning{
+			ProfileID:       row.BudgetProfileID,
+			BudgetName:      row.BudgetName,
+			MemberName:      row.MemberName,
+			ConnectionCount: row.ConnectionCount,
+			IsCurrentUser:   row.MemberUserID == userID,
+		})
+	}
+	return warnings, nil
+}
+
 func (s *PlaidService) GetConnections(ctx context.Context, userID uuid.UUID, profileID *uuid.UUID) ([]db.PlaidItem, error) {
 	if err := s.requireUS(ctx, userID); err != nil {
 		return nil, err

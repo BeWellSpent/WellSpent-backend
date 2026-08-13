@@ -17,6 +17,7 @@ type PlaidRepository interface {
 	ListByUser(ctx context.Context, userID uuid.UUID) ([]db.PlaidItem, error)
 	ListByBudgetProfile(ctx context.Context, profileID uuid.UUID) ([]db.PlaidItem, error)
 	ListActiveForSync(ctx context.Context) ([]db.PlaidItem, error)
+	ListUnsyncableForUser(ctx context.Context, userID uuid.UUID) ([]db.ListUnsyncableConnectionsForUserRow, error)
 	UpdateStatus(ctx context.Context, arg db.UpdatePlaidItemStatusParams) (db.PlaidItem, error)
 	UpdateSync(ctx context.Context, arg db.UpdatePlaidItemSyncParams) (db.PlaidItem, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -63,6 +64,10 @@ func (r *plaidRepository) ListByBudgetProfile(ctx context.Context, profileID uui
 
 func (r *plaidRepository) ListActiveForSync(ctx context.Context) ([]db.PlaidItem, error) {
 	return r.q.ListActivePlaidItemsForSync(ctx)
+}
+
+func (r *plaidRepository) ListUnsyncableForUser(ctx context.Context, userID uuid.UUID) ([]db.ListUnsyncableConnectionsForUserRow, error) {
+	return r.q.ListUnsyncableConnectionsForUser(ctx, userID)
 }
 
 func (r *plaidRepository) UpdateStatus(ctx context.Context, arg db.UpdatePlaidItemStatusParams) (db.PlaidItem, error) {
