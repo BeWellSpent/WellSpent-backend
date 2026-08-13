@@ -255,8 +255,16 @@ func (s *NotificationService) HandleReviewPendingBatch(ctx context.Context, prof
 // new_transaction alert type. Unlike HandleNewTransaction (the manual
 // CreateTransaction path), there's no caller to exclude — nobody in the app
 // performed this action, so every subscriber is notified.
-func (s *NotificationService) HandlePlaidTransactionsImported(ctx context.Context, profileID uuid.UUID, count int) {
-	if count <= 0 {
+// imports carries one entry per connected account that contributed
+// transactions, so a budget with several banks gets a single notification
+// naming each rather than one notification per connection with no indication
+// of which account it came from.
+func (s *NotificationService) HandlePlaidTransactionsImported(ctx context.Context, profileID uuid.UUID, imports []AccountImport) {
+	total := 0
+	for _, imp := range imports {
+		total += imp.Count
+	}
+	if total <= 0 {
 		return
 	}
 	subs, err := s.notifs.GetBudgetSubscribers(ctx, profileID, "new_transaction")
@@ -265,13 +273,30 @@ func (s *NotificationService) HandlePlaidTransactionsImported(ctx context.Contex
 		return
 	}
 	title := "New transactions imported"
-	body := "A new transaction was imported from your bank."
-	if count > 1 {
-		body = fmt.Sprintf("%d new transactions were imported from your bank.", count)
-	}
 	for _, sub := range subs {
-		s.deliver(ctx, sub, &profileID, "new_transaction", title, body)
+		s.deliver(ctx, sub, &profileID, "new_transaction", title, plaidImportBody(imports, total))
 	}
+}
+
+// plaidImportBody renders the per-account breakdown. A single account reads as
+// one sentence; several get a list, since "7 new transactions" across four
+// banks tells you nothing about where to look.
+func plaidImportBody(imports []AccountImport, total int) string {
+	if total == 1 {
+		if len(imports) == 1 {
+			return fmt.Sprintf("A new transaction was imported from %s.", imports[0].Account)
+		}
+		return "A new transaction was imported from your bank."
+	}
+	if len(imports) == 1 {
+		return fmt.Sprintf("%d new transactions were imported from %s.", total, imports[0].Account)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%d new transactions were imported from your banks:", total)
+	for _, imp := range imports {
+		fmt.Fprintf(&sb, "\n%s — %d", imp.Account, imp.Count)
+	}
+	return sb.String()
 }
 
 // HandlePeriodCreated fires when createNextPeriod creates a new budget period.

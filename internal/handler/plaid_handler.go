@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -101,7 +102,29 @@ func (h *PlaidHandler) GetPlaidConnections(ctx context.Context, req *connect.Req
 	for i, item := range items {
 		conns[i] = toProtoPlaidConnection(item)
 	}
-	return connect.NewResponse(&v1.GetPlaidConnectionsResponse{Connections: conns}), nil
+
+	// Best-effort: the connection list is the useful payload, and failing the
+	// whole call because a supplementary warning couldn't be computed would
+	// trade a working screen for a broken one.
+	warnings, warnErr := h.svc.ListSyncWarnings(ctx, userID)
+	if warnErr != nil {
+		log.Printf("plaid: list sync warnings for user %s: %v", userID, warnErr)
+	}
+	protoWarnings := make([]*v1.BudgetSyncWarning, len(warnings))
+	for i, w := range warnings {
+		protoWarnings[i] = &v1.BudgetSyncWarning{
+			BudgetProfileId: w.ProfileID.String(),
+			BudgetName:      w.BudgetName,
+			MemberName:      w.MemberName,
+			ConnectionCount: w.ConnectionCount,
+			IsCurrentUser:   w.IsCurrentUser,
+		}
+	}
+
+	return connect.NewResponse(&v1.GetPlaidConnectionsResponse{
+		Connections: conns,
+		Warnings:    protoWarnings,
+	}), nil
 }
 
 func (h *PlaidHandler) DisconnectPlaid(ctx context.Context, req *connect.Request[v1.DisconnectPlaidRequest]) (*connect.Response[v1.DisconnectPlaidResponse], error) {

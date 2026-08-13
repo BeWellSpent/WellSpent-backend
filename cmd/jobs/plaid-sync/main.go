@@ -102,59 +102,134 @@ func main() {
 	notifSvc := service.NewNotificationService(notifRepo, txRepo, budgetRepo, allocationRepo, userRepo, notifCfg, logger)
 	svc := service.NewPlaidService(pc, plaidRepo, budgetRepo, userRepo, txRepo, feRepo, reviewRepo, encryptionKey).WithNotifications(notifSvc)
 
-	items, err := plaidRepo.ListActiveForSync(ctx)
+	profiles, err := svc.SyncAll(ctx)
 	if err != nil {
 		log.Fatalf("list active items: %v", err)
 	}
 
-	log.Printf("syncing %d plaid items", len(items))
+	failures, skipped := reportRun(profiles)
 
-	var failures []syncFailure
-	for _, item := range items {
-		if err := svc.SyncItem(ctx, item); err != nil {
-			log.Printf("item %s: sync failed: %v", item.ID, err)
-			failures = append(failures, syncFailure{ItemID: item.ID.String(), Err: err})
-		}
-	}
-
-	if len(failures) == 0 {
+	if len(failures) == 0 && len(skipped) == 0 {
 		return
 	}
 
 	alertEmail := os.Getenv("PLAID_SYNC_ALERT_EMAIL")
 
 	if resendAPIKey == "" || alertEmail == "" {
-		log.Printf("plaid-sync: %d item(s) failed but no failure notification sent — set RESEND_API_KEY and PLAID_SYNC_ALERT_EMAIL to enable it", len(failures))
+		log.Printf("plaid-sync: %d item(s) failed and %d skipped, but no notification sent — set RESEND_API_KEY and PLAID_SYNC_ALERT_EMAIL to enable it", len(failures), len(skipped))
 		return
 	}
-	if err := sendFailureEmail(resendAPIKey, resendFromEmail, alertEmail, failures); err != nil {
-		log.Printf("plaid-sync: failed to send failure notification email: %v", err)
+	if err := sendFailureEmail(resendAPIKey, resendFromEmail, alertEmail, failures, skipped); err != nil {
+		log.Printf("plaid-sync: failed to send notification email: %v", err)
 	} else {
-		log.Printf("plaid-sync: sent failure notification email to %s for %d item(s)", alertEmail, len(failures))
+		log.Printf("plaid-sync: sent notification email to %s for %d failure(s) and %d skip(s)", alertEmail, len(failures), len(skipped))
 	}
 }
 
 type syncFailure struct {
-	ItemID string
-	Err    error
+	Profile     string
+	Institution string
+	ItemID      string
+	Err         error
 }
 
-// buildFailureEmail renders a plain summary of every item that failed to
-// sync in this run, so an ops recipient can see what broke without digging
-// through Cloud Run logs.
-func buildFailureEmail(failures []syncFailure) (subject, body string) {
-	subject = fmt.Sprintf("WellSpent Plaid sync: %d item(s) failed", len(failures))
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("<p>%d Plaid sync item(s) failed during this run:</p><ul>", len(failures)))
-	for _, f := range failures {
-		sb.WriteString(fmt.Sprintf("<li><code>%s</code>: %s</li>", html.EscapeString(f.ItemID), html.EscapeString(f.Err.Error())))
+// syncSkip is a connection the job deliberately did not sync because its
+// owner isn't entitled to Plaid. Reported separately from failures: nothing
+// is broken, but leaving it invisible is how one connection sat unsynced for
+// over two weeks without anyone noticing.
+type syncSkip struct {
+	Profile     string
+	Institution string
+	ItemID      string
+}
+
+// reportRun logs the outcome per budget profile and collects everything worth
+// alerting on. Logging by profile rather than by bare item UUID is the point:
+// a failure line that names the budget and the institution can be acted on
+// from the log alone.
+func reportRun(profiles []service.ProfileSyncResult) ([]syncFailure, []syncSkip) {
+	var failures []syncFailure
+	var skipped []syncSkip
+
+	log.Printf("plaid-sync: %d budget profile(s) due", len(profiles))
+	for _, profile := range profiles {
+		pid := profile.ProfileID.String()
+		for _, item := range profile.Items {
+			inst := item.InstitutionName
+			if inst == "" {
+				inst = "(unknown institution)"
+			}
+			switch {
+			case item.Err != nil:
+				log.Printf("plaid-sync: profile %s: %s (item %s) FAILED: %v", pid, inst, item.ItemID, item.Err)
+				failures = append(failures, syncFailure{Profile: pid, Institution: inst, ItemID: item.ItemID.String(), Err: item.Err})
+			case item.SkippedUnentitled:
+				log.Printf("plaid-sync: profile %s: %s (item %s) SKIPPED — owner is not on a paid plan", pid, inst, item.ItemID)
+				skipped = append(skipped, syncSkip{Profile: pid, Institution: inst, ItemID: item.ItemID.String()})
+			default:
+				log.Printf("plaid-sync: profile %s: %s (item %s) ok — %s", pid, inst, item.ItemID, describeAccounts(item))
+			}
+		}
 	}
-	sb.WriteString("</ul>")
+	return failures, skipped
+}
+
+// describeAccounts renders the per-account import counts for one connection,
+// so the log says which account the transactions came from rather than only
+// how many arrived.
+func describeAccounts(item service.ItemSyncResult) string {
+	if len(item.ByAccount) == 0 {
+		return fmt.Sprintf("no new transactions (%d modified, %d removed)", item.Modified, item.Removed)
+	}
+	parts := make([]string, 0, len(item.ByAccount))
+	for _, acct := range item.ByAccount {
+		parts = append(parts, fmt.Sprintf("%s: %d", acct.Account, acct.Count))
+	}
+	return fmt.Sprintf("imported %s (%d auto-confirmed, %d queued for review)",
+		strings.Join(parts, ", "), item.AutoConfirmed, item.Queued)
+}
+
+// buildFailureEmail renders a plain summary of everything worth attention in
+// this run, so an ops recipient can see what happened without digging through
+// Cloud Run logs.
+//
+// Skips are listed separately from failures because they aren't errors —
+// nothing retried will fix them, they need someone to upgrade a plan — but
+// they were previously invisible, which let a connection sit unsynced for
+// over two weeks.
+func buildFailureEmail(failures []syncFailure, skipped []syncSkip) (subject, body string) {
+	switch {
+	case len(failures) > 0 && len(skipped) > 0:
+		subject = fmt.Sprintf("WellSpent Plaid sync: %d failed, %d skipped", len(failures), len(skipped))
+	case len(failures) > 0:
+		subject = fmt.Sprintf("WellSpent Plaid sync: %d item(s) failed", len(failures))
+	default:
+		subject = fmt.Sprintf("WellSpent Plaid sync: %d connection(s) skipped", len(skipped))
+	}
+
+	var sb strings.Builder
+	if len(failures) > 0 {
+		fmt.Fprintf(&sb, "<p>%d Plaid connection(s) failed during this run:</p><ul>", len(failures))
+		for _, f := range failures {
+			fmt.Fprintf(&sb, "<li>budget <code>%s</code> — %s (<code>%s</code>): %s</li>",
+				html.EscapeString(f.Profile), html.EscapeString(f.Institution),
+				html.EscapeString(f.ItemID), html.EscapeString(f.Err.Error()))
+		}
+		sb.WriteString("</ul>")
+	}
+	if len(skipped) > 0 {
+		fmt.Fprintf(&sb, "<p>%d connection(s) skipped — the member who linked them is not on a paid plan, so they will never sync:</p><ul>", len(skipped))
+		for _, s := range skipped {
+			fmt.Fprintf(&sb, "<li>budget <code>%s</code> — %s (<code>%s</code>)</li>",
+				html.EscapeString(s.Profile), html.EscapeString(s.Institution), html.EscapeString(s.ItemID))
+		}
+		sb.WriteString("</ul>")
+	}
 	return subject, sb.String()
 }
 
-func sendFailureEmail(apiKey, fromEmail, toEmail string, failures []syncFailure) error {
-	subject, body := buildFailureEmail(failures)
+func sendFailureEmail(apiKey, fromEmail, toEmail string, failures []syncFailure, skipped []syncSkip) error {
+	subject, body := buildFailureEmail(failures, skipped)
 	client := resend.NewClient(apiKey)
 	_, err := client.Emails.Send(&resend.SendEmailRequest{
 		From:    fromEmail,

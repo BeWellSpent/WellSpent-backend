@@ -335,10 +335,40 @@ func TestNotificationService_HandlePlaidTransactionsImported_SendsOneNotificatio
 	}
 	svc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
 
-	svc.HandlePlaidTransactionsImported(context.Background(), profileID, 3)
+	svc.HandlePlaidTransactionsImported(context.Background(), profileID, []AccountImport{
+		{Account: "Chase Checking ···1234", Count: 2},
+		{Account: "Amex ···9012", Count: 1},
+	})
+
+	require.Len(t, created, 1, "one notification for the whole budget, not one per account")
+	assert.Contains(t, created[0].Body, "3")
+	assert.Contains(t, created[0].Body, "Chase Checking ···1234")
+	assert.Contains(t, created[0].Body, "Amex ···9012")
+}
+
+func TestNotificationService_HandlePlaidTransactionsImported_NamesTheAccountWhenThereIsOnlyOne(t *testing.T) {
+	created := []db.Notification{}
+	notifRepo := &mockNotifRepo{
+		getBudgetSubscribers: func(_ context.Context, _ uuid.UUID, alertType string) ([]db.AlertSubscription, error) {
+			if alertType == "new_transaction" {
+				return []db.AlertSubscription{{ID: uuid.New(), UserID: uuid.New(), AlertType: "new_transaction", Channel: "in_app"}}, nil
+			}
+			return nil, nil
+		},
+		create: func(_ context.Context, arg db.CreateNotificationParams) (db.Notification, error) {
+			created = append(created, db.Notification{Body: arg.Body})
+			return db.Notification{ID: uuid.New()}, nil
+		},
+	}
+	svc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
+
+	svc.HandlePlaidTransactionsImported(context.Background(), uuid.New(), []AccountImport{
+		{Account: "Citi ···0001", Count: 4},
+	})
 
 	require.Len(t, created, 1)
-	assert.Contains(t, created[0].Body, "3")
+	// A single account reads as a sentence rather than a one-item list.
+	assert.Contains(t, created[0].Body, "4 new transactions were imported from Citi ···0001")
 }
 
 func TestNotificationService_HandlePlaidTransactionsImported_NoOpWhenCountIsZero(t *testing.T) {
@@ -351,9 +381,9 @@ func TestNotificationService_HandlePlaidTransactionsImported_NoOpWhenCountIsZero
 	}
 	svc := newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{})
 
-	svc.HandlePlaidTransactionsImported(context.Background(), uuid.New(), 0)
+	svc.HandlePlaidTransactionsImported(context.Background(), uuid.New(), nil)
 
-	assert.False(t, called, "should not even look up subscribers when count is 0")
+	assert.False(t, called, "should not even look up subscribers when nothing was imported")
 }
 
 func TestNotificationService_GetUnreadCount_Success(t *testing.T) {

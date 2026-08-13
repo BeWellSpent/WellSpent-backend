@@ -117,18 +117,34 @@ func (q *Queries) GetPlaidItemByItemID(ctx context.Context, itemID string) (Plai
 }
 
 const listActivePlaidItemsForSync = `-- name: ListActivePlaidItemsForSync :many
-SELECT id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
-       status, cursor, last_synced_at, created_at
-FROM plaid_item
-WHERE status IN ('active', 'error')
-  AND (last_synced_at IS NULL OR last_synced_at < NOW() - INTERVAL '1 day')
-ORDER BY last_synced_at ASC NULLS FIRST
+SELECT pi.id, pi.user_id, pi.budget_profile_id, pi.access_token, pi.item_id,
+       pi.institution_id, pi.institution_name, pi.status, pi.cursor,
+       pi.last_synced_at, pi.created_at
+FROM plaid_item pi
+WHERE pi.status IN ('active', 'error')
+  AND (pi.last_synced_at IS NULL OR pi.last_synced_at < NOW() - INTERVAL '1 day')
+  AND EXISTS (
+    SELECT 1
+    FROM budget_period bp
+    WHERE bp.budget_profile_id = pi.budget_profile_id
+      AND bp.is_archived = FALSE
+  )
+ORDER BY pi.budget_profile_id, pi.last_synced_at ASC NULLS FIRST
 `
 
 // Returns all active or previously-errored items due for a sync (never
 // synced, or last sync older than 1 day). 'error' is included so a failed
 // item keeps retrying on schedule instead of being silently abandoned —
 // only an explicit disconnect (status='disconnected') stops future syncs.
+//
+// Items on a budget with no live period are excluded: their transactions
+// would have nowhere to land anyway, so calling Plaid for them just burns
+// API quota. Note the cursor is left untouched in that case, so nothing is
+// lost — the backlog arrives on the first sync after a period exists,
+// though transactions dated inside the gap will still find no period.
+//
+// Ordered by profile so the job can process a budget's connections
+// together and report per-profile rather than per-disconnected-item.
 func (q *Queries) ListActivePlaidItemsForSync(ctx context.Context) ([]PlaidItem, error) {
 	rows, err := q.db.Query(ctx, listActivePlaidItemsForSync)
 	if err != nil {
@@ -230,6 +246,72 @@ func (q *Queries) ListPlaidItemsByUser(ctx context.Context, userID uuid.UUID) ([
 			&i.Cursor,
 			&i.LastSyncedAt,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnsyncableConnectionsForUser = `-- name: ListUnsyncableConnectionsForUser :many
+SELECT pi.budget_profile_id,
+       bp.name::text          AS budget_name,
+       owner.id::uuid         AS member_user_id,
+       COALESCE(NULLIF(TRIM(CONCAT(owner.first_name, ' ', owner.last_name)), ''), owner.email)::text AS member_name,
+       COUNT(*)::int          AS connection_count
+FROM plaid_item pi
+JOIN budget_profile bp ON bp.id = pi.budget_profile_id
+JOIN users owner ON owner.id = pi.user_id
+WHERE owner.plan = 'free'
+  AND pi.status <> 'disconnected'
+  AND (
+    bp.user_id = $1
+    OR EXISTS (
+      SELECT 1
+      FROM budget_to_profile_mapping m
+      WHERE m.budget_profile_id = bp.id
+        AND m.user_id = $1
+        AND m.is_active = TRUE
+    )
+  )
+GROUP BY pi.budget_profile_id, bp.name, owner.id, owner.first_name, owner.last_name, owner.email
+ORDER BY bp.name, member_name
+`
+
+type ListUnsyncableConnectionsForUserRow struct {
+	BudgetProfileID uuid.UUID `json:"budget_profile_id"`
+	BudgetName      string    `json:"budget_name"`
+	MemberUserID    uuid.UUID `json:"member_user_id"`
+	MemberName      string    `json:"member_name"`
+	ConnectionCount int32     `json:"connection_count"`
+}
+
+// Connections on budgets the caller owns or belongs to whose owner is on the
+// free plan, and which the sync job therefore skips on every run. Grouped by
+// budget and member so the clients can warn without exposing which
+// institutions anyone banks with.
+//
+// Excludes disconnected items: a connection the owner already removed isn't
+// something to warn about.
+func (q *Queries) ListUnsyncableConnectionsForUser(ctx context.Context, userID uuid.UUID) ([]ListUnsyncableConnectionsForUserRow, error) {
+	rows, err := q.db.Query(ctx, listUnsyncableConnectionsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnsyncableConnectionsForUserRow
+	for rows.Next() {
+		var i ListUnsyncableConnectionsForUserRow
+		if err := rows.Scan(
+			&i.BudgetProfileID,
+			&i.BudgetName,
+			&i.MemberUserID,
+			&i.MemberName,
+			&i.ConnectionCount,
 		); err != nil {
 			return nil, err
 		}

@@ -435,3 +435,157 @@ func TestSyncItem_NotifiesOnceForQueuedReviews_NotOncePerTransaction(t *testing.
 	require.Equal(t, 1, createCount, "2 queued-for-review imports should still produce exactly one aggregated notification")
 	assert.Contains(t, lastBody, "2", "the aggregated notification should mention the actual count")
 }
+
+// ── SyncAll: grouping, entitlement reporting, per-account attribution ─────────
+
+// syncAllSvc builds a service whose Plaid client returns `added` for every
+// item, and whose users all sit on the given plan.
+func syncAllSvc(t *testing.T, plan string, items []db.PlaidItem, added []plaidclient.Transaction) *PlaidService {
+	t.Helper()
+	return NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return added, nil, nil, "next-cursor", nil
+			},
+		},
+		&mockPlaidRepo{
+			listForSync: func(_ context.Context) ([]db.PlaidItem, error) { return items, nil },
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, profileID uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: uuid.New(), BudgetProfileID: profileID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{Plan: plan}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+		testEncKey,
+	)
+}
+
+func encryptedToken(t *testing.T) string {
+	t.Helper()
+	enc, err := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, err)
+	return enc
+}
+
+func TestSyncAll_GroupsConnectionsByBudgetProfile(t *testing.T) {
+	profileA, profileB := uuid.New(), uuid.New()
+	token := encryptedToken(t)
+	items := []db.PlaidItem{
+		{ID: uuid.New(), BudgetProfileID: profileA, AccessToken: token},
+		{ID: uuid.New(), BudgetProfileID: profileB, AccessToken: token},
+		{ID: uuid.New(), BudgetProfileID: profileA, AccessToken: token},
+	}
+
+	profiles, err := syncAllSvc(t, "pro", items, nil).SyncAll(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, profiles, 2, "one entry per budget, not per connection")
+	byProfile := map[uuid.UUID]int{}
+	for _, p := range profiles {
+		byProfile[p.ProfileID] = len(p.Items)
+	}
+	assert.Equal(t, 2, byProfile[profileA])
+	assert.Equal(t, 1, byProfile[profileB])
+}
+
+func TestSyncAll_ReportsUnentitledSkipInsteadOfSwallowingIt(t *testing.T) {
+	profileID := uuid.New()
+	inst := "Chase"
+	items := []db.PlaidItem{
+		{ID: uuid.New(), BudgetProfileID: profileID, InstitutionName: &inst, AccessToken: encryptedToken(t)},
+	}
+
+	profiles, err := syncAllSvc(t, "free", items, nil).SyncAll(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, profiles, 1)
+	require.Len(t, profiles[0].Items, 1)
+	result := profiles[0].Items[0]
+	// Previously this returned a bare nil and logged one line, which is how a
+	// connection sat unsynced for over two weeks without anyone noticing.
+	assert.True(t, result.SkippedUnentitled, "a free-tier owner's connection must be reported, not silently skipped")
+	assert.NoError(t, result.Err, "not being entitled is not a failure")
+	assert.Equal(t, "Chase", result.InstitutionName, "the report must name the institution, not just the item UUID")
+}
+
+func TestSyncAll_AttributesImportsToTheAccountTheyCameFrom(t *testing.T) {
+	profileID := uuid.New()
+	token := encryptedToken(t)
+	checkingID, cardID := uuid.New(), uuid.New()
+
+	added := []plaidclient.Transaction{
+		{PlaidID: "p1", Name: "Coffee", Amount: 4.5, Date: time.Now(), AccountID: "acct-checking"},
+		{PlaidID: "p2", Name: "Books", Amount: 20, Date: time.Now(), AccountID: "acct-checking"},
+		{PlaidID: "p3", Name: "Fuel", Amount: 40, Date: time.Now(), AccountID: "acct-card"},
+	}
+
+	svc := syncAllSvc(t, "pro", []db.PlaidItem{{ID: uuid.New(), BudgetProfileID: profileID, AccessToken: token}}, added)
+	svc.transactions = &mockTransactionRepo{
+		getPaymentMethodByPlaidAccountID: func(_ context.Context, plaidAccountID string) (db.PaymentMethod, error) {
+			switch plaidAccountID {
+			case "acct-checking":
+				return db.PaymentMethod{ID: checkingID, Name: "Chase Checking ···1234"}, nil
+			case "acct-card":
+				return db.PaymentMethod{ID: cardID, Name: "Amex ···9012"}, nil
+			}
+			return db.PaymentMethod{}, errors.New("not found")
+		},
+	}
+
+	profiles, err := svc.SyncAll(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, profiles, 1)
+	assert.Equal(t, []AccountImport{
+		{Account: "Chase Checking ···1234", Count: 2},
+		{Account: "Amex ···9012", Count: 1},
+	}, profiles[0].Items[0].ByAccount, "busiest account first, so the summary leads with where the activity was")
+}
+
+func TestSortedAccountImports_IsDeterministicOnTies(t *testing.T) {
+	// Map iteration order is random; a run's notification body and its tests
+	// must not be.
+	for i := 0; i < 20; i++ {
+		got := sortedAccountImports(map[string]int{"Zebra": 2, "Apple": 2, "Middle": 5})
+		assert.Equal(t, []AccountImport{
+			{Account: "Middle", Count: 5},
+			{Account: "Apple", Count: 2},
+			{Account: "Zebra", Count: 2},
+		}, got)
+	}
+}
+
+func TestListSyncWarnings_FlagsTheCallersOwnConnections(t *testing.T) {
+	callerID, otherID := uuid.New(), uuid.New()
+	profileID := uuid.New()
+
+	svc := NewPlaidService(
+		&mockPlaidClient{},
+		&mockPlaidRepo{
+			listUnsyncable: func(_ context.Context, _ uuid.UUID) ([]db.ListUnsyncableConnectionsForUserRow, error) {
+				return []db.ListUnsyncableConnectionsForUserRow{
+					{BudgetProfileID: profileID, BudgetName: "Household", MemberUserID: otherID, MemberName: "Alex", ConnectionCount: 2},
+					{BudgetProfileID: profileID, BudgetName: "Household", MemberUserID: callerID, MemberName: "Me", ConnectionCount: 1},
+				}, nil
+			},
+		},
+		&mockBudgetProfileRepo{}, &mockUserRepo{}, &mockTransactionRepo{},
+		&mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey,
+	)
+
+	warnings, err := svc.ListSyncWarnings(context.Background(), callerID)
+
+	require.NoError(t, err)
+	require.Len(t, warnings, 2)
+	assert.False(t, warnings[0].IsCurrentUser, "someone else's connections are named")
+	assert.Equal(t, int32(2), warnings[0].ConnectionCount)
+	assert.True(t, warnings[1].IsCurrentUser, "the caller's own get an upgrade prompt instead of a name")
+}
