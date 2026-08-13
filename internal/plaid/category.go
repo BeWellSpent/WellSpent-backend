@@ -1,7 +1,7 @@
 package plaid
 
 // plaidDetailedToCategory maps Plaid personal_finance_category.detailed values
-// to SpendSense system category names. Only entries that differ from the
+// to WellSpent system category names. Only entries that differ from the
 // primary-level default are listed here; everything else falls through to
 // plaidPrimaryToCategory.
 var plaidDetailedToCategory = map[string]string{
@@ -17,24 +17,47 @@ var plaidDetailedToCategory = map[string]string{
 	// PERSONAL_CARE — laundry/dry cleaning is a household service, not personal care
 	"PERSONAL_CARE_LAUNDRY_AND_DRY_CLEANING": "Services",
 
-	// GENERAL_SERVICES — override the Services default for specific subtypes
+	// GENERAL_SERVICES — override the Services default for specific subtypes.
+	// Childcare stays on Baby rather than Family: daycare and babysitters are
+	// specifically a young-child cost, and Family is the broader manual-pick
+	// category users apply themselves.
 	"GENERAL_SERVICES_INSURANCE":  "Insurance",
 	"GENERAL_SERVICES_AUTOMOTIVE": "Auto", // oil changes, car washes, repairs, towing
 	"GENERAL_SERVICES_CHILDCARE":  "Baby", // babysitters, daycare
 
-	// TRANSPORTATION — only gas and tolls map to Gas; everything else is Misc
+	// TRANSPORTATION — fuel and tolls are car-running costs, so they stay on
+	// Gas; everything else (transit, ride shares, parking, bikes) is
+	// Transportation via the primary default.
 	"TRANSPORTATION_GAS":   "Gas",
 	"TRANSPORTATION_TOLLS": "Gas",
 
-	// LOAN_PAYMENTS / LOAN_DISBURSEMENTS — credit card payments seen from both
-	// sides of the ledger (outflow from checking, inflow on the card account)
-	"LOAN_PAYMENTS_CREDIT_CARD_PAYMENT":      "Payment",
-	"LOAN_DISBURSEMENTS_OTHER_DISBURSEMENT": "Payment",
+	// RENT_AND_UTILITIES — the primary defaults to Utilities, so only rent
+	// itself needs pulling back out. Done this way round rather than listing
+	// all six utility subtypes: if Plaid adds a new one, defaulting it to
+	// Utilities is far more likely right than defaulting it to Rent.
+	"RENT_AND_UTILITIES_RENT": "Rent",
+
+	// TRANSFER_IN / TRANSFER_OUT — money moved to or from a savings account is
+	// saving, not a generic transfer. Direction is carried by the amount sign.
+	"TRANSFER_IN_SAVINGS":  "Savings",
+	"TRANSFER_OUT_SAVINGS": "Savings",
+
+	// ENTERTAINMENT — streaming services are the recurring-subscription case
+	// the Subscription category exists for.
+	"ENTERTAINMENT_TV_AND_MOVIES": "Subscription",
+
+	// LOAN_PAYMENTS — paying off a credit card isn't debt service in the
+	// budgeting sense, it's settling a balance already counted when it was
+	// spent. Every other loan payment falls through to Loan.
+	"LOAN_PAYMENTS_CREDIT_CARD_PAYMENT": "Payment",
 }
 
 // plaidPrimaryToCategory maps Plaid personal_finance_category.primary values
-// to SpendSense system category names. Used as a fallback when the detailed
+// to WellSpent system category names. Used as a fallback when the detailed
 // key has no specific override.
+//
+// All 16 primaries in Plaid's taxonomy are covered, so an unrecognized
+// detailed value can never import uncategorized.
 var plaidPrimaryToCategory = map[string]string{
 	"FOOD_AND_DRINK":            "Eating Out",
 	"GENERAL_MERCHANDISE":       "Shopping",
@@ -42,12 +65,16 @@ var plaidPrimaryToCategory = map[string]string{
 	"MEDICAL":                   "Wellness",
 	"PERSONAL_CARE":             "Wellness",
 	"GENERAL_SERVICES":          "Services",
-	"TRANSPORTATION":            "Misc",
+	"TRANSPORTATION":            "Transportation",
 	"TRAVEL":                    "Travel",
-	"RENT_AND_UTILITIES":        "Rent",
+	"RENT_AND_UTILITIES":        "Utilities",
 	"ENTERTAINMENT":             "Entertainment",
 	"BANK_FEES":                 "Misc",
 	"GOVERNMENT_AND_NON_PROFIT": "Misc",
+	// Mortgages, car loans, student loans and personal loans are all debt
+	// service and belong together. Credit card payments are the one exception
+	// (see plaidDetailedToCategory above).
+	"LOAN_PAYMENTS": "Loan",
 	// INCOME covers Plaid's own wages/dividends/interest/refund/etc.
 	// classification — mapping it here means a payroll deposit is recognized
 	// as Income from Plaid's PFC data alone, without depending on the
@@ -58,18 +85,15 @@ var plaidPrimaryToCategory = map[string]string{
 	"INCOME": "Income",
 	// TRANSFER_IN / TRANSFER_OUT map to the Transfer category. Direction
 	// (inbound vs outbound) is captured by positive/negative amount, so a
-	// single category covers both sides.
+	// single category covers both sides. Savings transfers are split out
+	// above.
 	"TRANSFER_IN":  "Transfer",
 	"TRANSFER_OUT": "Transfer",
-	// LOAN_PAYMENTS primary is left unmapped — specific subtypes (credit card
-	// payments) are handled in plaidDetailedToCategory above. Other loan
-	// payments (student loans, car loans) fall through to uncategorized rather
-	// than being guessed at.
 }
 
-// ResolvePlaidCategory returns the SpendSense system category name for a Plaid
+// ResolvePlaidCategory returns the WellSpent system category name for a Plaid
 // transaction. Detailed is checked first, primary is the fallback. Returns ""
-// when no mapping exists (transaction will be imported uncategorized).
+// only for a primary outside Plaid's published taxonomy.
 func ResolvePlaidCategory(primary, detailed string) string {
 	if cat, ok := plaidDetailedToCategory[detailed]; ok {
 		return cat
