@@ -57,6 +57,7 @@ func main() {
 	plaidRepo := repository.NewPlaidRepository(queries)
 	reviewRepo := repository.NewTransactionReviewRepository(queries)
 	notifRepo := repository.NewNotificationRepository(queries)
+	statusBannerRepo := repository.NewStatusBannerRepository(queries)
 
 	logVerificationExemptAccounts(ctx, userRepo, cfg.Env, logger)
 
@@ -69,6 +70,7 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, jwtSvc, googleOAuth, appleAuth, cfg, logger)
 	userSvc := service.NewUserService(userRepo, appleAuth, cfg.EncryptionKey, cfg, logger)
 	notifSvc := service.NewNotificationService(notifRepo, transactionRepo, budgetProfileRepo, allocationRepo, userRepo, cfg, logger)
+	statusBannerSvc := service.NewStatusBannerService(statusBannerRepo, userRepo)
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo).WithNotifications(notifSvc)
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo).WithNotifications(notifSvc)
 	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
@@ -100,6 +102,10 @@ func main() {
 		wellspentv1connect.AuthServiceResendVerificationEmailProcedure: true,
 		wellspentv1connect.UserServiceListCountriesProcedure:           true,
 		wellspentv1connect.InviteServiceGetBudgetInviteProcedure:       true,
+		// Public on purpose: a signed-out visitor looking at a broken login
+		// screen is one of the people who most needs to read the banner. The
+		// other three StatusService RPCs stay authenticated and superuser-gated.
+		wellspentv1connect.StatusServiceGetActiveStatusBannerProcedure: true,
 	}
 
 	interceptors := connect.WithInterceptors(
@@ -113,6 +119,7 @@ func main() {
 	mux.Handle(wellspentv1connect.NewBudgetServiceHandler(handler.NewBudgetHandler(profileSvc, transactionSvc, allocationSvc, expenseSummarySvc), interceptors))
 	mux.Handle(wellspentv1connect.NewInviteServiceHandler(handler.NewInviteHandler(inviteSvc), interceptors))
 	mux.Handle(wellspentv1connect.NewNotificationServiceHandler(handler.NewNotificationHandler(notifSvc), interceptors))
+	mux.Handle(wellspentv1connect.NewStatusServiceHandler(handler.NewStatusHandler(statusBannerSvc), interceptors))
 	if plaidSvc != nil {
 		mux.Handle(wellspentv1connect.NewPlaidServiceHandler(handler.NewPlaidHandler(plaidSvc), interceptors))
 	}

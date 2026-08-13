@@ -225,6 +225,17 @@ type SavingsSource struct {
 	PaymentDays     []int32            `json:"payment_days"`
 }
 
+type StatusBanner struct {
+	ID        uuid.UUID          `json:"id"`
+	Severity  string             `json:"severity"`
+	MessageEn string             `json:"message_en"`
+	MessageEs string             `json:"message_es"`
+	StartsAt  pgtype.Timestamptz `json:"starts_at"`
+	EndsAt    pgtype.Timestamptz `json:"ends_at"`
+	CreatedBy uuid.UUID          `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Transaction struct {
 	ID                     uuid.UUID      `json:"id"`
 	Name                   *string        `json:"name"`
