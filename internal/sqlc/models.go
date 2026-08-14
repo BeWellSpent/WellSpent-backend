@@ -54,13 +54,15 @@ type BudgetProfile struct {
 }
 
 type BudgetToProfileMapping struct {
-	ID              int32      `json:"id"`
-	BudgetProfileID uuid.UUID  `json:"budget_profile_id"`
-	UserName        *string    `json:"user_name"`
-	UserID          *uuid.UUID `json:"user_id"`
-	IsActive        bool       `json:"is_active"`
-	Color           string     `json:"color"`
-	Role            string     `json:"role"`
+	ID                int32      `json:"id"`
+	BudgetProfileID   uuid.UUID  `json:"budget_profile_id"`
+	UserName          *string    `json:"user_name"`
+	UserID            *uuid.UUID `json:"user_id"`
+	IsActive          bool       `json:"is_active"`
+	Color             string     `json:"color"`
+	Role              string     `json:"role"`
+	PlanChartType     *string    `json:"plan_chart_type"`
+	OverviewChartType *string    `json:"overview_chart_type"`
 }
 
 type Category struct {

@@ -41,6 +41,7 @@ type BudgetProfileRepository interface {
 	AddPerson(ctx context.Context, arg db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error)
 	UpdatePerson(ctx context.Context, arg db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error)
 	UpdatePersonRole(ctx context.Context, arg db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error)
+	UpdatePersonPreferences(ctx context.Context, arg db.UpdateBudgetPersonPreferencesParams) (db.BudgetToProfileMapping, error)
 	LinkPersonToUser(ctx context.Context, arg db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error)
 	SoftRemovePerson(ctx context.Context, arg db.SoftRemovePersonFromProfileParams) error
 	SoftRemovePersonAndReassign(ctx context.Context, arg db.SoftRemovePersonAndReassignFromProfileParams) error
@@ -223,6 +224,16 @@ func (r *budgetProfileRepository) UpdatePersonRole(ctx context.Context, arg db.U
 	m, err := r.q.UpdateBudgetPersonRole(ctx, arg)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", fmt.Sprintf("%d", arg.ID))
+	}
+	return m, err
+}
+
+func (r *budgetProfileRepository) UpdatePersonPreferences(ctx context.Context, arg db.UpdateBudgetPersonPreferencesParams) (db.BudgetToProfileMapping, error) {
+	m, err := r.q.UpdateBudgetPersonPreferences(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// No active person row for this user on this budget — either they were
+		// never a member or they've been removed.
+		return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", arg.UserID.String())
 	}
 	return m, err
 }

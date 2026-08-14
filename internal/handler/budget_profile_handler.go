@@ -4,10 +4,10 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	"github.com/google/uuid"
 	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
 	"github.com/BeWellSpent/wellspent-backend/internal/service"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
 )
 
 // ── Profile CRUD ──────────────────────────────────────────────────────────────
@@ -231,6 +231,31 @@ func (h *BudgetHandler) UpdateBudgetPersonRole(ctx context.Context, req *connect
 		return nil, toConnectError(svcErr)
 	}
 	return connect.NewResponse(&v1.UpdateBudgetPersonRoleResponse{Person: toProtoBudgetPerson(m)}), nil
+}
+
+// UpdateMyBudgetPreferences writes the caller's own settings. There is no
+// person ID in the request by design — the row is resolved from the JWT, so
+// no caller can target another member.
+func (h *BudgetHandler) UpdateMyBudgetPreferences(ctx context.Context, req *connect.Request[v1.UpdateMyBudgetPreferencesRequest]) (*connect.Response[v1.UpdateMyBudgetPreferencesResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	m, svcErr := h.profiles.UpdateMyPreferences(
+		ctx,
+		profileID,
+		chartTypeToString(req.Msg.PlanChartType),
+		chartTypeToString(req.Msg.OverviewChartType),
+		userID,
+	)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.UpdateMyBudgetPreferencesResponse{Person: toProtoBudgetPerson(m)}), nil
 }
 
 func (h *BudgetHandler) RemoveBudgetPerson(ctx context.Context, req *connect.Request[v1.RemoveBudgetPersonRequest]) (*connect.Response[v1.RemoveBudgetPersonResponse], error) {
@@ -509,13 +534,46 @@ func toProtoBudgetPeriod(p db.BudgetPeriod) *v1.BudgetPeriod {
 
 func toProtoBudgetPerson(m db.BudgetToProfileMapping) *v1.BudgetPerson {
 	return &v1.BudgetPerson{
-		Id:              int64(m.ID),
-		BudgetProfileId: m.BudgetProfileID.String(),
-		UserName:        nullStr(m.UserName),
-		UserId:          nullUUID(m.UserID),
-		Color:           m.Color,
-		Role:            stringToBudgetRole(m.Role),
+		Id:                int64(m.ID),
+		BudgetProfileId:   m.BudgetProfileID.String(),
+		UserName:          nullStr(m.UserName),
+		UserId:            nullUUID(m.UserID),
+		Color:             m.Color,
+		Role:              stringToBudgetRole(m.Role),
+		PlanChartType:     stringToChartType(m.PlanChartType),
+		OverviewChartType: stringToChartType(m.OverviewChartType),
 	}
+}
+
+// NULL means the person never chose — the client falls back to its own
+// default, so it maps to UNSPECIFIED rather than to a concrete chart.
+func stringToChartType(s *string) v1.ChartType {
+	if s == nil {
+		return v1.ChartType_CHART_TYPE_UNSPECIFIED
+	}
+	switch *s {
+	case "pie":
+		return v1.ChartType_CHART_TYPE_PIE
+	case "bar":
+		return v1.ChartType_CHART_TYPE_BAR
+	default:
+		return v1.ChartType_CHART_TYPE_UNSPECIFIED
+	}
+}
+
+// UNSPECIFIED clears the stored preference back to "use the client default",
+// so it maps to NULL rather than being rejected.
+func chartTypeToString(c v1.ChartType) *string {
+	var s string
+	switch c {
+	case v1.ChartType_CHART_TYPE_PIE:
+		s = "pie"
+	case v1.ChartType_CHART_TYPE_BAR:
+		s = "bar"
+	default:
+		return nil
+	}
+	return &s
 }
 
 func toProtoIncomeSource(s db.IncomeSource) *v1.IncomeSource {

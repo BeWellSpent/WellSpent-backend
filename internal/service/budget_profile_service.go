@@ -618,6 +618,22 @@ func (s *BudgetProfileService) UpdatePerson(ctx context.Context, profileID uuid.
 	})
 }
 
+// UpdateMyPreferences writes the caller's own presentation settings. No role
+// check: a Viewer may still choose how they look at the budget. The row is
+// matched on userID in SQL, so this cannot reach another member — which is
+// also why the RPC takes no person ID.
+func (s *BudgetProfileService) UpdateMyPreferences(ctx context.Context, profileID uuid.UUID, planChart, overviewChart *string, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
+	if _, err := s.assertMember(ctx, profileID, userID); err != nil {
+		return db.BudgetToProfileMapping{}, err
+	}
+	return s.profiles.UpdatePersonPreferences(ctx, db.UpdateBudgetPersonPreferencesParams{
+		BudgetProfileID:   profileID,
+		UserID:            userID,
+		PlanChartType:     planChart,
+		OverviewChartType: overviewChart,
+	})
+}
+
 func (s *BudgetProfileService) UpdatePersonRole(ctx context.Context, profileID uuid.UUID, personID int32, role string, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
 	if _, err := s.assertAdmin(ctx, profileID, userID); err != nil {
 		return db.BudgetToProfileMapping{}, err

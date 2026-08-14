@@ -98,28 +98,28 @@ UPDATE budget_period SET is_archived = TRUE WHERE id = $1;
 -- name: AddBudgetPersonToProfile :one
 INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id, color, role)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role;
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type;
 
 -- name: ListBudgetPeopleByProfile :many
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 FROM budget_to_profile_mapping
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY id;
 
 -- name: GetBudgetPersonByProfileID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 FROM budget_to_profile_mapping
 WHERE id = $1 AND budget_profile_id = $2
 LIMIT 1;
 
 -- name: GetBudgetPersonByID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 FROM budget_to_profile_mapping
 WHERE id = $1
 LIMIT 1;
 
 -- name: GetBudgetPersonByUserID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 FROM budget_to_profile_mapping
 WHERE budget_profile_id = $1 AND user_id = $2 AND is_active = TRUE
 LIMIT 1;
@@ -128,19 +128,31 @@ LIMIT 1;
 UPDATE budget_to_profile_mapping
 SET color = sqlc.arg('color')
 WHERE id = sqlc.arg('id') AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role;
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type;
 
 -- name: UpdateBudgetPersonRole :one
 UPDATE budget_to_profile_mapping
 SET role = sqlc.arg('role')
 WHERE id = sqlc.arg('id') AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role;
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type;
+
+-- Writes the caller's own preferences. Matched on user_id, not a person id —
+-- the row is resolved from the authenticated user, so this cannot touch
+-- another member. No role check: any member may set their own view.
+-- name: UpdateBudgetPersonPreferences :one
+UPDATE budget_to_profile_mapping
+SET plan_chart_type = sqlc.narg('plan_chart_type'),
+    overview_chart_type = sqlc.narg('overview_chart_type')
+WHERE budget_profile_id = sqlc.arg('budget_profile_id')::uuid
+  AND user_id = sqlc.arg('user_id')::uuid
+  AND is_active = TRUE
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type;
 
 -- name: LinkBudgetPersonToUser :one
 UPDATE budget_to_profile_mapping
 SET user_id = sqlc.arg('user_id')::uuid, role = sqlc.arg('role')
 WHERE id = sqlc.arg('id') AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role;
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type;
 
 -- name: ExistsBudgetPersonInProfile :one
 SELECT EXISTS (
