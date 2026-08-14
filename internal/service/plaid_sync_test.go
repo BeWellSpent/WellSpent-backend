@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	plaidclient "github.com/BeWellSpent/wellspent-backend/internal/plaid"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
@@ -246,7 +247,11 @@ func TestSyncItem_AutoConfirmedMatch_ExcludesInsteadOfDeleting(t *testing.T) {
 			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
 				return []db.FixedExpense{makeFixedExpense(t, feID, "Creator Support", "15.00")}, nil
 			},
-			getUnpaidTransaction: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error) {
+			getUnpaidTransactionInPer: func(_ context.Context, arg db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error) {
+				// Scoped to the imported transaction's own period (issue #41).
+				if arg.BudgetPeriodID != periodID {
+					return db.Transaction{}, apperr.NotFound("transaction", arg.FixedExpenseID.String())
+				}
 				return db.Transaction{ID: unpaidTxID, BudgetPeriodID: &periodID, PlannedAmount: numericFromString(t, "15.00")}, nil
 			},
 		},
@@ -417,7 +422,11 @@ func TestSyncItem_NotifiesOnceForQueuedReviews_NotOncePerTransaction(t *testing.
 				fe.PaymentMethodID = &pmID
 				return []db.FixedExpense{fe}, nil
 			},
-			getUnpaidTransaction: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error) {
+			getUnpaidTransactionInPer: func(_ context.Context, arg db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error) {
+				// Scoped to the imported transaction's own period (issue #41).
+				if arg.BudgetPeriodID != periodID {
+					return db.Transaction{}, apperr.NotFound("transaction", arg.FixedExpenseID.String())
+				}
 				return db.Transaction{ID: unpaidTxID, BudgetPeriodID: &periodID, PlannedAmount: numericFromString(t, "15.00")}, nil
 			},
 		},
@@ -588,4 +597,237 @@ func TestListSyncWarnings_FlagsTheCallersOwnConnections(t *testing.T) {
 	assert.False(t, warnings[0].IsCurrentUser, "someone else's connections are named")
 	assert.Equal(t, int32(2), warnings[0].ConnectionCount)
 	assert.True(t, warnings[1].IsCurrentUser, "the caller's own get an upgrade prompt instead of a name")
+}
+
+// A transaction that posts after its period closes must not settle anything.
+// Before issue #41, the import was filed into the archived period it was dated
+// in, while the match target was drawn only from *live* periods newest-first —
+// so a late payment reached forward and marked the following period's bill
+// paid, and the review recording it landed in the archived period where
+// ListTransactionReviews filtered it out. Both clients then showed the bill as
+// paid with no link, and that period's real payment had nothing left to match.
+func TestSyncItem_ArchivedPeriodImport_DoesNotMarkAnythingPaid(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	archivedPeriodID := uuid.New()
+	feID := uuid.New()
+	encrypted, err := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, err)
+
+	var markedPaidCalled, excludedCalled, reviewCreated bool
+	var unpaidLookupCalled bool
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: "plaid-tx-late", Name: "Patreon", Amount: 15.00, Date: time.Now().AddDate(0, 0, -20)},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: archivedPeriodID, IsArchived: true}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{Plan: "pro"}, nil
+			},
+		},
+		&mockTransactionRepo{
+			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New()}, nil
+			},
+			markAsPaid: func(_ context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				markedPaidCalled = true
+				return db.Transaction{ID: arg.ID}, nil
+			},
+			setExcluded: func(_ context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
+				excludedCalled = true
+				return db.Transaction{ID: arg.ID}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{makeFixedExpense(t, feID, "Creator Support", "15.00")}, nil
+			},
+			getUnpaidTransactionInPer: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error) {
+				unpaidLookupCalled = true
+				return db.Transaction{}, apperr.NotFound("transaction", feID.String())
+			},
+		},
+		&mockTransactionReviewRepo{
+			listAliases: func(_ context.Context, _ uuid.UUID) ([]string, error) {
+				return []string{"Patreon"}, nil
+			},
+			create: func(_ context.Context, _, transactionID, matchedTransactionID uuid.UUID, _ float64) (db.TransactionReview, error) {
+				reviewCreated = true
+				return db.TransactionReview{ID: uuid.New(), TransactionID: transactionID, MatchedTransactionID: matchedTransactionID}, nil
+			},
+		},
+		testEncKey,
+	)
+
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item))
+
+	assert.False(t, unpaidLookupCalled, "must not even look for a target when the period is archived")
+	assert.False(t, markedPaidCalled, "must not mark a fixed expense paid from an archived period")
+	assert.False(t, excludedCalled, "must not exclude an import in an archived period")
+	assert.False(t, reviewCreated, "must not record a review against an archived period")
+}
+
+// The target must live in the imported transaction's own period. A perfect
+// alias+amount match against a bill in a *different* period is not a match.
+func TestSyncItem_NoTargetInOwnPeriod_DoesNotReachIntoAnother(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	otherPeriodID := uuid.New()
+	feID := uuid.New()
+	encrypted, err := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, err)
+
+	var markedPaidCalled, reviewCreated bool
+	var askedForPeriod uuid.UUID
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: "plaid-tx-1", Name: "Patreon", Amount: 15.00, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{Plan: "pro"}, nil
+			},
+		},
+		&mockTransactionRepo{
+			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New()}, nil
+			},
+			markAsPaid: func(_ context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				markedPaidCalled = true
+				return db.Transaction{ID: arg.ID}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{makeFixedExpense(t, feID, "Creator Support", "15.00")}, nil
+			},
+			// The only unpaid bill sits in another period, so this returns nothing.
+			getUnpaidTransactionInPer: func(_ context.Context, arg db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error) {
+				askedForPeriod = arg.BudgetPeriodID
+				return db.Transaction{}, apperr.NotFound("transaction", arg.FixedExpenseID.String())
+			},
+		},
+		&mockTransactionReviewRepo{
+			listAliases: func(_ context.Context, _ uuid.UUID) ([]string, error) {
+				return []string{"Patreon"}, nil
+			},
+			create: func(_ context.Context, _, transactionID, matchedTransactionID uuid.UUID, _ float64) (db.TransactionReview, error) {
+				reviewCreated = true
+				return db.TransactionReview{ID: uuid.New(), TransactionID: transactionID, MatchedTransactionID: matchedTransactionID}, nil
+			},
+		},
+		testEncKey,
+	)
+
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item))
+
+	assert.Equal(t, periodID, askedForPeriod, "must look for the target in the import's own period")
+	assert.NotEqual(t, otherPeriodID, askedForPeriod)
+	assert.False(t, markedPaidCalled, "no target in this period means nothing is marked paid")
+	assert.False(t, reviewCreated, "and no review is recorded")
+}
+
+// A half-applied auto-match must not be reported as a success. The bill is
+// marked paid, then the review insert fails — the run summary previously
+// counted this as auto-confirmed and logged success, which is why #41 could
+// only be diagnosed from the database rather than the logs.
+func TestSyncItem_AutoConfirmReviewFails_NotCountedAsConfirmed(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	feID := uuid.New()
+	unpaidTxID := uuid.New()
+	encrypted, err := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, err)
+
+	var excludedCalled bool
+	var notificationBody string
+
+	notifRepo := &mockNotifRepo{
+		create: func(_ context.Context, arg db.CreateNotificationParams) (db.Notification, error) {
+			notificationBody = arg.Body
+			return db.Notification{ID: uuid.New()}, nil
+		},
+	}
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: "plaid-tx-1", Name: "Patreon", Amount: 15.00, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{Plan: "pro"}, nil
+			},
+		},
+		&mockTransactionRepo{
+			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New()}, nil
+			},
+			markAsPaid: func(_ context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				return db.Transaction{ID: arg.ID}, nil
+			},
+			setExcluded: func(_ context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
+				excludedCalled = true
+				return db.Transaction{ID: arg.ID}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{makeFixedExpense(t, feID, "Creator Support", "15.00")}, nil
+			},
+			getUnpaidTransactionInPer: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error) {
+				return db.Transaction{ID: unpaidTxID, BudgetPeriodID: &periodID, PlannedAmount: numericFromString(t, "15.00")}, nil
+			},
+		},
+		&mockTransactionReviewRepo{
+			listAliases: func(_ context.Context, _ uuid.UUID) ([]string, error) {
+				return []string{"Patreon"}, nil
+			},
+			create: func(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+				return db.TransactionReview{}, errors.New("conflict")
+			},
+		},
+		testEncKey,
+	).WithNotifications(newTestNotifSvc(notifRepo, &mockBudgetProfileRepo{}))
+
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item))
+
+	assert.False(t, excludedCalled, "must stop once the review can't be recorded, rather than excluding an import with no link")
+	assert.NotContains(t, notificationBody, "auto-confirmed", "a failed match must not be reported to the user as auto-confirmed")
 }

@@ -22,8 +22,14 @@ JOIN transaction t  ON t.id  = tr.transaction_id
 JOIN transaction mt ON mt.id = tr.matched_transaction_id
 JOIN budget_period bp ON bp.id = tr.budget_period_id
 WHERE bp.budget_profile_id = $1
-  AND bp.is_archived = FALSE
   AND tr.status != 'dismissed'
+  -- Confirmed reviews are returned for every period, archived included: they
+  -- are what the clients use to hide the imported duplicate and draw the link
+  -- on the fixed row, so filtering them by period left archived months showing
+  -- unlinked duplicates and chevron-less paid rows. Pending ones stay
+  -- live-only — an archived period is read-only, so there is nothing the user
+  -- could do with one.
+  AND (tr.status = 'confirmed' OR bp.is_archived = FALSE)
 ORDER BY tr.match_score DESC;
 
 -- name: UpsertTransactionReview :one

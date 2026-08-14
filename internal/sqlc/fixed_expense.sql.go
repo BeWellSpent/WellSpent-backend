@@ -229,6 +229,53 @@ func (q *Queries) GetUnpaidTransactionByFixedExpense(ctx context.Context, arg Ge
 	return i, err
 }
 
+const getUnpaidTransactionByFixedExpenseInPeriod = `-- name: GetUnpaidTransactionByFixedExpenseInPeriod :one
+SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+       budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
+FROM transaction
+WHERE fixed_expense_id = $1::uuid
+  AND is_paid = FALSE
+  AND budget_period_id = $2::uuid
+ORDER BY date DESC NULLS LAST
+LIMIT 1
+`
+
+type GetUnpaidTransactionByFixedExpenseInPeriodParams struct {
+	FixedExpenseID uuid.UUID `json:"fixed_expense_id"`
+	BudgetPeriodID uuid.UUID `json:"budget_period_id"`
+}
+
+// Same as above but scoped to one period. Used by every auto-match path: a
+// payment may only settle the bill for the period it actually falls in.
+// GetUnpaidTransactionByFixedExpense searches every live period newest-first,
+// so a transaction imported into a closed period would reach forward and mark
+// the *next* period's bill paid (see issue #41).
+func (q *Queries) GetUnpaidTransactionByFixedExpenseInPeriod(ctx context.Context, arg GetUnpaidTransactionByFixedExpenseInPeriodParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, getUnpaidTransactionByFixedExpenseInPeriod, arg.FixedExpenseID, arg.BudgetPeriodID)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Amount,
+		&i.PlannedAmount,
+		&i.Date,
+		&i.RenewalDate,
+		&i.Recurring,
+		&i.BudgetPeriodID,
+		&i.CategoryID,
+		&i.PaymentMethodID,
+		&i.TransactionFrequencyID,
+		&i.TransactionTypeID,
+		&i.IsPaid,
+		&i.PaidDate,
+		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
+		&i.IsExcluded,
+	)
+	return i, err
+}
+
 const listFixedExpenses = `-- name: ListFixedExpenses :many
 SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments
 FROM fixed_expense

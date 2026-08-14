@@ -18,6 +18,7 @@ type FixedExpenseRepository interface {
 	UpdatePlannedAmount(ctx context.Context, arg db.UpdateFixedExpensePlannedAmountParams) error
 	Deactivate(ctx context.Context, arg db.DeactivateFixedExpenseParams) error
 	GetUnpaidTransaction(ctx context.Context, arg db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error)
+	GetUnpaidTransactionInPeriod(ctx context.Context, arg db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error)
 	DeleteUnpaidTransactions(ctx context.Context, arg db.DeleteUnpaidTransactionByFixedExpenseParams) error
 	UpdateTransactionFromFixedExpense(ctx context.Context, arg db.UpdateTransactionFromFixedExpenseParams) error
 	HasTransactionInMonth(ctx context.Context, arg db.FixedExpenseHasTransactionInMonthParams) (bool, error)
@@ -69,6 +70,14 @@ func (r *fixedExpenseRepository) Deactivate(ctx context.Context, arg db.Deactiva
 
 func (r *fixedExpenseRepository) GetUnpaidTransaction(ctx context.Context, arg db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error) {
 	tx, err := r.q.GetUnpaidTransactionByFixedExpense(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.Transaction{}, apperr.NotFound("transaction", arg.FixedExpenseID.String())
+	}
+	return tx, err
+}
+
+func (r *fixedExpenseRepository) GetUnpaidTransactionInPeriod(ctx context.Context, arg db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error) {
+	tx, err := r.q.GetUnpaidTransactionByFixedExpenseInPeriod(ctx, arg)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Transaction{}, apperr.NotFound("transaction", arg.FixedExpenseID.String())
 	}
