@@ -16,7 +16,7 @@ const addBudgetPersonToProfile = `-- name: AddBudgetPersonToProfile :one
 
 INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id, color, role)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 `
 
 type AddBudgetPersonToProfileParams struct {
@@ -45,6 +45,8 @@ func (q *Queries) AddBudgetPersonToProfile(ctx context.Context, arg AddBudgetPer
 		&i.IsActive,
 		&i.Color,
 		&i.Role,
+		&i.PlanChartType,
+		&i.OverviewChartType,
 	)
 	return i, err
 }
@@ -404,7 +406,7 @@ func (q *Queries) GetBudgetPeriodByID(ctx context.Context, id uuid.UUID) (Budget
 }
 
 const getBudgetPersonByID = `-- name: GetBudgetPersonByID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 FROM budget_to_profile_mapping
 WHERE id = $1
 LIMIT 1
@@ -421,12 +423,14 @@ func (q *Queries) GetBudgetPersonByID(ctx context.Context, id int32) (BudgetToPr
 		&i.IsActive,
 		&i.Color,
 		&i.Role,
+		&i.PlanChartType,
+		&i.OverviewChartType,
 	)
 	return i, err
 }
 
 const getBudgetPersonByProfileID = `-- name: GetBudgetPersonByProfileID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 FROM budget_to_profile_mapping
 WHERE id = $1 AND budget_profile_id = $2
 LIMIT 1
@@ -448,12 +452,14 @@ func (q *Queries) GetBudgetPersonByProfileID(ctx context.Context, arg GetBudgetP
 		&i.IsActive,
 		&i.Color,
 		&i.Role,
+		&i.PlanChartType,
+		&i.OverviewChartType,
 	)
 	return i, err
 }
 
 const getBudgetPersonByUserID = `-- name: GetBudgetPersonByUserID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 FROM budget_to_profile_mapping
 WHERE budget_profile_id = $1 AND user_id = $2 AND is_active = TRUE
 LIMIT 1
@@ -475,6 +481,8 @@ func (q *Queries) GetBudgetPersonByUserID(ctx context.Context, arg GetBudgetPers
 		&i.IsActive,
 		&i.Color,
 		&i.Role,
+		&i.PlanChartType,
+		&i.OverviewChartType,
 	)
 	return i, err
 }
@@ -558,7 +566,7 @@ const linkBudgetPersonToUser = `-- name: LinkBudgetPersonToUser :one
 UPDATE budget_to_profile_mapping
 SET user_id = $1::uuid, role = $2
 WHERE id = $3 AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 `
 
 type LinkBudgetPersonToUserParams struct {
@@ -578,12 +586,14 @@ func (q *Queries) LinkBudgetPersonToUser(ctx context.Context, arg LinkBudgetPers
 		&i.IsActive,
 		&i.Color,
 		&i.Role,
+		&i.PlanChartType,
+		&i.OverviewChartType,
 	)
 	return i, err
 }
 
 const listBudgetPeopleByProfile = `-- name: ListBudgetPeopleByProfile :many
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 FROM budget_to_profile_mapping
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY id
@@ -606,6 +616,8 @@ func (q *Queries) ListBudgetPeopleByProfile(ctx context.Context, budgetProfileID
 			&i.IsActive,
 			&i.Color,
 			&i.Role,
+			&i.PlanChartType,
+			&i.OverviewChartType,
 		); err != nil {
 			return nil, err
 		}
@@ -942,7 +954,7 @@ const updateBudgetPerson = `-- name: UpdateBudgetPerson :one
 UPDATE budget_to_profile_mapping
 SET color = $1
 WHERE id = $2 AND budget_profile_id = $3::uuid AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 `
 
 type UpdateBudgetPersonParams struct {
@@ -962,6 +974,50 @@ func (q *Queries) UpdateBudgetPerson(ctx context.Context, arg UpdateBudgetPerson
 		&i.IsActive,
 		&i.Color,
 		&i.Role,
+		&i.PlanChartType,
+		&i.OverviewChartType,
+	)
+	return i, err
+}
+
+const updateBudgetPersonPreferences = `-- name: UpdateBudgetPersonPreferences :one
+UPDATE budget_to_profile_mapping
+SET plan_chart_type = $1,
+    overview_chart_type = $2
+WHERE budget_profile_id = $3::uuid
+  AND user_id = $4::uuid
+  AND is_active = TRUE
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
+`
+
+type UpdateBudgetPersonPreferencesParams struct {
+	PlanChartType     *string   `json:"plan_chart_type"`
+	OverviewChartType *string   `json:"overview_chart_type"`
+	BudgetProfileID   uuid.UUID `json:"budget_profile_id"`
+	UserID            uuid.UUID `json:"user_id"`
+}
+
+// Writes the caller's own preferences. Matched on user_id, not a person id —
+// the row is resolved from the authenticated user, so this cannot touch
+// another member. No role check: any member may set their own view.
+func (q *Queries) UpdateBudgetPersonPreferences(ctx context.Context, arg UpdateBudgetPersonPreferencesParams) (BudgetToProfileMapping, error) {
+	row := q.db.QueryRow(ctx, updateBudgetPersonPreferences,
+		arg.PlanChartType,
+		arg.OverviewChartType,
+		arg.BudgetProfileID,
+		arg.UserID,
+	)
+	var i BudgetToProfileMapping
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetProfileID,
+		&i.UserName,
+		&i.UserID,
+		&i.IsActive,
+		&i.Color,
+		&i.Role,
+		&i.PlanChartType,
+		&i.OverviewChartType,
 	)
 	return i, err
 }
@@ -970,7 +1026,7 @@ const updateBudgetPersonRole = `-- name: UpdateBudgetPersonRole :one
 UPDATE budget_to_profile_mapping
 SET role = $1
 WHERE id = $2 AND budget_profile_id = $3::uuid AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
 `
 
 type UpdateBudgetPersonRoleParams struct {
@@ -990,6 +1046,8 @@ func (q *Queries) UpdateBudgetPersonRole(ctx context.Context, arg UpdateBudgetPe
 		&i.IsActive,
 		&i.Color,
 		&i.Role,
+		&i.PlanChartType,
+		&i.OverviewChartType,
 	)
 	return i, err
 }

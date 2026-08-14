@@ -42,6 +42,7 @@ type mockBudgetProfileRepo struct {
 	addPerson                     func(context.Context, db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error)
 	updatePerson                  func(context.Context, db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error)
 	updatePersonRole              func(context.Context, db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error)
+	updatePersonPreferences       func(context.Context, db.UpdateBudgetPersonPreferencesParams) (db.BudgetToProfileMapping, error)
 	linkPersonToUser              func(context.Context, db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error)
 	softRemovePerson              func(context.Context, db.SoftRemovePersonFromProfileParams) error
 	softRemovePersonAndReassign   func(context.Context, db.SoftRemovePersonAndReassignFromProfileParams) error
@@ -192,6 +193,12 @@ func (m *mockBudgetProfileRepo) UpdatePersonRole(ctx context.Context, arg db.Upd
 		return m.updatePersonRole(ctx, arg)
 	}
 	return db.BudgetToProfileMapping{ID: arg.ID, Role: arg.Role}, nil
+}
+func (m *mockBudgetProfileRepo) UpdatePersonPreferences(ctx context.Context, arg db.UpdateBudgetPersonPreferencesParams) (db.BudgetToProfileMapping, error) {
+	if m.updatePersonPreferences != nil {
+		return m.updatePersonPreferences(ctx, arg)
+	}
+	return db.BudgetToProfileMapping{PlanChartType: arg.PlanChartType, OverviewChartType: arg.OverviewChartType}, nil
 }
 func (m *mockBudgetProfileRepo) LinkPersonToUser(ctx context.Context, arg db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error) {
 	if m.linkPersonToUser != nil {
@@ -1805,4 +1812,93 @@ func TestAddIncomeSource_LifetimeTier_AllowsMoreThanTwo(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Freelance", src.Name)
+}
+
+// Preferences are the caller's own view settings, so the row is matched on
+// user ID rather than a person ID — there is no request shape that could
+// write another member's. This asserts the userID actually reaches the query.
+func TestUpdateMyPreferences_ScopesToCallerNotAPersonID(t *testing.T) {
+	profileID := uuid.New()
+	ownerID := uuid.New()
+	callerID := uuid.New()
+
+	var gotParams db.UpdateBudgetPersonPreferencesParams
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+		},
+		getPersonByUserID: func(_ context.Context, _ uuid.UUID, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
+			return db.BudgetToProfileMapping{UserID: &userID, Role: "viewer"}, nil
+		},
+		updatePersonPreferences: func(_ context.Context, arg db.UpdateBudgetPersonPreferencesParams) (db.BudgetToProfileMapping, error) {
+			gotParams = arg
+			return db.BudgetToProfileMapping{PlanChartType: arg.PlanChartType, OverviewChartType: arg.OverviewChartType}, nil
+		},
+	}
+
+	svc := NewBudgetProfileService(profileRepo, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockUserRepo{})
+
+	pie, bar := "pie", "bar"
+	m, err := svc.UpdateMyPreferences(context.Background(), profileID, &pie, &bar, callerID)
+
+	require.NoError(t, err, "a Viewer must be able to set their own presentation preferences")
+	assert.Equal(t, callerID, gotParams.UserID, "must scope the write to the caller")
+	assert.Equal(t, profileID, gotParams.BudgetProfileID)
+	require.NotNil(t, m.PlanChartType)
+	assert.Equal(t, "pie", *m.PlanChartType)
+	require.NotNil(t, m.OverviewChartType)
+	assert.Equal(t, "bar", *m.OverviewChartType)
+}
+
+// A non-member is refused before any write is attempted.
+func TestUpdateMyPreferences_ForbiddenForNonMember(t *testing.T) {
+	profileID := uuid.New()
+	var wrote bool
+
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil
+		},
+		getPersonByUserID: func(_ context.Context, _, _ uuid.UUID) (db.BudgetToProfileMapping, error) {
+			return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", "")
+		},
+		updatePersonPreferences: func(_ context.Context, arg db.UpdateBudgetPersonPreferencesParams) (db.BudgetToProfileMapping, error) {
+			wrote = true
+			return db.BudgetToProfileMapping{}, nil
+		},
+	}
+
+	svc := NewBudgetProfileService(profileRepo, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockUserRepo{})
+
+	pie := "pie"
+	_, err := svc.UpdateMyPreferences(context.Background(), profileID, &pie, nil, uuid.New())
+
+	require.Error(t, err)
+	assert.False(t, wrote, "must not attempt a write for a non-member")
+}
+
+// UNSPECIFIED clears back to "use the client default" rather than being
+// rejected, so a nil preference must reach the query as NULL.
+func TestUpdateMyPreferences_NilClearsThePreference(t *testing.T) {
+	profileID := uuid.New()
+	ownerID := uuid.New()
+
+	var gotParams db.UpdateBudgetPersonPreferencesParams
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+		},
+		updatePersonPreferences: func(_ context.Context, arg db.UpdateBudgetPersonPreferencesParams) (db.BudgetToProfileMapping, error) {
+			gotParams = arg
+			return db.BudgetToProfileMapping{}, nil
+		},
+	}
+
+	svc := NewBudgetProfileService(profileRepo, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockUserRepo{})
+
+	_, err := svc.UpdateMyPreferences(context.Background(), profileID, nil, nil, ownerID)
+
+	require.NoError(t, err)
+	assert.Nil(t, gotParams.PlanChartType)
+	assert.Nil(t, gotParams.OverviewChartType)
 }
