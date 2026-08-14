@@ -293,20 +293,43 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 			continue
 		}
 
-		unpaid, upErr := s.fixedExpenses.GetUnpaidTransaction(ctx, db.GetUnpaidTransactionByFixedExpenseParams{
-			FixedExpenseID:  bestFE.ID,
-			BudgetProfileID: item.BudgetProfileID,
+		// A transaction that lands in a closed period may not settle anything:
+		// marking paid and excluding are both blocked on archived periods
+		// everywhere else (see docs/features/budget-list-view-rework.md), so the
+		// sync must not do it either. It imports and stops.
+		if period.IsArchived {
+			byAccount[accountName]++
+			log.Printf("plaid item %s: imported %q into archived period %s — not matching", item.ID, tx.Name, periodID)
+			continue
+		}
+
+		// Scoped to this transaction's own period. Searching every live period
+		// let a payment reach forward and mark the next period's bill paid
+		// (issue #41).
+		unpaid, upErr := s.fixedExpenses.GetUnpaidTransactionInPeriod(ctx, db.GetUnpaidTransactionByFixedExpenseInPeriodParams{
+			FixedExpenseID: bestFE.ID,
+			BudgetPeriodID: periodID,
 		})
 		hasUnpaidTarget := upErr == nil && unpaid.BudgetPeriodID != nil
 
 		switch {
 		case bestAliasHit && bestAmountOK && hasUnpaidTarget:
-			_, _ = s.transactions.MarkAsPaid(ctx, db.MarkTransactionAsPaidParams{
+			// Every step below is reported as one outcome. Previously these
+			// errors were discarded and the success counter/log sat outside the
+			// review guard, so a half-applied match — bill marked paid, link
+			// never recorded — was indistinguishable from a clean one in both
+			// the run summary and the per-budget notification. That is why
+			// issue #41 could only be diagnosed from the database.
+			if _, mErr := s.transactions.MarkAsPaid(ctx, db.MarkTransactionAsPaidParams{
 				ID:             unpaid.ID,
 				BudgetPeriodID: *unpaid.BudgetPeriodID,
 				Amount:         amount, // use actual Plaid amount, not template planned amount
 				PaidDate:       unpaid.Date,
-			})
+			}); mErr != nil {
+				log.Printf("plaid item %s: auto-confirm %q: mark paid: %v", item.ID, tx.Name, mErr)
+				byAccount[accountName]++
+				continue
+			}
 			// Record the auto-match as a confirmed review — same as a user
 			// manually confirming one from the To Review tab — so it can be
 			// found and undone if the fixed expense is later unmarked as
@@ -314,14 +337,26 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 			// transaction from totals instead of deleting it outright, so
 			// it stays visible and recoverable rather than being
 			// permanently lost, matching ConfirmTransactionReview.
-			if review, rErr := s.reviews.Create(ctx, periodID, inserted.ID, unpaid.ID, bestScore); rErr == nil {
-				_ = s.reviews.UpdateStatus(ctx, review.ID, "confirmed")
+			review, rErr := s.reviews.Create(ctx, periodID, inserted.ID, unpaid.ID, bestScore)
+			if rErr != nil {
+				log.Printf("plaid item %s: auto-confirm %q: create review: %v", item.ID, tx.Name, rErr)
+				byAccount[accountName]++
+				continue
 			}
-			_, _ = s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
+			if uErr := s.reviews.UpdateStatus(ctx, review.ID, "confirmed"); uErr != nil {
+				log.Printf("plaid item %s: auto-confirm %q: confirm review %s: %v", item.ID, tx.Name, review.ID, uErr)
+				byAccount[accountName]++
+				continue
+			}
+			if _, eErr := s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
 				ID:             inserted.ID,
 				BudgetPeriodID: periodID,
 				Excluded:       true,
-			})
+			}); eErr != nil {
+				log.Printf("plaid item %s: auto-confirm %q: exclude import: %v", item.ID, tx.Name, eErr)
+				byAccount[accountName]++
+				continue
+			}
 			autoConfirmed++
 			consumed = true
 			log.Printf("plaid item %s: auto-confirmed %q (alias+amount → %q)", item.ID, tx.Name, bestFE.Name)

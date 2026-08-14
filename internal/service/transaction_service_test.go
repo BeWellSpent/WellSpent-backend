@@ -59,6 +59,7 @@ type mockFixedExpenseRepo struct {
 	updatePlannedAmount        func(context.Context, db.UpdateFixedExpensePlannedAmountParams) error
 	deactivate                 func(context.Context, db.DeactivateFixedExpenseParams) error
 	getUnpaidTransaction       func(context.Context, db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error)
+	getUnpaidTransactionInPer  func(context.Context, db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error)
 	deleteUnpaidTransactions   func(context.Context, db.DeleteUnpaidTransactionByFixedExpenseParams) error
 	updateTransactionFromFixed func(context.Context, db.UpdateTransactionFromFixedExpenseParams) error
 	hasTransactionInMonth      func(context.Context, db.FixedExpenseHasTransactionInMonthParams) (bool, error)
@@ -104,6 +105,12 @@ func (m *mockFixedExpenseRepo) Deactivate(ctx context.Context, arg db.Deactivate
 func (m *mockFixedExpenseRepo) GetUnpaidTransaction(ctx context.Context, arg db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error) {
 	if m.getUnpaidTransaction != nil {
 		return m.getUnpaidTransaction(ctx, arg)
+	}
+	return db.Transaction{}, nil
+}
+func (m *mockFixedExpenseRepo) GetUnpaidTransactionInPeriod(ctx context.Context, arg db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error) {
+	if m.getUnpaidTransactionInPer != nil {
+		return m.getUnpaidTransactionInPer(ctx, arg)
 	}
 	return db.Transaction{}, nil
 }
@@ -1695,7 +1702,11 @@ func TestCreateTransaction_QueuesReview_WhenScoreOver80(t *testing.T) {
 				}
 				return []db.FixedExpense{fe}, nil
 			},
-			getUnpaidTransaction: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error) {
+			getUnpaidTransactionInPer: func(_ context.Context, arg db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error) {
+				// The lookup must be scoped to the transaction's own period.
+				if arg.BudgetPeriodID != periodID {
+					return db.Transaction{}, apperr.NotFound("transaction", arg.FixedExpenseID.String())
+				}
 				return db.Transaction{ID: unpaidTxID, BudgetPeriodID: &periodID}, nil
 			},
 		},

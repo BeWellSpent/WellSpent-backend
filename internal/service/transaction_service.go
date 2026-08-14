@@ -281,9 +281,11 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 	if bestScore < 80 || bestFE == nil {
 		return
 	}
-	unpaid, upErr := s.fixedExpenses.GetUnpaidTransaction(ctx, db.GetUnpaidTransactionByFixedExpenseParams{
-		FixedExpenseID:  bestFE.ID,
-		BudgetProfileID: period.BudgetProfileID,
+	// Same-period only, matching MarkTransactionForReview's guard — a review
+	// linking two different periods can't be rendered by either client.
+	unpaid, upErr := s.fixedExpenses.GetUnpaidTransactionInPeriod(ctx, db.GetUnpaidTransactionByFixedExpenseInPeriodParams{
+		FixedExpenseID: bestFE.ID,
+		BudgetPeriodID: periodID,
 	})
 	if upErr != nil || unpaid.BudgetPeriodID == nil {
 		return

@@ -74,6 +74,22 @@ WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
 ORDER BY date DESC NULLS LAST
 LIMIT 1;
 
+-- Same as above but scoped to one period. Used by every auto-match path: a
+-- payment may only settle the bill for the period it actually falls in.
+-- GetUnpaidTransactionByFixedExpense searches every live period newest-first,
+-- so a transaction imported into a closed period would reach forward and mark
+-- the *next* period's bill paid (see issue #41).
+-- name: GetUnpaidTransactionByFixedExpenseInPeriod :one
+SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+       budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
+FROM transaction
+WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
+  AND is_paid = FALSE
+  AND budget_period_id = sqlc.arg('budget_period_id')::uuid
+ORDER BY date DESC NULLS LAST
+LIMIT 1;
+
 -- name: DeleteUnpaidTransactionByFixedExpense :exec
 DELETE FROM transaction
 WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
