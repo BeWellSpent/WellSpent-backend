@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -228,14 +229,17 @@ func TestGetSummary_FixedFallback_DueThisPeriod_CountsTowardCommitted(t *testing
 	assert.Equal(t, int64(0), resp.OverviewCategories[0].ActualTotal.Units, "unpaid Fixed transaction must not count as actual spend")
 }
 
-// TestGetSummary_NotDueFixedTemplate_VisibleButExcludedFromCommitted covers
-// the asymmetry that exists in the current (correct) web reference: an
-// active Fixed expense template not yet spawned as a transaction this
-// period shows up as a planned amount on both tabs, but only Overview's
-// total_planned counts it — the Plan tab's total_committed deliberately
-// excludes it since the obligation isn't due against this period's income
-// yet.
-func TestGetSummary_NotDueFixedTemplate_VisibleButExcludedFromCommitted(t *testing.T) {
+// TestGetSummary_NotDueFixedTemplate_InformationalOnly pins issue #48: an
+// active Fixed expense template not yet spawned as a transaction this period
+// is an obligation this period doesn't owe. It stays visible on the Plan tab
+// so the category doesn't vanish between due periods, but its amount travels
+// in not_due_planned_total and counts toward nothing.
+//
+// This replaces an earlier test that asserted the opposite — that the amount
+// fed planned_total on both tabs and Overview's total_planned but not the
+// Plan tab's total_committed. That asymmetry was inherited from web's
+// pre-RPC implementation and is what the issue reported.
+func TestGetSummary_NotDueFixedTemplate_InformationalOnly(t *testing.T) {
 	profileID := uuid.New()
 	periodID := uuid.New()
 	userID := uuid.New()
@@ -267,12 +271,119 @@ func TestGetSummary_NotDueFixedTemplate_VisibleButExcludedFromCommitted(t *testi
 	require.NoError(t, err)
 
 	require.Len(t, resp.PlanCategories, 1, "not-due Fixed expense category must still be visible on the Plan tab")
-	assert.Equal(t, int64(20), resp.PlanCategories[0].PlannedTotal.Units)
-	assert.Equal(t, int64(0), resp.TotalCommitted.Units, "not-yet-due Fixed obligation must not count toward committed/remainder")
+	row := resp.PlanCategories[0]
+	assert.Equal(t, int64(0), row.PlannedTotal.Units, "a bill that isn't due yet is not planned spending for this period")
+	require.NotNil(t, row.NotDuePlannedTotal, "the amount must still reach the client as informational")
+	assert.Equal(t, int64(20), row.NotDuePlannedTotal.Units)
+	assert.NotNil(t, row.NextDueDate, "the caption needs a date to be worth showing")
 
-	require.Len(t, resp.OverviewCategories, 1)
-	assert.Equal(t, int64(20), resp.OverviewCategories[0].PlannedTotal.Units)
-	assert.Equal(t, int64(20), resp.TotalPlanned.Units, "Overview's total_planned DOES include the not-due fallback")
+	assert.Equal(t, int64(0), resp.TotalCommitted.Units, "not-yet-due Fixed obligation must not count toward committed/remainder")
+	assert.Equal(t, int64(0), resp.TotalPlanned.Units, "nor toward the Overview's planned total")
+	assert.Equal(t, int64(0), resp.RemainderPlanned.Units)
+
+	assert.Empty(t, resp.OverviewCategories, "with no actual spend and no plan, there is nothing to show on the Overview tab")
+}
+
+// TestGetSummary_NotDueFixedTemplate_EarliestDueDateWins covers a category
+// with several upcoming templates: the caption answers "when does this
+// category next cost me anything", so the nearest date is the useful one.
+func TestGetSummary_NotDueFixedTemplate_EarliestDueDateWins(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+	userID := uuid.New()
+	catID := int32(3)
+
+	svc := newTestExpenseSummarySvc(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				return nil, nil
+			},
+		},
+		nil,
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{
+					{CategoryID: &catID, PlannedAmount: n(t, "20.00"), IsActive: true, DayOfMonth: 28},
+					{CategoryID: &catID, PlannedAmount: n(t, "5.00"), IsActive: true, DayOfMonth: 2},
+				}, nil
+			},
+		},
+	)
+
+	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	require.NoError(t, err)
+
+	require.Len(t, resp.PlanCategories, 1)
+	row := resp.PlanCategories[0]
+	require.NotNil(t, row.NotDuePlannedTotal)
+	assert.Equal(t, int64(25), row.NotDuePlannedTotal.Units, "both upcoming templates in the category are summed")
+
+	require.NotNil(t, row.NextDueDate)
+	earliest := FixedExpenseNextDueDate(db.FixedExpense{DayOfMonth: 2}, time.Now().UTC())
+	assert.Equal(t, earliest.Unix(), row.NextDueDate.AsTime().Unix(), "the nearer of the two due dates wins")
+}
+
+// TestGetSummary_PlanRowsSumToTotalCommitted is the invariant issue #48 broke:
+// a user reading the Plan tab adds up the rows and expects the total. With
+// the not-due tier feeding rows but not the total, they didn't match.
+func TestGetSummary_PlanRowsSumToTotalCommitted(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+	userID := uuid.New()
+	allocCat := int32(1)
+	dueCat := int32(2)
+	notDueCat := int32(3)
+	methodID := uuid.New()
+
+	svc := newTestExpenseSummarySvc(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				txType := fixedTransactionTypeID
+				return []db.Transaction{{
+					CategoryID: &dueCat, PaymentMethodID: &methodID,
+					TransactionTypeID: &txType,
+					PlannedAmount:     n(t, "30.00"), Amount: n(t, "0.00"),
+				}}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.ExpenseAllocation, error) {
+				return []db.ExpenseAllocation{{CategoryID: allocCat, PlannedAmount: n(t, "100.00")}}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{{CategoryID: &notDueCat, PlannedAmount: n(t, "20.00"), IsActive: true}}, nil
+			},
+		},
+	)
+
+	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	require.NoError(t, err)
+
+	require.Len(t, resp.PlanCategories, 3, "the not-due category is still listed, just at zero")
+	var sum int64
+	for _, row := range resp.PlanCategories {
+		sum += row.PlannedTotal.Units
+	}
+	assert.Equal(t, int64(130), sum)
+	assert.Equal(t, sum, resp.TotalCommitted.Units, "the rows must add up to the total shown beneath them")
 }
 
 func TestGetSummary_SavingsCategory_UsesSavingsSourceSum(t *testing.T) {

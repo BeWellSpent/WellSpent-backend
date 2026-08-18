@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"math/big"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -130,6 +131,10 @@ type expenseSummaryData struct {
 	hasIncomeCategory  bool
 	savingsCategoryID  int32
 	hasSavingsCategory bool
+	// now anchors FixedExpenseNextDueDate for the not-due informational
+	// field. Carried on the data rather than read inside the calculator so
+	// the calculator stays pure and a test can pin the clock.
+	now time.Time
 }
 
 func (s *ExpenseSummaryService) loadData(ctx context.Context, period db.BudgetPeriod) (*expenseSummaryData, error) {
@@ -186,6 +191,7 @@ func (s *ExpenseSummaryService) loadData(ctx context.Context, period db.BudgetPe
 		hasIncomeCategory:   hasIncomeCategory,
 		savingsCategoryID:   savingsCategoryID,
 		hasSavingsCategory:  hasSavingsCategory,
+		now:                 time.Now().UTC(),
 	}, nil
 }
 
