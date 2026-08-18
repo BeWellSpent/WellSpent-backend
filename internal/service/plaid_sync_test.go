@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	plaidclient "github.com/BeWellSpent/wellspent-backend/internal/plaid"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -221,10 +221,10 @@ func TestSyncItem_AutoConfirmedMatch_ExcludesInsteadOfDeleting(t *testing.T) {
 			},
 		},
 		&mockUserRepo{
-				getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
-					return db.User{Plan: "pro"}, nil
-				},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{Plan: "pro"}, nil
 			},
+		},
 		&mockTransactionRepo{
 			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
 				return db.Transaction{ID: insertedTxID}, nil

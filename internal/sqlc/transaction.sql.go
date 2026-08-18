@@ -12,6 +12,50 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearTransactionInstallmentPlan = `-- name: ClearTransactionInstallmentPlan :one
+UPDATE transaction
+SET is_excluded = FALSE,
+    installment_fixed_expense_id = NULL
+WHERE id = $1::uuid
+  AND budget_period_id = $2::uuid
+RETURNING id, name, amount, planned_amount, date, renewal_date,
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
+`
+
+type ClearTransactionInstallmentPlanParams struct {
+	ID             uuid.UUID `json:"id"`
+	BudgetPeriodID uuid.UUID `json:"budget_period_id"`
+}
+
+// Reverses an installment split: the purchase counts again and forgets the plan
+// it briefly became. Paired with deleting the plan and its spawned payments in
+// the service (issue #54).
+func (q *Queries) ClearTransactionInstallmentPlan(ctx context.Context, arg ClearTransactionInstallmentPlanParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, clearTransactionInstallmentPlan, arg.ID, arg.BudgetPeriodID)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Amount,
+		&i.PlannedAmount,
+		&i.Date,
+		&i.RenewalDate,
+		&i.BudgetPeriodID,
+		&i.CategoryID,
+		&i.PaymentMethodID,
+		&i.TransactionFrequencyID,
+		&i.TransactionTypeID,
+		&i.IsPaid,
+		&i.PaidDate,
+		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
+		&i.IsExcluded,
+		&i.InstallmentFixedExpenseID,
+	)
+	return i, err
+}
+
 const createCategory = `-- name: CreateCategory :one
 INSERT INTO category (name, type_id, user_id, color)
 VALUES (
@@ -138,11 +182,11 @@ func (q *Queries) CreatePaymentMethodFromPlaid(ctx context.Context, arg CreatePa
 
 const createTransaction = `-- name: CreateTransaction :one
 INSERT INTO transaction (
-    name, amount, planned_amount, date, renewal_date, recurring,
+    name, amount, planned_amount, date, renewal_date,
     budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
     fixed_expense_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 `
@@ -153,7 +197,6 @@ type CreateTransactionParams struct {
 	PlannedAmount          pgtype.Numeric `json:"planned_amount"`
 	Date                   pgtype.Date    `json:"date"`
 	RenewalDate            pgtype.Date    `json:"renewal_date"`
-	Recurring              *bool          `json:"recurring"`
 	BudgetPeriodID         *uuid.UUID     `json:"budget_period_id"`
 	CategoryID             *int32         `json:"category_id"`
 	PaymentMethodID        *uuid.UUID     `json:"payment_method_id"`
@@ -169,7 +212,6 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		arg.PlannedAmount,
 		arg.Date,
 		arg.RenewalDate,
-		arg.Recurring,
 		arg.BudgetPeriodID,
 		arg.CategoryID,
 		arg.PaymentMethodID,
@@ -185,7 +227,6 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
@@ -204,11 +245,11 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 const createTransactionFromPlaid = `-- name: CreateTransactionFromPlaid :one
 
 INSERT INTO transaction (
-    name, amount, planned_amount, date, renewal_date, recurring,
+    name, amount, planned_amount, date, renewal_date,
     budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
     fixed_expense_id, plaid_transaction_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 `
@@ -219,7 +260,6 @@ type CreateTransactionFromPlaidParams struct {
 	PlannedAmount          pgtype.Numeric `json:"planned_amount"`
 	Date                   pgtype.Date    `json:"date"`
 	RenewalDate            pgtype.Date    `json:"renewal_date"`
-	Recurring              *bool          `json:"recurring"`
 	BudgetPeriodID         *uuid.UUID     `json:"budget_period_id"`
 	CategoryID             *int32         `json:"category_id"`
 	PaymentMethodID        *uuid.UUID     `json:"payment_method_id"`
@@ -237,7 +277,6 @@ func (q *Queries) CreateTransactionFromPlaid(ctx context.Context, arg CreateTran
 		arg.PlannedAmount,
 		arg.Date,
 		arg.RenewalDate,
-		arg.Recurring,
 		arg.BudgetPeriodID,
 		arg.CategoryID,
 		arg.PaymentMethodID,
@@ -254,7 +293,6 @@ func (q *Queries) CreateTransactionFromPlaid(ctx context.Context, arg CreateTran
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
@@ -411,6 +449,15 @@ func (q *Queries) DeleteTransactionByPlaidID(ctx context.Context, plaidTransacti
 	return err
 }
 
+const deleteTransactionsByFixedExpense = `-- name: DeleteTransactionsByFixedExpense :exec
+DELETE FROM transaction WHERE fixed_expense_id = $1::uuid
+`
+
+func (q *Queries) DeleteTransactionsByFixedExpense(ctx context.Context, fixedExpenseID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteTransactionsByFixedExpense, fixedExpenseID)
+	return err
+}
+
 const existsTransactionByPlaidID = `-- name: ExistsTransactionByPlaidID :one
 SELECT EXISTS (
     SELECT 1 FROM transaction WHERE plaid_transaction_id = $1
@@ -535,7 +582,7 @@ func (q *Queries) GetPaymentMethodByUserAndName(ctx context.Context, arg GetPaym
 }
 
 const getTransactionByID = `-- name: GetTransactionByID :one
-SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
        is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 FROM transaction
@@ -553,7 +600,6 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
@@ -570,7 +616,7 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 }
 
 const getTransactionByPlaidID = `-- name: GetTransactionByPlaidID :one
-SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
        is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 FROM transaction
@@ -588,7 +634,6 @@ func (q *Queries) GetTransactionByPlaidID(ctx context.Context, plaidTransactionI
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
@@ -882,7 +927,7 @@ func (q *Queries) ListTransactionTypes(ctx context.Context) ([]TransactionType, 
 }
 
 const listTransactions = `-- name: ListTransactions :many
-SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
        is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 FROM transaction
@@ -919,7 +964,53 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.PlannedAmount,
 			&i.Date,
 			&i.RenewalDate,
-			&i.Recurring,
+			&i.BudgetPeriodID,
+			&i.CategoryID,
+			&i.PaymentMethodID,
+			&i.TransactionFrequencyID,
+			&i.TransactionTypeID,
+			&i.IsPaid,
+			&i.PaidDate,
+			&i.FixedExpenseID,
+			&i.PlaidTransactionID,
+			&i.IsExcluded,
+			&i.InstallmentFixedExpenseID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTransactionsByFixedExpense = `-- name: ListTransactionsByFixedExpense :many
+SELECT id, name, amount, planned_amount, date, renewal_date,
+       budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
+FROM transaction
+WHERE fixed_expense_id = $1::uuid
+`
+
+// Every transaction spawned by a fixed-expense template, across all periods.
+func (q *Queries) ListTransactionsByFixedExpense(ctx context.Context, fixedExpenseID uuid.UUID) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, listTransactionsByFixedExpense, fixedExpenseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Transaction
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Amount,
+			&i.PlannedAmount,
+			&i.Date,
+			&i.RenewalDate,
 			&i.BudgetPeriodID,
 			&i.CategoryID,
 			&i.PaymentMethodID,
@@ -949,7 +1040,7 @@ SET is_paid = TRUE,
     amount = $2
 WHERE id = $3::uuid
   AND budget_period_id = $4::uuid
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 `
@@ -976,7 +1067,6 @@ func (q *Queries) MarkTransactionAsPaid(ctx context.Context, arg MarkTransaction
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
@@ -997,7 +1087,7 @@ UPDATE transaction
 SET is_excluded = $1::bool
 WHERE id = $2::uuid
   AND budget_period_id = $3::uuid
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 `
@@ -1018,7 +1108,6 @@ func (q *Queries) SetTransactionExcluded(ctx context.Context, arg SetTransaction
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
@@ -1040,7 +1129,7 @@ SET is_excluded = TRUE,
     installment_fixed_expense_id = $1::uuid
 WHERE id = $2::uuid
   AND budget_period_id = $3::uuid
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 `
@@ -1066,7 +1155,6 @@ func (q *Queries) SetTransactionInstallmentPlan(ctx context.Context, arg SetTran
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
@@ -1089,7 +1177,7 @@ SET is_paid = FALSE,
     amount = planned_amount
 WHERE id = $1::uuid
   AND budget_period_id = $2::uuid
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 `
@@ -1109,7 +1197,6 @@ func (q *Queries) UnmarkTransactionAsPaid(ctx context.Context, arg UnmarkTransac
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
@@ -1257,10 +1344,10 @@ func (q *Queries) UpdateSystemCategoryColor(ctx context.Context, arg UpdateSyste
 
 const updateTransaction = `-- name: UpdateTransaction :one
 UPDATE transaction
-SET name = $2, amount = $3, planned_amount = $4, date = $5, recurring = $6,
-    category_id = $7, payment_method_id = $8, transaction_frequency_id = $9, transaction_type_id = $10
+SET name = $2, amount = $3, planned_amount = $4, date = $5,
+    category_id = $6, payment_method_id = $7, transaction_frequency_id = $8, transaction_type_id = $9
 WHERE id = $1
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 `
@@ -1271,7 +1358,6 @@ type UpdateTransactionParams struct {
 	Amount                 pgtype.Numeric `json:"amount"`
 	PlannedAmount          pgtype.Numeric `json:"planned_amount"`
 	Date                   pgtype.Date    `json:"date"`
-	Recurring              *bool          `json:"recurring"`
 	CategoryID             *int32         `json:"category_id"`
 	PaymentMethodID        *uuid.UUID     `json:"payment_method_id"`
 	TransactionFrequencyID *int32         `json:"transaction_frequency_id"`
@@ -1285,7 +1371,6 @@ func (q *Queries) UpdateTransaction(ctx context.Context, arg UpdateTransactionPa
 		arg.Amount,
 		arg.PlannedAmount,
 		arg.Date,
-		arg.Recurring,
 		arg.CategoryID,
 		arg.PaymentMethodID,
 		arg.TransactionFrequencyID,
@@ -1299,7 +1384,6 @@ func (q *Queries) UpdateTransaction(ctx context.Context, arg UpdateTransactionPa
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,

@@ -268,3 +268,104 @@ func TestScoreBestMatch_SkipsInstallmentPlans(t *testing.T) {
 	assert.Zero(t, score)
 	assert.Nil(t, best, "an otherwise perfect match must still be skipped")
 }
+
+// ── DeleteInstallmentPlan ─────────────────────────────────────────────────────
+
+func (f *installmentFixture) unsplitSvc(spawned []db.Transaction, deactivated *bool, deletedFor *uuid.UUID) *BudgetProfileService {
+	return NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: f.periodID, BudgetProfileID: f.profileID, IsArchived: f.archived}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: f.profileID, UserID: f.userID}, nil
+			},
+		},
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.Transaction, error) { return f.tx, nil },
+			listByFixedExpense: func(_ context.Context, _ uuid.UUID) ([]db.Transaction, error) {
+				return spawned, nil
+			},
+			deleteByFixedExpense: func(_ context.Context, id uuid.UUID) error {
+				*deletedFor = id
+				return nil
+			},
+			clearInstallmentPlan: func(_ context.Context, _ db.ClearTransactionInstallmentPlanParams) (db.Transaction, error) {
+				out := f.tx
+				out.IsExcluded = false
+				out.InstallmentFixedExpenseID = nil
+				return out, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			deactivate: func(_ context.Context, _ db.DeactivateFixedExpenseParams) error {
+				*deactivated = true
+				return nil
+			},
+		},
+		&mockUserRepo{},
+	)
+}
+
+func TestDeleteInstallmentPlan_RemovesPlanAndRestoresPurchase(t *testing.T) {
+	f := newInstallmentFixture(t)
+	f.tx.IsExcluded = true
+	f.tx.InstallmentFixedExpenseID = &f.feID
+	deactivated := false
+	var deletedFor uuid.UUID
+
+	tx, err := f.unsplitSvc(
+		[]db.Transaction{{ID: uuid.New(), IsPaid: false}},
+		&deactivated, &deletedFor,
+	).DeleteInstallmentPlan(context.Background(), f.txID, f.periodID, f.userID)
+	require.NoError(t, err)
+
+	assert.False(t, tx.IsExcluded, "the purchase counts again")
+	assert.Nil(t, tx.InstallmentFixedExpenseID)
+	assert.Equal(t, f.feID, deletedFor, "the spawned payments go, or the purchase and its payments both count")
+	assert.True(t, deactivated)
+}
+
+// Losing real recorded spend to an undo is worse than making the user unmark
+// it first. It also stops this becoming a way to delete transactions out of an
+// archived period, which nothing else permits.
+func TestDeleteInstallmentPlan_RefusedOnceAPaymentIsPaid(t *testing.T) {
+	f := newInstallmentFixture(t)
+	f.tx.IsExcluded = true
+	f.tx.InstallmentFixedExpenseID = &f.feID
+	deactivated := false
+	var deletedFor uuid.UUID
+
+	_, err := f.unsplitSvc(
+		[]db.Transaction{{ID: uuid.New(), IsPaid: false}, {ID: uuid.New(), IsPaid: true}},
+		&deactivated, &deletedFor,
+	).DeleteInstallmentPlan(context.Background(), f.txID, f.periodID, f.userID)
+	require.Error(t, err)
+	assert.False(t, deactivated, "nothing is touched when the undo is refused")
+	assert.Equal(t, uuid.Nil, deletedFor)
+}
+
+// Undoing a split works on an archived period exactly as making one does.
+func TestDeleteInstallmentPlan_AllowedOnArchivedPeriod(t *testing.T) {
+	f := newInstallmentFixture(t)
+	f.archived = true
+	f.tx.IsExcluded = true
+	f.tx.InstallmentFixedExpenseID = &f.feID
+	deactivated := false
+	var deletedFor uuid.UUID
+
+	tx, err := f.unsplitSvc(nil, &deactivated, &deletedFor).
+		DeleteInstallmentPlan(context.Background(), f.txID, f.periodID, f.userID)
+	require.NoError(t, err)
+	assert.False(t, tx.IsExcluded)
+}
+
+func TestDeleteInstallmentPlan_RejectsATransactionThatIsNotAPlan(t *testing.T) {
+	f := newInstallmentFixture(t)
+	deactivated := false
+	var deletedFor uuid.UUID
+	_, err := f.unsplitSvc(nil, &deactivated, &deletedFor).
+		DeleteInstallmentPlan(context.Background(), f.txID, f.periodID, f.userID)
+	require.Error(t, err)
+	assert.False(t, deactivated)
+}

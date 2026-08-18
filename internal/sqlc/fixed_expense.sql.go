@@ -188,7 +188,7 @@ func (q *Queries) GetFixedExpense(ctx context.Context, id uuid.UUID) (FixedExpen
 }
 
 const getUnpaidTransactionByFixedExpense = `-- name: GetUnpaidTransactionByFixedExpense :one
-SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
        is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 FROM transaction
@@ -218,7 +218,6 @@ func (q *Queries) GetUnpaidTransactionByFixedExpense(ctx context.Context, arg Ge
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
@@ -235,7 +234,7 @@ func (q *Queries) GetUnpaidTransactionByFixedExpense(ctx context.Context, arg Ge
 }
 
 const getUnpaidTransactionByFixedExpenseInPeriod = `-- name: GetUnpaidTransactionByFixedExpenseInPeriod :one
-SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
        is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 FROM transaction
@@ -266,7 +265,6 @@ func (q *Queries) GetUnpaidTransactionByFixedExpenseInPeriod(ctx context.Context
 		&i.PlannedAmount,
 		&i.Date,
 		&i.RenewalDate,
-		&i.Recurring,
 		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,

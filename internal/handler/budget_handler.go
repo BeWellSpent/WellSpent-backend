@@ -115,7 +115,6 @@ func (h *BudgetHandler) CreateTransaction(ctx context.Context, req *connect.Requ
 		v := req.Msg.TransactionTypeId
 		typeID = &v
 	}
-	recurring := req.Msg.Recurring
 	name := req.Msg.Name
 	params := db.CreateTransactionParams{
 		Name:                   &name,
@@ -123,7 +122,6 @@ func (h *BudgetHandler) CreateTransaction(ctx context.Context, req *connect.Requ
 		PlannedAmount:          numericFromMoney(req.Msg.PlannedAmount),
 		Date:                   dateFromProtoTS(req.Msg.Date),
 		RenewalDate:            dateFromProtoTS(req.Msg.RenewalDate),
-		Recurring:              &recurring,
 		BudgetPeriodID:         periodID,
 		CategoryID:             catID,
 		PaymentMethodID:        pmID,
@@ -167,7 +165,6 @@ func (h *BudgetHandler) UpdateTransaction(ctx context.Context, req *connect.Requ
 		v := req.Msg.TransactionTypeId
 		typeID = &v
 	}
-	recurring := req.Msg.Recurring
 	name := req.Msg.Name
 	params := db.UpdateTransactionParams{
 		ID:                     id,
@@ -175,7 +172,6 @@ func (h *BudgetHandler) UpdateTransaction(ctx context.Context, req *connect.Requ
 		Amount:                 numericFromMoney(req.Msg.Amount),
 		PlannedAmount:          numericFromMoney(req.Msg.PlannedAmount),
 		Date:                   dateFromProtoTS(req.Msg.Date),
-		Recurring:              &recurring,
 		CategoryID:             catID,
 		PaymentMethodID:        pmID,
 		TransactionFrequencyID: freqID,
@@ -297,6 +293,26 @@ func (h *BudgetHandler) CreateInstallmentPlan(ctx context.Context, req *connect.
 		FixedExpense: toProtoFixedExpense(fe),
 		Transaction:  toProtoTransaction(tx),
 	}), nil
+}
+
+func (h *BudgetHandler) DeleteInstallmentPlan(ctx context.Context, req *connect.Request[v1.DeleteInstallmentPlanRequest]) (*connect.Response[v1.DeleteInstallmentPlanResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	txID, err := uuid.Parse(req.Msg.TransactionId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	periodID, err := uuid.Parse(req.Msg.BudgetPeriodId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	tx, svcErr := h.profiles.DeleteInstallmentPlan(ctx, txID, periodID, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.DeleteInstallmentPlanResponse{Transaction: toProtoTransaction(tx)}), nil
 }
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -528,7 +544,6 @@ func toProtoTransaction(t db.Transaction) *v1.Transaction {
 		PlannedAmount:          moneyFromNumeric(t.PlannedAmount),
 		Date:                   protoTSFromDate(t.Date),
 		RenewalDate:            protoTSFromDate(t.RenewalDate),
-		Recurring:              t.Recurring != nil && *t.Recurring,
 		BudgetPeriodId:         nullUUID(t.BudgetPeriodID),
 		CategoryId:             ptrInt32OrZero(t.CategoryID),
 		PaymentMethodId:        nullUUID(t.PaymentMethodID),

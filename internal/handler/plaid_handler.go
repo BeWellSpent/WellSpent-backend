@@ -5,11 +5,11 @@ import (
 	"log"
 
 	"connectrpc.com/connect"
-	"github.com/google/uuid"
 	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
 	"github.com/BeWellSpent/wellspent-backend/internal/middleware"
 	"github.com/BeWellSpent/wellspent-backend/internal/service"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

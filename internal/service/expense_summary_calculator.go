@@ -4,9 +4,9 @@ import (
 	"sort"
 	"time"
 
+	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
 )
 
 // expenseSummaryCalculator turns an already-fetched expenseSummaryData into

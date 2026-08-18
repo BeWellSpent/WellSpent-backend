@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	plaidclient "github.com/BeWellSpent/wellspent-backend/internal/plaid"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // AccountImport is how many transactions one connected account contributed in
@@ -267,7 +267,6 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 			Amount:                 amount,
 			PlannedAmount:          amount,
 			Date:                   date,
-			Recurring:              syncBoolPtr(false),
 			BudgetPeriodID:         &periodID,
 			CategoryID:             categoryID,
 			PaymentMethodID:        paymentMethodID,
@@ -434,7 +433,6 @@ func syncAmountToNumeric(f float64) pgtype.Numeric {
 	return n
 }
 
-func syncBoolPtr(b bool) *bool    { return &b }
 func syncInt32Ptr(i int32) *int32 { return &i }
 
 // syncResolveCategory resolves the system category for an imported transaction.
