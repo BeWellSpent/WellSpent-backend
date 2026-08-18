@@ -20,6 +20,7 @@ type BudgetProfileRepository interface {
 	ExistsByNameAndUser(ctx context.Context, name string, userID uuid.UUID) (bool, error)
 	Create(ctx context.Context, arg db.CreateBudgetProfileParams) (db.BudgetProfile, error)
 	Update(ctx context.Context, arg db.UpdateBudgetProfileParams) (db.BudgetProfile, error)
+	SetCarryoverEnabled(ctx context.Context, arg db.SetBudgetProfileCarryoverEnabledParams) (db.BudgetProfile, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 
 	// Period
@@ -106,6 +107,14 @@ func (r *budgetProfileRepository) Create(ctx context.Context, arg db.CreateBudge
 
 func (r *budgetProfileRepository) Update(ctx context.Context, arg db.UpdateBudgetProfileParams) (db.BudgetProfile, error) {
 	p, err := r.q.UpdateBudgetProfile(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.BudgetProfile{}, apperr.NotFound("budget_profile", arg.ID.String())
+	}
+	return p, err
+}
+
+func (r *budgetProfileRepository) SetCarryoverEnabled(ctx context.Context, arg db.SetBudgetProfileCarryoverEnabledParams) (db.BudgetProfile, error) {
+	p, err := r.q.SetBudgetProfileCarryoverEnabled(ctx, arg)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.BudgetProfile{}, apperr.NotFound("budget_profile", arg.ID.String())
 	}

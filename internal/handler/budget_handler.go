@@ -556,6 +556,9 @@ func toProtoTransaction(t db.Transaction) *v1.Transaction {
 	if t.InstallmentFixedExpenseID != nil {
 		proto.InstallmentFixedExpenseId = t.InstallmentFixedExpenseID.String()
 	}
+	if t.CarriedFromBudgetPeriodID != nil {
+		proto.CarriedFromBudgetPeriodId = t.CarriedFromBudgetPeriodID.String()
+	}
 	if t.PaidDate.Valid {
 		proto.PaidAt = protoTSFromDate(t.PaidDate)
 	}

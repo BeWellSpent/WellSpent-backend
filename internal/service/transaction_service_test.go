@@ -41,6 +41,7 @@ type mockTransactionRepo struct {
 	setInstallmentPlan                  func(context.Context, db.SetTransactionInstallmentPlanParams) (db.Transaction, error)
 	clearInstallmentPlan                func(context.Context, db.ClearTransactionInstallmentPlanParams) (db.Transaction, error)
 	listByFixedExpense                  func(context.Context, uuid.UUID) ([]db.Transaction, error)
+	countCarried                        func(context.Context, db.CountCarriedTransactionsParams) (int64, error)
 	deleteByFixedExpense                func(context.Context, uuid.UUID) error
 	createPaymentMethodFromPlaid        func(context.Context, db.CreatePaymentMethodFromPlaidParams) (db.PaymentMethod, error)
 	getPaymentMethodByPlaidAccountID    func(context.Context, string) (db.PaymentMethod, error)
@@ -324,6 +325,13 @@ func (m *mockTransactionRepo) ListByFixedExpense(ctx context.Context, id uuid.UU
 		return m.listByFixedExpense(ctx, id)
 	}
 	return nil, nil
+}
+
+func (m *mockTransactionRepo) CountCarried(ctx context.Context, arg db.CountCarriedTransactionsParams) (int64, error) {
+	if m.countCarried != nil {
+		return m.countCarried(ctx, arg)
+	}
+	return 0, nil
 }
 
 func (m *mockTransactionRepo) DeleteByFixedExpense(ctx context.Context, id uuid.UUID) error {

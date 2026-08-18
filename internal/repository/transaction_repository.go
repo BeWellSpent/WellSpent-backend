@@ -23,6 +23,7 @@ type TransactionRepository interface {
 	SetInstallmentPlan(ctx context.Context, arg db.SetTransactionInstallmentPlanParams) (db.Transaction, error)
 	ClearInstallmentPlan(ctx context.Context, arg db.ClearTransactionInstallmentPlanParams) (db.Transaction, error)
 	ListByFixedExpense(ctx context.Context, fixedExpenseID uuid.UUID) ([]db.Transaction, error)
+	CountCarried(ctx context.Context, arg db.CountCarriedTransactionsParams) (int64, error)
 	DeleteByFixedExpense(ctx context.Context, fixedExpenseID uuid.UUID) error
 
 	GetCategory(ctx context.Context, id int32) (db.GetCategoryRow, error)
@@ -140,6 +141,10 @@ func (r *transactionRepository) ListByFixedExpense(ctx context.Context, fixedExp
 
 func (r *transactionRepository) DeleteByFixedExpense(ctx context.Context, fixedExpenseID uuid.UUID) error {
 	return r.q.DeleteTransactionsByFixedExpense(ctx, fixedExpenseID)
+}
+
+func (r *transactionRepository) CountCarried(ctx context.Context, arg db.CountCarriedTransactionsParams) (int64, error) {
+	return r.q.CountCarriedTransactions(ctx, arg)
 }
 
 func (r *transactionRepository) GetCategory(ctx context.Context, id int32) (db.GetCategoryRow, error) {

@@ -54,6 +54,7 @@ sql:
       - "internal/db/migrations/000049_chart_preferences.sql"
       - "internal/db/migrations/000050_transaction_installment_plan.sql"
       - "internal/db/migrations/000051_drop_transaction_recurring.sql"
+      - "internal/db/migrations/000052_carryover_balance.sql"
     gen:
       go:
         package: "db"
