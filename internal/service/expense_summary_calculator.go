@@ -2,18 +2,20 @@ package service
 
 import (
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
 )
 
 // expenseSummaryCalculator turns an already-fetched expenseSummaryData into
 // a GetExpenseSummaryResponse. It does no I/O — every method here is pure,
 // which is what makes the planned-total fallback chain (allocation -> due
-// Fixed transaction -> not-yet-due Fixed template) and the Plan-vs-Overview
-// visibility/committed-total asymmetry safe to unit test directly, without
-// mock repos, the same way the two client codebases used to test their own
-// (before this RPC existed) copies of this exact logic.
+// Fixed transaction) and the Plan-vs-Overview visibility rules safe to unit
+// test directly, without mock repos, the same way the two client codebases
+// used to test their own (before this RPC existed) copies of this exact
+// logic.
 type expenseSummaryCalculator struct {
 	data *expenseSummaryData
 
@@ -31,12 +33,20 @@ type expenseSummaryCalculator struct {
 	fixedDueByCat       map[int32]int64
 	fixedDueByPersonCat map[catPersonKey]int64
 
-	// Tier 3: active Fixed expense templates not yet due this period —
-	// Overview-planned-total-only fallback, deliberately excluded from the
-	// Plan tab's committed/remainder math (an obligation that isn't due yet
-	// isn't "committed" against this period's income).
-	notDueFixedByCat    map[int32]int64
-	fixedExpenseCatIDs  map[int32]bool
+	// Active Fixed expense templates not yet due this period. Informational
+	// only — never a planned-total tier and never part of any aggregate: an
+	// obligation that isn't due yet isn't owed against this period, so
+	// counting it inflates the plan (issue #48). It used to be a third
+	// fallback tier feeding the Overview's total_planned while the Plan
+	// tab's total_committed excluded it, which left the two tabs disagreeing
+	// and neither total matching the sum of its own rows.
+	//
+	// It still travels to the clients as CategoryExpenseSummary's
+	// not_due_planned_total / next_due_date so a category doesn't silently
+	// vanish between due periods.
+	notDueFixedByCat   map[int32]int64
+	notDueNextDueByCat map[int32]time.Time
+	fixedExpenseCatIDs map[int32]bool
 
 	// Savings: system-managed category, amount is the sum of savings source
 	// amounts regardless of allocations/fixed expenses.
@@ -121,6 +131,7 @@ func (c *expenseSummaryCalculator) computePlannedTiers() {
 	}
 
 	c.notDueFixedByCat = map[int32]int64{}
+	c.notDueNextDueByCat = map[int32]time.Time{}
 	c.fixedExpenseCatIDs = map[int32]bool{}
 	for _, fe := range c.data.activeFixedExpenses {
 		if fe.CategoryID == nil {
@@ -131,6 +142,12 @@ func (c *expenseSummaryCalculator) computePlannedTiers() {
 			continue
 		}
 		c.notDueFixedByCat[*fe.CategoryID] += numericToNanos(fe.PlannedAmount)
+		// Earliest wins: several templates can share a category, and the
+		// caption answers "when does this category next cost me anything".
+		due := FixedExpenseNextDueDate(fe, c.data.now)
+		if existing, ok := c.notDueNextDueByCat[*fe.CategoryID]; !ok || due.Before(existing) {
+			c.notDueNextDueByCat[*fe.CategoryID] = due
+		}
 	}
 }
 
@@ -151,7 +168,10 @@ func (c *expenseSummaryCalculator) isSavingsCategory(catID int32) bool {
 
 // plannedTotal mirrors web's getCatPlanned/getCategoryPlanned (identical on
 // both the Plan and Overview tabs): savings first, then allocations, then
-// Fixed fallback (due this period, else not-yet-due template).
+// Fixed transactions due this period.
+//
+// A not-yet-due Fixed template is deliberately NOT a further fallback — it
+// reports separately via notDuePlannedTotal (see notDueFixedByCat).
 func (c *expenseSummaryCalculator) plannedTotal(catID int32) int64 {
 	if c.isSavingsCategory(catID) {
 		return c.savingsTotal
@@ -159,10 +179,21 @@ func (c *expenseSummaryCalculator) plannedTotal(catID int32) int64 {
 	if alloc, ok := c.allocByCat[catID]; ok && alloc != 0 {
 		return alloc
 	}
-	if due, ok := c.fixedDueByCat[catID]; ok && due != 0 {
-		return due
+	return c.fixedDueByCat[catID]
+}
+
+// notDueSummary returns the informational not-due fields for a category, both
+// nil when nothing is pending, so the wire stays empty for the common case.
+func (c *expenseSummaryCalculator) notDueSummary(catID int32) (*v1.Money, *timestamppb.Timestamp) {
+	amount := c.notDueFixedByCat[catID]
+	if amount == 0 {
+		return nil, nil
 	}
-	return c.notDueFixedByCat[catID]
+	var nextDue *timestamppb.Timestamp
+	if due, ok := c.notDueNextDueByCat[catID]; ok {
+		nextDue = timestamppb.New(due)
+	}
+	return nanosToMoney(amount), nextDue
 }
 
 func (c *expenseSummaryCalculator) plannedTotalForPerson(catID, personID int32) int64 {
@@ -221,9 +252,13 @@ func (c *expenseSummaryCalculator) buildPersonBreakdowns(catID int32) []*v1.Pers
 
 // buildPlanCategories returns the Expense Plan tab's category rows (visible
 // if allocated, due this period, or templated — regardless of due status —
-// sorted by planned descending) plus total_committed, which deliberately
-// excludes the not-due Fixed fallback tier (see notDueFixedByCat's doc
-// comment).
+// sorted by planned descending) plus total_committed.
+//
+// A not-yet-due template keeps its row visible but contributes a planned
+// total of zero, carrying its amount in not_due_planned_total instead. That
+// makes total_committed exactly the sum of the rows above it, which it
+// previously wasn't: the rows included the not-due tier and the total didn't,
+// so a user adding up the list got a larger number than the total shown.
 func (c *expenseSummaryCalculator) buildPlanCategories() (categories []*v1.CategoryExpenseSummary, totalCommitted int64) {
 	for _, catID := range c.allCategoryIDs() {
 		hasSavingsSources := c.isSavingsCategory(catID) && len(c.data.savingsSources) > 0
@@ -232,20 +267,17 @@ func (c *expenseSummaryCalculator) buildPlanCategories() (categories []*v1.Categ
 			continue
 		}
 
+		planned := c.plannedTotal(catID)
+		notDue, nextDue := c.notDueSummary(catID)
 		categories = append(categories, &v1.CategoryExpenseSummary{
-			CategoryId:       catID,
-			PlannedTotal:     nanosToMoney(c.plannedTotal(catID)),
-			PersonBreakdowns: c.buildPersonBreakdowns(catID),
+			CategoryId:         catID,
+			PlannedTotal:       nanosToMoney(planned),
+			NotDuePlannedTotal: notDue,
+			NextDueDate:        nextDue,
+			PersonBreakdowns:   c.buildPersonBreakdowns(catID),
 		})
 
-		switch {
-		case c.isSavingsCategory(catID):
-			totalCommitted += c.savingsTotal
-		case c.allocByCat[catID] != 0:
-			totalCommitted += c.allocByCat[catID]
-		default:
-			totalCommitted += c.fixedDueByCat[catID]
-		}
+		totalCommitted += planned
 	}
 	sort.Slice(categories, func(i, j int) bool {
 		a, b := categories[i].PlannedTotal, categories[j].PlannedTotal
@@ -256,9 +288,13 @@ func (c *expenseSummaryCalculator) buildPlanCategories() (categories []*v1.Categ
 
 // buildOverviewCategories returns the Expense Overview tab's category rows
 // (visible if there's actual spend OR any plan — so unspent budget stays
-// visible too — sorted by actual descending) plus total_planned (which,
-// unlike the Plan tab's total_committed, DOES include the not-due Fixed
-// fallback), total_actual, total_over_budget, and total_unplanned.
+// visible too — sorted by actual descending) plus total_planned,
+// total_actual, total_over_budget, and total_unplanned.
+//
+// A category whose only obligation is a not-yet-due template is absent here.
+// It has no actual spend and, since that tier stopped feeding plannedTotal,
+// no plan either — a 0/0 row on a tab about what was actually spent. It
+// still appears on the Plan tab, which is where an upcoming bill belongs.
 func (c *expenseSummaryCalculator) buildOverviewCategories() (categories []*v1.CategoryExpenseSummary, totalPlanned, totalActual, totalOverBudget, totalUnplanned int64) {
 	totalActual = c.uncategorized
 	totalUnplanned = c.uncategorized
@@ -266,7 +302,7 @@ func (c *expenseSummaryCalculator) buildOverviewCategories() (categories []*v1.C
 	for _, catID := range c.allCategoryIDs() {
 		hasSavingsSources := c.isSavingsCategory(catID) && len(c.data.savingsSources) > 0
 		visible := c.actualByCat[catID] != 0 || c.catIDsWithAlloc[catID] || hasSavingsSources ||
-			c.fixedDueByCat[catID] != 0 || c.notDueFixedByCat[catID] != 0
+			c.fixedDueByCat[catID] != 0
 		if !visible {
 			continue
 		}
