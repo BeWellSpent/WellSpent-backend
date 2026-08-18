@@ -20,6 +20,25 @@ Run a single test:
 go test ./internal/service/... -run TestRegister_Success
 ```
 
+## Local dev via Docker
+
+```bash
+make secrets-decrypt ENV=dev                              # once; .env.dev is gitignored
+docker compose -f ../docker-compose.dev.yml up backend    # from the workspace root
+```
+
+- **Migrations run automatically at container start** (`Dockerfile.dev`'s CMD), and the
+  container fails to start if they fail — a server on a stale schema produces errors a long way
+  from their cause. Adding a migration while it's running needs
+  `docker compose -f ../docker-compose.dev.yml restart backend`, not a rebuild.
+- **`make generate` still runs on the host.** air rebuilds the binary; it does not run
+  `buf`/`sqlc`. But `gen/` and `internal/sqlc/` are watched, so regenerating does trigger a
+  rebuild — they were excluded until 2026-08-18, which made regenerated types silently
+  invisible to the running server and looked like air being broken.
+- **A rebuild (`docker compose ... build backend`) is only needed when `Dockerfile.dev`
+  itself changes.** Source, generated code, and dependencies all come through the volume mounts
+  and the cached module volume.
+
 ## Architecture
 
 Four layers, in dependency order for new features:

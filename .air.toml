@@ -6,8 +6,13 @@ tmp_dir = "tmp"
   cmd = "go build -o ./tmp/server ./cmd/server"
   bin = "./tmp/server"
   include_ext = ["go"]
-  # generated dirs and vendor don't need to trigger rebuilds
-  exclude_dir = ["gen", "internal/sqlc", "tmp", "vendor", "bin"]
+  # gen/ and internal/sqlc/ are deliberately NOT excluded: they are generated,
+  # but they are also compiled into the binary. Excluding them meant that after
+  # `make generate` air saw nothing change and never rebuilt, so the running
+  # server kept the previous proto/sqlc types — which looks exactly like "air is
+  # broken" and gets worked around by rebuilding the image.
+  # Only build artifacts and vendored deps are excluded.
+  exclude_dir = ["tmp", "vendor", "bin"]
   delay = 500 # ms debounce
   # polling required on Windows/WSL2 — inotify events don't cross the boundary
   poll = true

@@ -15,4 +15,13 @@ RUN go mod download
 
 EXPOSE 8080
 
-CMD ["air", "-c", ".air.toml"]
+# Migrations run once at container start, then air takes over. Nothing else in
+# the stack applies them — not the server, not compose — so without this every
+# new migration is a manual `make migrate` on the host.
+#
+# Fail fast rather than starting anyway: a server running against a stale schema
+# produces errors a long way from their cause.
+#
+# Adding a migration while the container is up needs `docker compose -f
+# docker-compose.dev.yml restart backend` — far cheaper than a rebuild.
+CMD ["sh", "-c", "go run ./cmd/migrate up ${ENV:-dev} && air -c .air.toml"]
