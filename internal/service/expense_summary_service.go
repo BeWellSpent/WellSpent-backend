@@ -302,10 +302,7 @@ func (s *ExpenseSummaryService) loadTransactions(ctx context.Context, periodID u
 	}
 	filtered := make([]db.Transaction, 0, len(raw))
 	for _, tx := range raw {
-		if tx.IsExcluded {
-			continue
-		}
-		if hasIncomeCategory && tx.CategoryID != nil && *tx.CategoryID == incomeCategoryID {
+		if isNonSpendTransaction(tx, incomeCategoryID, hasIncomeCategory) {
 			continue
 		}
 		filtered = append(filtered, tx)

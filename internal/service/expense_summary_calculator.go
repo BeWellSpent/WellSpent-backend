@@ -82,7 +82,7 @@ func (c *expenseSummaryCalculator) computeActuals() {
 	c.actualByCat = map[int32]int64{}
 	c.actualByPersonCat = map[catPersonKey]int64{}
 	for _, tx := range c.data.transactions {
-		if tx.TransactionTypeID != nil && *tx.TransactionTypeID == fixedTransactionTypeID && !tx.IsPaid {
+		if isUnpaidFixed(tx) {
 			continue
 		}
 		amt := numericToNanos(tx.Amount)

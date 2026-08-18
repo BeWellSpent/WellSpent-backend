@@ -28,6 +28,7 @@ type mockBudgetProfileRepo struct {
 	create                        func(context.Context, db.CreateBudgetProfileParams) (db.BudgetProfile, error)
 	update                        func(context.Context, db.UpdateBudgetProfileParams) (db.BudgetProfile, error)
 	delete                        func(context.Context, uuid.UUID) error
+	setCarryoverEnabled           func(context.Context, db.SetBudgetProfileCarryoverEnabledParams) (db.BudgetProfile, error)
 	createPeriod                  func(context.Context, db.CreateBudgetPeriodParams) (db.BudgetPeriod, error)
 	getPeriodByID                 func(context.Context, uuid.UUID) (db.BudgetPeriod, error)
 	listPeriods                   func(context.Context, uuid.UUID) ([]db.BudgetPeriod, error)
@@ -98,6 +99,12 @@ func (m *mockBudgetProfileRepo) Update(ctx context.Context, arg db.UpdateBudgetP
 		return m.update(ctx, arg)
 	}
 	return db.BudgetProfile{ID: arg.ID, Name: arg.Name, Cycle: arg.Cycle}, nil
+}
+func (m *mockBudgetProfileRepo) SetCarryoverEnabled(ctx context.Context, arg db.SetBudgetProfileCarryoverEnabledParams) (db.BudgetProfile, error) {
+	if m.setCarryoverEnabled != nil {
+		return m.setCarryoverEnabled(ctx, arg)
+	}
+	return db.BudgetProfile{ID: arg.ID, CarryoverEnabled: arg.CarryoverEnabled}, nil
 }
 func (m *mockBudgetProfileRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	if m.delete != nil {
@@ -1901,4 +1908,165 @@ func TestUpdateMyPreferences_NilClearsThePreference(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, gotParams.PlanChartType)
 	assert.Nil(t, gotParams.OverviewChartType)
+}
+
+// ── createNextPeriod carryover tests ──────────────────────────────────────────
+//
+// These exercise the wiring: the opt-in check, the idempotency guard, and that
+// the right rows reach the repository. The arithmetic itself is covered
+// exhaustively (and far more cheaply) in carryover_test.go.
+
+// carryoverFixture builds a profile whose latest period has already ended, so
+// createNextPeriod actually rolls forward instead of short-circuiting on its
+// idempotency guard.
+type carryoverFixture struct {
+	profileID uuid.UUID
+	ownerID   uuid.UUID
+	closing   db.BudgetPeriod
+	created   []db.CreateTransactionParams
+	carried   int64
+}
+
+func newCarryoverFixture(carryoverEnabled bool) (*carryoverFixture, *BudgetProfileService) {
+	f := &carryoverFixture{profileID: uuid.New(), ownerID: uuid.New()}
+	lastMonth := time.Now().UTC().AddDate(0, -1, 0)
+	f.closing = db.BudgetPeriod{
+		ID:              uuid.New(),
+		BudgetProfileID: f.profileID,
+		StartDate:       pgtype.Date{Time: time.Date(lastMonth.Year(), lastMonth.Month(), 1, 0, 0, 0, 0, time.UTC), Valid: true},
+		EndDate:         pgtype.Date{Time: time.Date(lastMonth.Year(), lastMonth.Month(), 28, 0, 0, 0, 0, time.UTC), Valid: true},
+	}
+
+	method := uuid.New()
+	typeVariable := int32(2)
+	spend := func(amount int64, pm *uuid.UUID) db.Transaction {
+		return db.Transaction{
+			ID:                uuid.New(),
+			Amount:            numericFromNanos(amount),
+			PaymentMethodID:   pm,
+			TransactionTypeID: &typeVariable,
+		}
+	}
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{
+					ID: f.profileID, UserID: f.ownerID, Cycle: "monthly",
+					CarryoverEnabled: carryoverEnabled,
+				}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return f.closing, nil
+			},
+			listIncomeEntries: func(_ context.Context, periodID uuid.UUID) ([]db.IncomeEntry, error) {
+				if periodID != f.closing.ID {
+					return nil, nil
+				}
+				// Income 2000 against 2300 of spend → a $300 shortfall.
+				return []db.IncomeEntry{{Amount: numericFromNanos(dollars(2000))}}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, arg db.CreateTransactionParams) (db.Transaction, error) {
+				f.created = append(f.created, arg)
+				return db.Transaction{}, nil
+			},
+			list: func(_ context.Context, arg db.ListTransactionsParams) ([]db.Transaction, error) {
+				if arg.BudgetPeriodID != f.closing.ID {
+					return nil, nil
+				}
+				return []db.Transaction{spend(dollars(2300), &method)}, nil
+			},
+			listSystemCategories: func(_ context.Context) (map[string]int32, error) {
+				return map[string]int32{"Income": 1, "Savings": 2, "Debt": 3}, nil
+			},
+			countCarried: func(_ context.Context, _ db.CountCarriedTransactionsParams) (int64, error) {
+				return f.carried, nil
+			},
+		},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{},
+	)
+	return f, svc
+}
+
+// carriedRows filters out everything createNextPeriod creates for other reasons
+// (savings, fixed-expense spawns) so assertions target the carryover alone.
+func (f *carryoverFixture) carriedRows() []db.CreateTransactionParams {
+	var rows []db.CreateTransactionParams
+	for _, c := range f.created {
+		if c.CarriedFromBudgetPeriodID != nil {
+			rows = append(rows, c)
+		}
+	}
+	return rows
+}
+
+func TestCreateBudgetPeriod_Carryover_DisabledCreatesNothing(t *testing.T) {
+	f, svc := newCarryoverFixture(false)
+
+	_, err := svc.CreateBudgetPeriod(context.Background(), f.profileID, f.ownerID)
+	require.NoError(t, err)
+	assert.Empty(t, f.carriedRows(), "carryover is opt-in and this budget did not opt in")
+}
+
+func TestCreateBudgetPeriod_Carryover_CreatesDebtRowOnTheMethodItWasSpentOn(t *testing.T) {
+	f, svc := newCarryoverFixture(true)
+
+	_, err := svc.CreateBudgetPeriod(context.Background(), f.profileID, f.ownerID)
+	require.NoError(t, err)
+
+	rows := f.carriedRows()
+	require.Len(t, rows, 1)
+	row := rows[0]
+	assert.Equal(t, dollars(300), numericToNanos(row.Amount))
+	assert.Equal(t, dollars(300), numericToNanos(row.PlannedAmount))
+	require.NotNil(t, row.CategoryID)
+	assert.Equal(t, int32(3), *row.CategoryID, "a shortfall is filed under Debt")
+	require.NotNil(t, row.TransactionTypeID)
+	assert.Equal(t, int32(2), *row.TransactionTypeID, "carried rows are Variable so they count as spend immediately")
+	require.NotNil(t, row.PaymentMethodID, "the debt has to show which method it came from")
+	require.NotNil(t, row.Name)
+	assert.Contains(t, *row.Name, "Carried balance from")
+	assert.Equal(t, f.closing.ID, *row.CarriedFromBudgetPeriodID)
+}
+
+// The daily cycling job and the CreateBudgetPeriod RPC both reach this code and
+// nothing wraps it in a transaction, so a second pass must not double the debt.
+func TestCreateBudgetPeriod_Carryover_IsIdempotent(t *testing.T) {
+	f, svc := newCarryoverFixture(true)
+	f.carried = 1 // this closing period was already carried into the new one
+
+	_, err := svc.CreateBudgetPeriod(context.Background(), f.profileID, f.ownerID)
+	require.NoError(t, err)
+	assert.Empty(t, f.carriedRows())
+}
+
+// The very first period of a budget has nothing behind it to carry.
+func TestCreateBudgetPeriod_Carryover_SkippedWithoutAClosingPeriod(t *testing.T) {
+	ownerID, profileID := uuid.New(), uuid.New()
+	var created []db.CreateTransactionParams
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID, Cycle: "monthly", CarryoverEnabled: true}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, arg db.CreateTransactionParams) (db.Transaction, error) {
+				created = append(created, arg)
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.CreateBudgetPeriod(context.Background(), profileID, ownerID)
+	require.NoError(t, err)
+	for _, c := range created {
+		assert.Nil(t, c.CarriedFromBudgetPeriodID)
+	}
 }

@@ -74,6 +74,22 @@ func (h *BudgetHandler) UpdateBudgetProfile(ctx context.Context, req *connect.Re
 	return connect.NewResponse(&v1.UpdateBudgetProfileResponse{Profile: toProtoBudgetProfile(profile)}), nil
 }
 
+func (h *BudgetHandler) SetBudgetCarryoverEnabled(ctx context.Context, req *connect.Request[v1.SetBudgetCarryoverEnabledRequest]) (*connect.Response[v1.SetBudgetCarryoverEnabledResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	profile, svcErr := h.profiles.SetCarryoverEnabled(ctx, id, userID, req.Msg.Enabled)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.SetBudgetCarryoverEnabledResponse{Profile: toProtoBudgetProfile(profile)}), nil
+}
+
 func (h *BudgetHandler) DeleteBudgetProfile(ctx context.Context, req *connect.Request[v1.DeleteBudgetProfileRequest]) (*connect.Response[v1.DeleteBudgetProfileResponse], error) {
 	userID, err := h.currentUserID(ctx)
 	if err != nil {
@@ -514,11 +530,12 @@ func (h *BudgetHandler) UpdateIncomeEntry(ctx context.Context, req *connect.Requ
 
 func toProtoBudgetProfile(p db.BudgetProfile) *v1.BudgetProfile {
 	return &v1.BudgetProfile{
-		Id:          p.ID.String(),
-		UserId:      p.UserID.String(),
-		Name:        p.Name,
-		Cycle:       protoCycleFromString(p.Cycle),
-		CountryCode: nullStr(p.CountryCode),
+		Id:               p.ID.String(),
+		UserId:           p.UserID.String(),
+		Name:             p.Name,
+		Cycle:            protoCycleFromString(p.Cycle),
+		CountryCode:      nullStr(p.CountryCode),
+		CarryoverEnabled: p.CarryoverEnabled,
 	}
 }
 

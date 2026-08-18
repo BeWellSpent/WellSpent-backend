@@ -3,16 +3,16 @@
 -- name: CreateBudgetProfile :one
 INSERT INTO budget_profile (user_id, name, cycle, country_code)
 VALUES ($1, $2, $3, $4)
-RETURNING id, user_id, name, cycle, created_at, country_code;
+RETURNING id, user_id, name, cycle, created_at, country_code, carryover_enabled;
 
 -- name: ListBudgetProfilesByUser :many
-SELECT id, user_id, name, cycle, created_at, country_code
+SELECT id, user_id, name, cycle, created_at, country_code, carryover_enabled
 FROM budget_profile
 WHERE user_id = $1
 ORDER BY created_at DESC;
 
 -- name: ListBudgetProfilesByUserOrMember :many
-SELECT DISTINCT bp.id, bp.user_id, bp.name, bp.cycle, bp.created_at, bp.country_code
+SELECT DISTINCT bp.id, bp.user_id, bp.name, bp.cycle, bp.created_at, bp.country_code, bp.carryover_enabled
 FROM budget_profile bp
 LEFT JOIN budget_to_profile_mapping btpm
     ON btpm.budget_profile_id = bp.id
@@ -22,7 +22,7 @@ WHERE bp.user_id = $1 OR btpm.id IS NOT NULL
 ORDER BY bp.created_at DESC;
 
 -- name: GetBudgetProfileByID :one
-SELECT id, user_id, name, cycle, created_at, country_code
+SELECT id, user_id, name, cycle, created_at, country_code, carryover_enabled
 FROM budget_profile
 WHERE id = $1
 LIMIT 1;
@@ -36,7 +36,16 @@ SELECT EXISTS (
 UPDATE budget_profile
 SET name = $2, cycle = $3
 WHERE id = $1
-RETURNING id, user_id, name, cycle, created_at, country_code;
+RETURNING id, user_id, name, cycle, created_at, country_code, carryover_enabled;
+
+-- Its own statement rather than a column on UpdateBudgetProfile: that one takes
+-- name + cycle, so an older client calling it without the new field would
+-- silently switch carryover back off.
+-- name: SetBudgetProfileCarryoverEnabled :one
+UPDATE budget_profile
+SET carryover_enabled = sqlc.arg('carryover_enabled')
+WHERE id = sqlc.arg('id')::uuid
+RETURNING id, user_id, name, cycle, created_at, country_code, carryover_enabled;
 
 -- name: DeleteBudgetProfile :exec
 DELETE FROM budget_profile WHERE id = $1;

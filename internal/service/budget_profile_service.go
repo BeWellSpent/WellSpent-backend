@@ -192,6 +192,18 @@ func (s *BudgetProfileService) Update(ctx context.Context, id, userID uuid.UUID,
 	return s.profiles.Update(ctx, db.UpdateBudgetProfileParams{ID: id, Name: name, Cycle: cycle})
 }
 
+// SetCarryoverEnabled turns period carryover on or off for a budget. Admin
+// only: it changes what every member's next period will contain.
+func (s *BudgetProfileService) SetCarryoverEnabled(ctx context.Context, id, userID uuid.UUID, enabled bool) (db.BudgetProfile, error) {
+	if _, err := s.assertAdmin(ctx, id, userID); err != nil {
+		return db.BudgetProfile{}, err
+	}
+	return s.profiles.SetCarryoverEnabled(ctx, db.SetBudgetProfileCarryoverEnabledParams{
+		ID:               id,
+		CarryoverEnabled: enabled,
+	})
+}
+
 func (s *BudgetProfileService) Delete(ctx context.Context, id, userID uuid.UUID) error {
 	if _, err := s.assertAdmin(ctx, id, userID); err != nil {
 		return err
@@ -320,11 +332,102 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 		})
 	}
 
+	// Carry the closing period's ending balance forward, if the budget opted
+	// in. Runs last: it reads only the period that just closed, so nothing
+	// above depends on it, and a failure here must not cost the user their
+	// new period.
+	if latest.ID != (uuid.UUID{}) {
+		s.applyCarryover(ctx, profile, latest, period)
+	}
+
 	if s.notifs != nil {
 		s.notifs.HandlePeriodCreated(ctx, period)
 	}
 
 	return period, nil
+}
+
+// applyCarryover turns the closing period's ending balance into transactions in
+// the new one — see carryover.go for the rule.
+//
+// Silent on every failure, matching the rest of createNextPeriod: a budget
+// period that exists without its carryover is recoverable (the user can record
+// the balance by hand), a period that failed to be created is not.
+func (s *BudgetProfileService) applyCarryover(ctx context.Context, profile db.BudgetProfile, closing, next db.BudgetPeriod) {
+	if !profile.CarryoverEnabled {
+		return
+	}
+
+	// Idempotency. The daily cycling job and the client-callable
+	// CreateBudgetPeriod RPC both reach here, and there is no transaction
+	// wrapping this function, so "did I already carry this period?" has to be
+	// a real question asked of the database rather than an assumption.
+	carried, err := s.transactions.CountCarried(ctx, db.CountCarriedTransactionsParams{
+		BudgetPeriodID:            next.ID,
+		CarriedFromBudgetPeriodID: closing.ID,
+	})
+	if err != nil || carried > 0 {
+		return
+	}
+
+	categoryIDs, err := s.transactions.ListSystemCategories(ctx)
+	if err != nil {
+		return
+	}
+	incomeCategoryID, hasIncomeCategory := categoryIDs["Income"]
+
+	txs, err := s.transactions.List(ctx, db.ListTransactionsParams{BudgetPeriodID: closing.ID})
+	if err != nil {
+		return
+	}
+	incomeEntries, err := s.profiles.ListIncomeEntries(ctx, closing.ID)
+	if err != nil {
+		return
+	}
+
+	remainder, spendByMethod, unattributed := carryoverInputs(txs, incomeEntries, incomeCategoryID, hasIncomeCategory)
+	rows := computeCarryover(remainder, spendByMethod, unattributed)
+	if len(rows) == 0 {
+		return
+	}
+
+	txTypeVariable := int32(2)
+	txDate := pgtype.Date{Time: next.StartDate.Time, Valid: true}
+	closingID := closing.ID
+	for _, row := range rows {
+		categoryID, ok := categoryIDs[row.categoryName]
+		if !ok {
+			// Savings and Debt are both seeded system categories, so this only
+			// fires on a database missing migration 000052. Skipping beats
+			// creating an uncategorized row the user can't interpret.
+			continue
+		}
+		name := carryoverTransactionName(row, closing)
+		amount := numericFromNanos(row.amountNanos)
+		_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
+			Name:                      &name,
+			Amount:                    amount,
+			PlannedAmount:             amount,
+			Date:                      txDate,
+			BudgetPeriodID:            &next.ID,
+			CategoryID:                &categoryID,
+			PaymentMethodID:           row.paymentMethodID,
+			TransactionTypeID:         &txTypeVariable,
+			CarriedFromBudgetPeriodID: &closingID,
+		})
+	}
+}
+
+// carryoverTransactionName labels a carried row with the period it came from,
+// so the transaction reads as an explanation rather than a mystery charge.
+// Clients additionally caption the row from carried_from_budget_period_id; this
+// is what a bare CSV export or a psql session sees.
+func carryoverTransactionName(row carryoverRow, closing db.BudgetPeriod) string {
+	label := closing.StartDate.Time.Format("Jan 2006")
+	if row.categoryName == carryoverCategorySavings {
+		return "Left over from " + label
+	}
+	return "Carried balance from " + label
 }
 
 // fixedExpenseMonthIndex converts a date to an absolute month number

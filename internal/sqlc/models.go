@@ -45,12 +45,13 @@ type BudgetPeriod struct {
 }
 
 type BudgetProfile struct {
-	ID          uuid.UUID          `json:"id"`
-	UserID      uuid.UUID          `json:"user_id"`
-	Name        string             `json:"name"`
-	Cycle       string             `json:"cycle"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	CountryCode *string            `json:"country_code"`
+	ID               uuid.UUID          `json:"id"`
+	UserID           uuid.UUID          `json:"user_id"`
+	Name             string             `json:"name"`
+	Cycle            string             `json:"cycle"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	CountryCode      *string            `json:"country_code"`
+	CarryoverEnabled bool               `json:"carryover_enabled"`
 }
 
 type BudgetToProfileMapping struct {
@@ -257,6 +258,7 @@ type Transaction struct {
 	PlaidTransactionID        *string        `json:"plaid_transaction_id"`
 	IsExcluded                bool           `json:"is_excluded"`
 	InstallmentFixedExpenseID *uuid.UUID     `json:"installment_fixed_expense_id"`
+	CarriedFromBudgetPeriodID *uuid.UUID     `json:"carried_from_budget_period_id"`
 }
 
 type TransactionFrequency struct {
