@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/google/uuid"
 	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/middleware"
 	"github.com/BeWellSpent/wellspent-backend/internal/service"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -263,6 +263,42 @@ func (h *BudgetHandler) SetTransactionExcluded(ctx context.Context, req *connect
 	return connect.NewResponse(&v1.SetTransactionExcludedResponse{Transaction: toProtoTransaction(tx)}), nil
 }
 
+func (h *BudgetHandler) CreateInstallmentPlan(ctx context.Context, req *connect.Request[v1.CreateInstallmentPlanRequest]) (*connect.Response[v1.CreateInstallmentPlanResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	txID, err := uuid.Parse(req.Msg.TransactionId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	periodID, err := uuid.Parse(req.Msg.BudgetPeriodId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if req.Msg.FirstPaymentDate == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("first_payment_date is required"))
+	}
+	inp := service.InstallmentPlanInput{
+		TransactionID:    txID,
+		BudgetPeriodID:   periodID,
+		FirstPaymentDate: req.Msg.FirstPaymentDate.AsTime(),
+		TotalPayments:    req.Msg.TotalPayments,
+	}
+	if req.Msg.EndDate != nil {
+		end := req.Msg.EndDate.AsTime()
+		inp.EndDate = &end
+	}
+	fe, tx, svcErr := h.profiles.CreateInstallmentPlan(ctx, userID, inp)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.CreateInstallmentPlanResponse{
+		FixedExpense: toProtoFixedExpense(fe),
+		Transaction:  toProtoTransaction(tx),
+	}), nil
+}
+
 // ── Categories ────────────────────────────────────────────────────────────────
 
 func (h *BudgetHandler) ListCategories(ctx context.Context, req *connect.Request[v1.ListCategoriesRequest]) (*connect.Response[v1.ListCategoriesResponse], error) {
@@ -502,6 +538,9 @@ func toProtoTransaction(t db.Transaction) *v1.Transaction {
 		IsExcluded:             t.IsExcluded,
 		IsPlaidImported:        t.PlaidTransactionID != nil,
 	}
+	if t.InstallmentFixedExpenseID != nil {
+		proto.InstallmentFixedExpenseId = t.InstallmentFixedExpenseID.String()
+	}
 	if t.PaidDate.Valid {
 		proto.PaidAt = protoTSFromDate(t.PaidDate)
 	}
@@ -513,17 +552,18 @@ func toProtoTransaction(t db.Transaction) *v1.Transaction {
 
 func toProtoFixedExpense(fe db.FixedExpense) *v1.FixedExpense {
 	proto := &v1.FixedExpense{
-		Id:              fe.ID.String(),
-		BudgetProfileId: fe.BudgetProfileID.String(),
-		Name:            fe.Name,
-		PlannedAmount:   moneyFromNumeric(fe.PlannedAmount),
-		DayOfMonth:      fe.DayOfMonth,
-		IsActive:        fe.IsActive,
-		IntervalMonths:  fe.IntervalMonths,
-		NextDueDate:     timestamppb.New(service.FixedExpenseNextDueDate(fe, time.Now().UTC())),
-		FrequencyUnit:   v1.FrequencyUnit(fe.FrequencyUnit),
-		IntervalWeeks:   fe.IntervalWeeks,
-		DayOfWeek:       int32(fe.DayOfWeek),
+		Id:                fe.ID.String(),
+		BudgetProfileId:   fe.BudgetProfileID.String(),
+		Name:              fe.Name,
+		PlannedAmount:     moneyFromNumeric(fe.PlannedAmount),
+		DayOfMonth:        fe.DayOfMonth,
+		IsActive:          fe.IsActive,
+		IsInstallmentPlan: fe.IsInstallmentPlan,
+		IntervalMonths:    fe.IntervalMonths,
+		NextDueDate:       timestamppb.New(service.FixedExpenseNextDueDate(fe, time.Now().UTC())),
+		FrequencyUnit:     v1.FrequencyUnit(fe.FrequencyUnit),
+		IntervalWeeks:     fe.IntervalWeeks,
+		DayOfWeek:         int32(fe.DayOfWeek),
 	}
 	if fe.CategoryID != nil {
 		proto.CategoryId = *fe.CategoryID

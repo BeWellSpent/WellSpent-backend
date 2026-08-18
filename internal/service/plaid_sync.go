@@ -497,6 +497,13 @@ func scoreBestMatch(name string, amount float64, categoryID *int32, pmID *uuid.U
 	nameLower := strings.ToLower(name)
 	for i := range expenses {
 		fe := &expenses[i]
+		// A card installment is settled inside the card's total balance and
+		// never lands on a bank feed as its own line item, so anything scoring
+		// against one of these is a false positive by construction (issue #54).
+		// Skipped here rather than at the two call sites so neither can forget.
+		if fe.IsInstallmentPlan {
+			continue
+		}
 		score := 0.0
 		if syncAmountWithinTolerance(amount, fe) {
 			score += 40

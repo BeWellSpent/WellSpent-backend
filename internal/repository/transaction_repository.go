@@ -20,6 +20,7 @@ type TransactionRepository interface {
 	MarkAsPaid(ctx context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error)
 	UnmarkAsPaid(ctx context.Context, arg db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
 	SetExcluded(ctx context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error)
+	SetInstallmentPlan(ctx context.Context, arg db.SetTransactionInstallmentPlanParams) (db.Transaction, error)
 
 	GetCategory(ctx context.Context, id int32) (db.GetCategoryRow, error)
 	ListCategories(ctx context.Context, userID uuid.UUID) ([]db.ListCategoriesRow, error)
@@ -108,6 +109,14 @@ func (r *transactionRepository) UnmarkAsPaid(ctx context.Context, arg db.UnmarkT
 
 func (r *transactionRepository) SetExcluded(ctx context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
 	t, err := r.q.SetTransactionExcluded(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.Transaction{}, apperr.NotFound("transaction", arg.ID.String())
+	}
+	return t, err
+}
+
+func (r *transactionRepository) SetInstallmentPlan(ctx context.Context, arg db.SetTransactionInstallmentPlanParams) (db.Transaction, error) {
+	t, err := r.q.SetTransactionInstallmentPlan(ctx, arg)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Transaction{}, apperr.NotFound("transaction", arg.ID.String())
 	}

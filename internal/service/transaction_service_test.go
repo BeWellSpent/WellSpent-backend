@@ -38,6 +38,7 @@ type mockTransactionRepo struct {
 	markAsPaid                          func(context.Context, db.MarkTransactionAsPaidParams) (db.Transaction, error)
 	unmarkAsPaid                        func(context.Context, db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
 	setExcluded                         func(context.Context, db.SetTransactionExcludedParams) (db.Transaction, error)
+	setInstallmentPlan                  func(context.Context, db.SetTransactionInstallmentPlanParams) (db.Transaction, error)
 	createPaymentMethodFromPlaid        func(context.Context, db.CreatePaymentMethodFromPlaidParams) (db.PaymentMethod, error)
 	getPaymentMethodByPlaidAccountID    func(context.Context, string) (db.PaymentMethod, error)
 	getPaymentMethodByUserAndName       func(context.Context, uuid.UUID, string) (db.PaymentMethod, error)
@@ -297,6 +298,13 @@ func (m *mockTransactionRepo) UnmarkAsPaid(ctx context.Context, arg db.UnmarkTra
 func (m *mockTransactionRepo) SetExcluded(ctx context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
 	if m.setExcluded != nil {
 		return m.setExcluded(ctx, arg)
+	}
+	return db.Transaction{}, nil
+}
+
+func (m *mockTransactionRepo) SetInstallmentPlan(ctx context.Context, arg db.SetTransactionInstallmentPlanParams) (db.Transaction, error) {
+	if m.setInstallmentPlan != nil {
+		return m.setInstallmentPlan(ctx, arg)
 	}
 	return db.Transaction{}, nil
 }

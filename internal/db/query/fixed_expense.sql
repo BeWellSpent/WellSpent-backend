@@ -1,16 +1,16 @@
 -- name: CreateFixedExpense :one
-INSERT INTO fixed_expense (budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments;
+INSERT INTO fixed_expense (budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments, is_installment_plan)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments, is_installment_plan;
 
 -- name: GetFixedExpense :one
-SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments
+SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments, is_installment_plan
 FROM fixed_expense
 WHERE id = $1
 LIMIT 1;
 
 -- name: ListFixedExpenses :many
-SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments
+SELECT id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments, is_installment_plan
 FROM fixed_expense
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY name;
@@ -31,7 +31,7 @@ SET name              = sqlc.arg('name'),
     total_payments    = sqlc.arg('total_payments')
 WHERE id = sqlc.arg('id')::uuid
   AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid
-RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments;
+RETURNING id, budget_profile_id, name, planned_amount, category_id, payment_method_id, day_of_month, is_active, created_at, interval_months, anchor_date, frequency_unit, interval_weeks, day_of_week, end_date, total_payments, is_installment_plan;
 
 -- name: FixedExpenseHasTransactionInMonth :one
 SELECT EXISTS (
@@ -62,7 +62,7 @@ WHERE id = sqlc.arg('id')::uuid
 -- name: GetUnpaidTransactionByFixedExpense :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 FROM transaction
 WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
   AND is_paid = FALSE
@@ -82,7 +82,7 @@ LIMIT 1;
 -- name: GetUnpaidTransactionByFixedExpenseInPeriod :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 FROM transaction
 WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
   AND is_paid = FALSE
