@@ -52,6 +52,7 @@ sql:
       - "internal/db/migrations/000047_plaid_manual_resync.sql"
       - "internal/db/migrations/000048_status_banner.sql"
       - "internal/db/migrations/000049_chart_preferences.sql"
+      - "internal/db/migrations/000050_transaction_installment_plan.sql"
     gen:
       go:
         package: "db"

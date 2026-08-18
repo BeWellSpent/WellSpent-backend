@@ -1159,6 +1159,9 @@ type FixedExpenseInput struct {
 	DayOfWeek       int32      // 1 = Monday ... 7 = Sunday; applies when FrequencyUnit = WEEK
 	EndDate         *time.Time // optional payment plan end date; auto-deactivates template after this date
 	TotalPayments   int32      // informational: total payments in the plan; 0 = unset
+	// Set only by CreateInstallmentPlan. Keeps the template out of Plaid review
+	// auto-matching — see scoreBestMatch.
+	IsInstallmentPlan bool
 }
 
 // isoWeekday converts a date to ISO 8601 weekday numbering (1=Monday..7=Sunday).
@@ -1209,19 +1212,20 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 		totalPayments = &inp.TotalPayments
 	}
 	fe, err := s.fixedExpenses.Create(ctx, db.CreateFixedExpenseParams{
-		BudgetProfileID: profileID,
-		Name:            inp.Name,
-		PlannedAmount:   inp.PlannedAmount,
-		CategoryID:      inp.CategoryID,
-		PaymentMethodID: inp.PaymentMethodID,
-		DayOfMonth:      day,
-		IntervalMonths:  interval,
-		AnchorDate:      anchorDate,
-		FrequencyUnit:   unit,
-		IntervalWeeks:   intervalWeeks,
-		DayOfWeek:       int16(dayOfWeek),
-		EndDate:         endDate,
-		TotalPayments:   totalPayments,
+		BudgetProfileID:   profileID,
+		Name:              inp.Name,
+		PlannedAmount:     inp.PlannedAmount,
+		CategoryID:        inp.CategoryID,
+		PaymentMethodID:   inp.PaymentMethodID,
+		DayOfMonth:        day,
+		IntervalMonths:    interval,
+		AnchorDate:        anchorDate,
+		FrequencyUnit:     unit,
+		IntervalWeeks:     intervalWeeks,
+		DayOfWeek:         int16(dayOfWeek),
+		EndDate:           endDate,
+		TotalPayments:     totalPayments,
+		IsInstallmentPlan: inp.IsInstallmentPlan,
 	})
 	if err != nil {
 		return db.FixedExpense{}, nil, err
@@ -1277,6 +1281,105 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 		return fe, nil, nil
 	}
 	return fe, &tx, nil
+}
+
+// InstallmentPlanInput describes converting one variable transaction into a
+// fixed-expense payment plan.
+type InstallmentPlanInput struct {
+	TransactionID    uuid.UUID
+	BudgetPeriodID   uuid.UUID
+	FirstPaymentDate time.Time
+	TotalPayments    int32
+	EndDate          *time.Time // optional override; derived from TotalPayments when nil
+}
+
+// CreateInstallmentPlan turns a variable transaction into a card installment
+// plan: the purchase stops counting toward this period's totals, and a fixed
+// expense takes its place spread across TotalPayments payments.
+//
+// Deliberately permitted on an ARCHIVED period, unlike every other write to a
+// transaction. Scoping is by profile (assertCollaboratorOrAbove) rather than by
+// period, so the archived guard in TransactionService.assertPeriodCollaborator
+// is never reached. Realising two months later that a purchase was actually
+// financed is the normal case, not an edge case — the plan's payments land in
+// current and future periods regardless of when the purchase happened.
+//
+// Order matters and is not transactional: the plan is created first, then the
+// transaction is excluded and linked. A failure between the two leaves a
+// visible plan next to a still-counting purchase, which the user can see and
+// resolve. The reverse order would leave a silently excluded transaction with
+// nothing to explain it.
+func (s *BudgetProfileService) CreateInstallmentPlan(ctx context.Context, userID uuid.UUID, inp InstallmentPlanInput) (db.FixedExpense, db.Transaction, error) {
+	if inp.TotalPayments < 2 {
+		return db.FixedExpense{}, db.Transaction{}, apperr.Invalid("an installment plan needs at least 2 payments")
+	}
+
+	period, err := s.profiles.GetPeriodByID(ctx, inp.BudgetPeriodID)
+	if err != nil {
+		return db.FixedExpense{}, db.Transaction{}, err
+	}
+	if _, err := s.assertCollaboratorOrAbove(ctx, period.BudgetProfileID, userID); err != nil {
+		return db.FixedExpense{}, db.Transaction{}, err
+	}
+
+	tx, err := s.transactions.GetByID(ctx, inp.TransactionID)
+	if err != nil {
+		return db.FixedExpense{}, db.Transaction{}, err
+	}
+	if tx.BudgetPeriodID == nil || *tx.BudgetPeriodID != inp.BudgetPeriodID {
+		return db.FixedExpense{}, db.Transaction{}, apperr.NotFound("transaction", inp.TransactionID.String())
+	}
+	if tx.InstallmentFixedExpenseID != nil {
+		return db.FixedExpense{}, db.Transaction{}, apperr.Invalid("this transaction is already an installment plan")
+	}
+	// A Fixed transaction is already the recurring thing this would create.
+	if tx.TransactionTypeID != nil && *tx.TransactionTypeID == fixedTransactionTypeID {
+		return db.FixedExpense{}, db.Transaction{}, apperr.Invalid("only a variable transaction can be split into installments")
+	}
+	// A received amount is stored negative (docs/features/negative-positive-transactions.md).
+	// Splitting money that came in across future payments is not a thing.
+	if numericToNanos(tx.Amount) <= 0 {
+		return db.FixedExpense{}, db.Transaction{}, apperr.Invalid("only a spend can be split into installments")
+	}
+
+	endDate := installmentEndDate(inp.FirstPaymentDate, inp.TotalPayments)
+	if inp.EndDate != nil {
+		endDate = *inp.EndDate
+	}
+	if endDate.Before(inp.FirstPaymentDate) {
+		return db.FixedExpense{}, db.Transaction{}, apperr.Invalid("the plan cannot end before its first payment")
+	}
+
+	name := ""
+	if tx.Name != nil {
+		name = *tx.Name
+	}
+	anchor := inp.FirstPaymentDate
+
+	fe, _, err := s.CreateFixedExpense(ctx, period.BudgetProfileID, userID, FixedExpenseInput{
+		Name:              name,
+		PlannedAmount:     installmentAmount(tx.Amount, inp.TotalPayments),
+		CategoryID:        tx.CategoryID,
+		PaymentMethodID:   tx.PaymentMethodID,
+		AnchorDate:        &anchor,
+		IntervalMonths:    1,
+		EndDate:           &endDate,
+		TotalPayments:     inp.TotalPayments,
+		IsInstallmentPlan: true,
+	})
+	if err != nil {
+		return db.FixedExpense{}, db.Transaction{}, err
+	}
+
+	updated, err := s.transactions.SetInstallmentPlan(ctx, db.SetTransactionInstallmentPlanParams{
+		ID:                        inp.TransactionID,
+		BudgetPeriodID:            inp.BudgetPeriodID,
+		InstallmentFixedExpenseID: fe.ID,
+	})
+	if err != nil {
+		return db.FixedExpense{}, db.Transaction{}, err
+	}
+	return fe, updated, nil
 }
 
 func (s *BudgetProfileService) ListFixedExpenses(ctx context.Context, profileID, userID uuid.UUID) ([]db.FixedExpense, error) {

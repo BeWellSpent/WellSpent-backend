@@ -111,22 +111,23 @@ type ExpenseAllocation struct {
 }
 
 type FixedExpense struct {
-	ID              uuid.UUID          `json:"id"`
-	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
-	Name            string             `json:"name"`
-	PlannedAmount   pgtype.Numeric     `json:"planned_amount"`
-	CategoryID      *int32             `json:"category_id"`
-	PaymentMethodID *uuid.UUID         `json:"payment_method_id"`
-	DayOfMonth      int32              `json:"day_of_month"`
-	IsActive        bool               `json:"is_active"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	IntervalMonths  int32              `json:"interval_months"`
-	AnchorDate      pgtype.Date        `json:"anchor_date"`
-	FrequencyUnit   int16              `json:"frequency_unit"`
-	IntervalWeeks   int32              `json:"interval_weeks"`
-	DayOfWeek       int16              `json:"day_of_week"`
-	EndDate         pgtype.Date        `json:"end_date"`
-	TotalPayments   *int32             `json:"total_payments"`
+	ID                uuid.UUID          `json:"id"`
+	BudgetProfileID   uuid.UUID          `json:"budget_profile_id"`
+	Name              string             `json:"name"`
+	PlannedAmount     pgtype.Numeric     `json:"planned_amount"`
+	CategoryID        *int32             `json:"category_id"`
+	PaymentMethodID   *uuid.UUID         `json:"payment_method_id"`
+	DayOfMonth        int32              `json:"day_of_month"`
+	IsActive          bool               `json:"is_active"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	IntervalMonths    int32              `json:"interval_months"`
+	AnchorDate        pgtype.Date        `json:"anchor_date"`
+	FrequencyUnit     int16              `json:"frequency_unit"`
+	IntervalWeeks     int32              `json:"interval_weeks"`
+	DayOfWeek         int16              `json:"day_of_week"`
+	EndDate           pgtype.Date        `json:"end_date"`
+	TotalPayments     *int32             `json:"total_payments"`
+	IsInstallmentPlan bool               `json:"is_installment_plan"`
 }
 
 type FixedExpenseAlias struct {
@@ -239,23 +240,24 @@ type StatusBanner struct {
 }
 
 type Transaction struct {
-	ID                     uuid.UUID      `json:"id"`
-	Name                   *string        `json:"name"`
-	Amount                 pgtype.Numeric `json:"amount"`
-	PlannedAmount          pgtype.Numeric `json:"planned_amount"`
-	Date                   pgtype.Date    `json:"date"`
-	RenewalDate            pgtype.Date    `json:"renewal_date"`
-	Recurring              *bool          `json:"recurring"`
-	BudgetPeriodID         *uuid.UUID     `json:"budget_period_id"`
-	CategoryID             *int32         `json:"category_id"`
-	PaymentMethodID        *uuid.UUID     `json:"payment_method_id"`
-	TransactionFrequencyID *int32         `json:"transaction_frequency_id"`
-	TransactionTypeID      *int32         `json:"transaction_type_id"`
-	IsPaid                 bool           `json:"is_paid"`
-	PaidDate               pgtype.Date    `json:"paid_date"`
-	FixedExpenseID         *uuid.UUID     `json:"fixed_expense_id"`
-	PlaidTransactionID     *string        `json:"plaid_transaction_id"`
-	IsExcluded             bool           `json:"is_excluded"`
+	ID                        uuid.UUID      `json:"id"`
+	Name                      *string        `json:"name"`
+	Amount                    pgtype.Numeric `json:"amount"`
+	PlannedAmount             pgtype.Numeric `json:"planned_amount"`
+	Date                      pgtype.Date    `json:"date"`
+	RenewalDate               pgtype.Date    `json:"renewal_date"`
+	Recurring                 *bool          `json:"recurring"`
+	BudgetPeriodID            *uuid.UUID     `json:"budget_period_id"`
+	CategoryID                *int32         `json:"category_id"`
+	PaymentMethodID           *uuid.UUID     `json:"payment_method_id"`
+	TransactionFrequencyID    *int32         `json:"transaction_frequency_id"`
+	TransactionTypeID         *int32         `json:"transaction_type_id"`
+	IsPaid                    bool           `json:"is_paid"`
+	PaidDate                  pgtype.Date    `json:"paid_date"`
+	FixedExpenseID            *uuid.UUID     `json:"fixed_expense_id"`
+	PlaidTransactionID        *string        `json:"plaid_transaction_id"`
+	IsExcluded                bool           `json:"is_excluded"`
+	InstallmentFixedExpenseID *uuid.UUID     `json:"installment_fixed_expense_id"`
 }
 
 type TransactionFrequency struct {
