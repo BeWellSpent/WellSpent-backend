@@ -246,7 +246,6 @@ type Transaction struct {
 	PlannedAmount             pgtype.Numeric `json:"planned_amount"`
 	Date                      pgtype.Date    `json:"date"`
 	RenewalDate               pgtype.Date    `json:"renewal_date"`
-	Recurring                 *bool          `json:"recurring"`
 	BudgetPeriodID            *uuid.UUID     `json:"budget_period_id"`
 	CategoryID                *int32         `json:"category_id"`
 	PaymentMethodID           *uuid.UUID     `json:"payment_method_id"`

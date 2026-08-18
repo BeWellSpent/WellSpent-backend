@@ -53,6 +53,7 @@ sql:
       - "internal/db/migrations/000048_status_banner.sql"
       - "internal/db/migrations/000049_chart_preferences.sql"
       - "internal/db/migrations/000050_transaction_installment_plan.sql"
+      - "internal/db/migrations/000051_drop_transaction_recurring.sql"
     gen:
       go:
         package: "db"

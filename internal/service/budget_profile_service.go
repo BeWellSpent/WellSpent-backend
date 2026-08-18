@@ -1024,7 +1024,6 @@ func (s *BudgetProfileService) createSavingsTransactions(ctx context.Context, pr
 			PlannedAmount:          perDayAmount,
 			Date:                   txDate,
 			RenewalDate:            pgtype.Date{},
-			Recurring:              func() *bool { v := true; return &v }(),
 			BudgetPeriodID:         &period.ID,
 			CategoryID:             savingsCatID,
 			PaymentMethodID:        src.PaymentMethodID,
@@ -1380,6 +1379,74 @@ func (s *BudgetProfileService) CreateInstallmentPlan(ctx context.Context, userID
 		return db.FixedExpense{}, db.Transaction{}, err
 	}
 	return fe, updated, nil
+}
+
+// DeleteInstallmentPlan reverses CreateInstallmentPlan: the plan and every
+// payment it spawned are deleted, and the original purchase counts again.
+//
+// Deleting the spawned payments is not optional. Leaving them would have the
+// purchase counting AND its payments counting alongside it — the exact
+// double-count the link on the transaction exists to prevent.
+//
+// Refused once any payment has been marked paid. That is real recorded spend,
+// and losing it to an undo is worse than making the user unmark it first. It
+// also keeps this from becoming a way to delete transactions out of an
+// archived period, which nothing else permits.
+//
+// Scoped by profile like CreateInstallmentPlan, so undoing a split works on an
+// archived period exactly as making one does.
+func (s *BudgetProfileService) DeleteInstallmentPlan(ctx context.Context, txID, periodID, userID uuid.UUID) (db.Transaction, error) {
+	period, err := s.profiles.GetPeriodByID(ctx, periodID)
+	if err != nil {
+		return db.Transaction{}, err
+	}
+	if _, err := s.assertCollaboratorOrAbove(ctx, period.BudgetProfileID, userID); err != nil {
+		return db.Transaction{}, err
+	}
+
+	tx, err := s.transactions.GetByID(ctx, txID)
+	if err != nil {
+		return db.Transaction{}, err
+	}
+	if tx.InstallmentFixedExpenseID == nil {
+		return db.Transaction{}, apperr.Invalid("this transaction is not an installment plan")
+	}
+	feID := *tx.InstallmentFixedExpenseID
+
+	spawned, err := s.transactions.ListByFixedExpense(ctx, feID)
+	if err != nil {
+		return db.Transaction{}, err
+	}
+	for _, p := range spawned {
+		if p.IsPaid {
+			return db.Transaction{}, apperr.Invalid("this plan already has a payment marked paid; unmark it before undoing the split")
+		}
+	}
+
+	// Clear the link first. If a later step fails the user is left with a
+	// counting purchase beside a still-live plan, which is visible and
+	// fixable; clearing it last could strand an excluded transaction pointing
+	// at a plan that no longer exists.
+	updated, err := s.transactions.ClearInstallmentPlan(ctx, db.ClearTransactionInstallmentPlanParams{
+		ID:             txID,
+		BudgetPeriodID: periodID,
+	})
+	if err != nil {
+		return db.Transaction{}, err
+	}
+	if err := s.transactions.DeleteByFixedExpense(ctx, feID); err != nil {
+		return db.Transaction{}, err
+	}
+	// Deactivate, not a hard delete — this repo soft-deletes fixed expenses
+	// everywhere else, and with its payments gone and the purchase unlinked the
+	// template is already invisible (ListFixedExpenses returns active only).
+	if err := s.fixedExpenses.Deactivate(ctx, db.DeactivateFixedExpenseParams{
+		ID:              feID,
+		BudgetProfileID: period.BudgetProfileID,
+	}); err != nil {
+		return db.Transaction{}, err
+	}
+	return updated, nil
 }
 
 func (s *BudgetProfileService) ListFixedExpenses(ctx context.Context, profileID, userID uuid.UUID) ([]db.FixedExpense, error) {

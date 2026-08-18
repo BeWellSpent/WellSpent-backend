@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type TransactionRepository interface {
@@ -21,6 +21,9 @@ type TransactionRepository interface {
 	UnmarkAsPaid(ctx context.Context, arg db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
 	SetExcluded(ctx context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error)
 	SetInstallmentPlan(ctx context.Context, arg db.SetTransactionInstallmentPlanParams) (db.Transaction, error)
+	ClearInstallmentPlan(ctx context.Context, arg db.ClearTransactionInstallmentPlanParams) (db.Transaction, error)
+	ListByFixedExpense(ctx context.Context, fixedExpenseID uuid.UUID) ([]db.Transaction, error)
+	DeleteByFixedExpense(ctx context.Context, fixedExpenseID uuid.UUID) error
 
 	GetCategory(ctx context.Context, id int32) (db.GetCategoryRow, error)
 	ListCategories(ctx context.Context, userID uuid.UUID) ([]db.ListCategoriesRow, error)
@@ -121,6 +124,22 @@ func (r *transactionRepository) SetInstallmentPlan(ctx context.Context, arg db.S
 		return db.Transaction{}, apperr.NotFound("transaction", arg.ID.String())
 	}
 	return t, err
+}
+
+func (r *transactionRepository) ClearInstallmentPlan(ctx context.Context, arg db.ClearTransactionInstallmentPlanParams) (db.Transaction, error) {
+	t, err := r.q.ClearTransactionInstallmentPlan(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.Transaction{}, apperr.NotFound("transaction", arg.ID.String())
+	}
+	return t, err
+}
+
+func (r *transactionRepository) ListByFixedExpense(ctx context.Context, fixedExpenseID uuid.UUID) ([]db.Transaction, error) {
+	return r.q.ListTransactionsByFixedExpense(ctx, fixedExpenseID)
+}
+
+func (r *transactionRepository) DeleteByFixedExpense(ctx context.Context, fixedExpenseID uuid.UUID) error {
+	return r.q.DeleteTransactionsByFixedExpense(ctx, fixedExpenseID)
 }
 
 func (r *transactionRepository) GetCategory(ctx context.Context, id int32) (db.GetCategoryRow, error) {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

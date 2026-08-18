@@ -526,7 +526,6 @@ func (s *AuthService) ResendVerificationEmail(ctx context.Context, email string)
 	return s.mailer.Send(ctx, user)
 }
 
-
 func validatePassword(password string) error {
 	if len(password) < 8 {
 		return apperr.Invalid("password must be at least 8 characters")

@@ -7,13 +7,13 @@ import (
 	"net/mail"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/auth"
 	"github.com/BeWellSpent/wellspent-backend/internal/config"
 	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )

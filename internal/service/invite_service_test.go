@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/config"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -19,11 +19,11 @@ import (
 // ── Mock invite repo ──────────────────────────────────────────────────────────
 
 type mockInviteRepo struct {
-	create       func(context.Context, db.CreateInviteParams) (db.BudgetInvite, error)
-	getByToken   func(context.Context, uuid.UUID) (db.GetInviteByTokenRow, error)
-	getByID      func(context.Context, uuid.UUID) (db.BudgetInvite, error)
+	create        func(context.Context, db.CreateInviteParams) (db.BudgetInvite, error)
+	getByToken    func(context.Context, uuid.UUID) (db.GetInviteByTokenRow, error)
+	getByID       func(context.Context, uuid.UUID) (db.BudgetInvite, error)
 	listByProfile func(context.Context, uuid.UUID) ([]db.BudgetInvite, error)
-	updateStatus func(context.Context, db.UpdateInviteStatusParams) (db.BudgetInvite, error)
+	updateStatus  func(context.Context, db.UpdateInviteStatusParams) (db.BudgetInvite, error)
 }
 
 func (m *mockInviteRepo) Create(ctx context.Context, arg db.CreateInviteParams) (db.BudgetInvite, error) {

@@ -4,7 +4,7 @@
 -- ConfirmTransactionReview excludes it from totals via is_excluded instead of
 -- hiding the row outright, so unmarking the matched fixed expense later never
 -- leaves it stranded/unrecoverable behind a review-status side channel.
-SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
        is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 FROM transaction
@@ -14,7 +14,7 @@ WHERE budget_period_id = sqlc.arg('budget_period_id')::uuid
 ORDER BY date DESC NULLS LAST;
 
 -- name: GetTransactionByID :one
-SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
        is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 FROM transaction
@@ -23,20 +23,20 @@ LIMIT 1;
 
 -- name: CreateTransaction :one
 INSERT INTO transaction (
-    name, amount, planned_amount, date, renewal_date, recurring,
+    name, amount, planned_amount, date, renewal_date,
     budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
     fixed_expense_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id;
 
 -- name: UpdateTransaction :one
 UPDATE transaction
-SET name = $2, amount = $3, planned_amount = $4, date = $5, recurring = $6,
-    category_id = $7, payment_method_id = $8, transaction_frequency_id = $9, transaction_type_id = $10
+SET name = $2, amount = $3, planned_amount = $4, date = $5,
+    category_id = $6, payment_method_id = $7, transaction_frequency_id = $8, transaction_type_id = $9
 WHERE id = $1
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id;
 
@@ -51,7 +51,7 @@ SET is_paid = TRUE,
     amount = sqlc.arg('amount')
 WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id;
 
@@ -62,7 +62,7 @@ SET is_paid = FALSE,
     amount = planned_amount
 WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id;
 
@@ -71,7 +71,7 @@ UPDATE transaction
 SET is_excluded = sqlc.arg('excluded')::bool
 WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id;
 
@@ -86,9 +86,33 @@ SET is_excluded = TRUE,
     installment_fixed_expense_id = sqlc.arg('installment_fixed_expense_id')::uuid
 WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id;
+
+-- Reverses an installment split: the purchase counts again and forgets the plan
+-- it briefly became. Paired with deleting the plan and its spawned payments in
+-- the service (issue #54).
+-- name: ClearTransactionInstallmentPlan :one
+UPDATE transaction
+SET is_excluded = FALSE,
+    installment_fixed_expense_id = NULL
+WHERE id = sqlc.arg('id')::uuid
+  AND budget_period_id = sqlc.arg('budget_period_id')::uuid
+RETURNING id, name, amount, planned_amount, date, renewal_date,
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id;
+
+-- Every transaction spawned by a fixed-expense template, across all periods.
+-- name: ListTransactionsByFixedExpense :many
+SELECT id, name, amount, planned_amount, date, renewal_date,
+       budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
+FROM transaction
+WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid;
+
+-- name: DeleteTransactionsByFixedExpense :exec
+DELETE FROM transaction WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid;
 
 -- Deletes auto-created savings transactions when a savings source is removed.
 -- Matches by name, payment method, and category within non-archived periods.
@@ -292,16 +316,16 @@ SELECT id, name FROM transaction_frequency ORDER BY id;
 
 -- name: CreateTransactionFromPlaid :one
 INSERT INTO transaction (
-    name, amount, planned_amount, date, renewal_date, recurring,
+    name, amount, planned_amount, date, renewal_date,
     budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
     fixed_expense_id, plaid_transaction_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id;
 
 -- name: GetTransactionByPlaidID :one
-SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
        is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id
 FROM transaction

@@ -19,13 +19,13 @@ import (
 )
 
 type NotificationService struct {
-	notifs      repository.NotificationRepository
+	notifs       repository.NotificationRepository
 	transactions repository.TransactionRepository
-	profiles    repository.BudgetProfileRepository
-	allocations repository.ExpenseAllocationRepository
-	users       repository.UserRepository
-	cfg         *config.Config
-	log         *zap.Logger
+	profiles     repository.BudgetProfileRepository
+	allocations  repository.ExpenseAllocationRepository
+	users        repository.UserRepository
+	cfg          *config.Config
+	log          *zap.Logger
 }
 
 func NewNotificationService(

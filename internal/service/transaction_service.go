@@ -116,7 +116,6 @@ func assertOnlyCategoryChanged(arg db.UpdateTransactionParams, existing db.Trans
 		equalNumeric(arg.Amount, existing.Amount) &&
 		equalNumeric(arg.PlannedAmount, existing.PlannedAmount) &&
 		equalDate(arg.Date, existing.Date) &&
-		equalOptBool(arg.Recurring, existing.Recurring) &&
 		equalOptUUID(arg.PaymentMethodID, existing.PaymentMethodID) &&
 		equalOptInt32(arg.TransactionFrequencyID, existing.TransactionFrequencyID) &&
 		equalOptInt32(arg.TransactionTypeID, existing.TransactionTypeID) {
@@ -126,13 +125,6 @@ func assertOnlyCategoryChanged(arg db.UpdateTransactionParams, existing db.Trans
 }
 
 func equalOptString(a, b *string) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
-}
-
-func equalOptBool(a, b *bool) bool {
 	if a == nil || b == nil {
 		return a == b
 	}

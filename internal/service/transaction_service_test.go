@@ -39,6 +39,9 @@ type mockTransactionRepo struct {
 	unmarkAsPaid                        func(context.Context, db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
 	setExcluded                         func(context.Context, db.SetTransactionExcludedParams) (db.Transaction, error)
 	setInstallmentPlan                  func(context.Context, db.SetTransactionInstallmentPlanParams) (db.Transaction, error)
+	clearInstallmentPlan                func(context.Context, db.ClearTransactionInstallmentPlanParams) (db.Transaction, error)
+	listByFixedExpense                  func(context.Context, uuid.UUID) ([]db.Transaction, error)
+	deleteByFixedExpense                func(context.Context, uuid.UUID) error
 	createPaymentMethodFromPlaid        func(context.Context, db.CreatePaymentMethodFromPlaidParams) (db.PaymentMethod, error)
 	getPaymentMethodByPlaidAccountID    func(context.Context, string) (db.PaymentMethod, error)
 	getPaymentMethodByUserAndName       func(context.Context, uuid.UUID, string) (db.PaymentMethod, error)
@@ -307,6 +310,27 @@ func (m *mockTransactionRepo) SetInstallmentPlan(ctx context.Context, arg db.Set
 		return m.setInstallmentPlan(ctx, arg)
 	}
 	return db.Transaction{}, nil
+}
+
+func (m *mockTransactionRepo) ClearInstallmentPlan(ctx context.Context, arg db.ClearTransactionInstallmentPlanParams) (db.Transaction, error) {
+	if m.clearInstallmentPlan != nil {
+		return m.clearInstallmentPlan(ctx, arg)
+	}
+	return db.Transaction{}, nil
+}
+
+func (m *mockTransactionRepo) ListByFixedExpense(ctx context.Context, id uuid.UUID) ([]db.Transaction, error) {
+	if m.listByFixedExpense != nil {
+		return m.listByFixedExpense(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockTransactionRepo) DeleteByFixedExpense(ctx context.Context, id uuid.UUID) error {
+	if m.deleteByFixedExpense != nil {
+		return m.deleteByFixedExpense(ctx, id)
+	}
+	return nil
 }
 
 func (m *mockTransactionRepo) CreateTransactionFromPlaid(ctx context.Context, arg db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
@@ -1425,7 +1449,6 @@ func TestUpdateTransaction_Invalid_WhenDateBackdatedBeforePeriodStart(t *testing
 
 func baseUpdateTestTransaction(id, periodID, paymentMethodID uuid.UUID) db.Transaction {
 	name := "Groceries"
-	recurring := false
 	categoryID := int32(1)
 	freqID := int32(1)
 	typeID := int32(2)
@@ -1437,7 +1460,6 @@ func baseUpdateTestTransaction(id, periodID, paymentMethodID uuid.UUID) db.Trans
 		Amount:                 amount,
 		PlannedAmount:          amount,
 		Date:                   pgtype.Date{Time: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC), Valid: true},
-		Recurring:              &recurring,
 		BudgetPeriodID:         &periodID,
 		CategoryID:             &categoryID,
 		PaymentMethodID:        &paymentMethodID,
@@ -1453,7 +1475,6 @@ func matchingUpdateParams(tx db.Transaction) db.UpdateTransactionParams {
 		Amount:                 tx.Amount,
 		PlannedAmount:          tx.PlannedAmount,
 		Date:                   tx.Date,
-		Recurring:              tx.Recurring,
 		CategoryID:             tx.CategoryID,
 		PaymentMethodID:        tx.PaymentMethodID,
 		TransactionFrequencyID: tx.TransactionFrequencyID,
