@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -170,7 +171,10 @@ func (s *InviteService) GetByToken(ctx context.Context, token uuid.UUID) (db.Get
 		return db.GetInviteByTokenRow{}, apperr.Invalid("this invitation has already been accepted")
 	}
 	if row.ExpiresAt.Time.Before(time.Now().UTC()) {
-		_, _ = s.invites.UpdateStatus(ctx, db.UpdateInviteStatusParams{ID: row.ID, Status: "expired"})
+		if _, statusErr := s.invites.UpdateStatus(ctx, db.UpdateInviteStatusParams{ID: row.ID, Status: "expired"}); statusErr != nil {
+			// The invite stays listed as pending though it can no longer be accepted.
+			log.Printf("invite: mark invite %s as expired: %v", row.ID, statusErr)
+		}
 		return db.GetInviteByTokenRow{}, apperr.Invalid("this invitation has expired")
 	}
 	return row, nil
@@ -193,7 +197,10 @@ func (s *InviteService) Accept(ctx context.Context, token uuid.UUID, callerID uu
 	already, _ := s.profiles.ExistsPersonForUser(ctx, row.BudgetProfileID, callerID)
 	if already {
 		// Idempotent: mark accepted and return the budget ID so the frontend can redirect.
-		_, _ = s.invites.UpdateStatus(ctx, db.UpdateInviteStatusParams{ID: row.ID, Status: "accepted"})
+		if _, statusErr := s.invites.UpdateStatus(ctx, db.UpdateInviteStatusParams{ID: row.ID, Status: "accepted"}); statusErr != nil {
+			// The invite stays pending and can be redeemed a second time.
+			log.Printf("invite: mark invite %s as accepted: %v", row.ID, statusErr)
+		}
 		return row.BudgetProfileID, nil
 	}
 
@@ -224,6 +231,9 @@ func (s *InviteService) Accept(ctx context.Context, token uuid.UUID, callerID uu
 		return uuid.UUID{}, err
 	}
 
-	_, _ = s.invites.UpdateStatus(ctx, db.UpdateInviteStatusParams{ID: row.ID, Status: "accepted"})
+	if _, statusErr := s.invites.UpdateStatus(ctx, db.UpdateInviteStatusParams{ID: row.ID, Status: "accepted"}); statusErr != nil {
+		// The invite stays pending and can be redeemed a second time.
+		log.Printf("invite: mark invite %s as accepted: %v", row.ID, statusErr)
+	}
 	return row.BudgetProfileID, nil
 }

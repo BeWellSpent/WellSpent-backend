@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"math/big"
 	"strconv"
@@ -167,13 +168,17 @@ func (s *BudgetProfileService) Create(ctx context.Context, userID uuid.UUID, nam
 	owner, err := s.users.GetByID(ctx, userID)
 	if err == nil {
 		displayName := userDisplayName(owner)
-		_, _ = s.profiles.AddPerson(ctx, db.AddBudgetPersonToProfileParams{
+		if _, personErr := s.profiles.AddPerson(ctx, db.AddBudgetPersonToProfileParams{
 			BudgetProfileID: profile.ID,
 			UserName:        &displayName,
 			UserID:          &userID,
 			Color:           "",
 			Role:            "admin",
-		})
+		}); personErr != nil {
+			// The owner isn't on their own budget: no payment methods can be
+			// attributed and the people list opens empty.
+			log.Printf("budget_profile.create: add owner %s as first person on %s: %v", userID, profile.ID, personErr)
+		}
 	}
 
 	// Create the first period immediately.
@@ -201,6 +206,19 @@ func (s *BudgetProfileService) SetCarryoverEnabled(ctx context.Context, id, user
 	return s.profiles.SetCarryoverEnabled(ctx, db.SetBudgetProfileCarryoverEnabledParams{
 		ID:               id,
 		CarryoverEnabled: enabled,
+	})
+}
+
+// SetAutoUpdatePlannedAmount controls whether marking a fixed expense paid at a
+// different amount rewrites its template. Admin only: it changes what every
+// member's future periods are planned at.
+func (s *BudgetProfileService) SetAutoUpdatePlannedAmount(ctx context.Context, id, userID uuid.UUID, enabled bool) (db.BudgetProfile, error) {
+	if _, err := s.assertAdmin(ctx, id, userID); err != nil {
+		return db.BudgetProfile{}, err
+	}
+	return s.profiles.SetAutoUpdatePlannedAmount(ctx, db.SetBudgetProfileAutoUpdatePlannedAmountParams{
+		ID:                      id,
+		AutoUpdatePlannedAmount: enabled,
 	})
 }
 
@@ -252,7 +270,11 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 
 	// Archive the period that just ended now that the new one is live.
 	if latest.ID != (uuid.UUID{}) {
-		_ = s.profiles.ArchivePeriod(ctx, latest.ID)
+		if archiveErr := s.profiles.ArchivePeriod(ctx, latest.ID); archiveErr != nil {
+			// Two live periods at once: both clients pick a "current" period and
+			// would disagree about which.
+			log.Printf("period_rollover: archive period %s after creating %s: %v", latest.ID, period.ID, archiveErr)
+		}
 	}
 
 	// Pre-fill recurring income sources as entries.
@@ -262,13 +284,17 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 			continue
 		}
 		srcID := src.ID
-		_, _ = s.profiles.CreateIncomeEntry(ctx, db.CreateIncomeEntryParams{
+		if _, incomeErr := s.profiles.CreateIncomeEntry(ctx, db.CreateIncomeEntryParams{
 			BudgetPeriodID: period.ID,
 			IncomeSourceID: &srcID,
 			BudgetPersonID: src.BudgetPersonID,
 			Name:           &src.Name,
 			Amount:         src.DefaultAmount,
-		})
+		}); incomeErr != nil {
+			// The period opens with less income than the user expects, which
+			// silently inflates every "remaining to allocate" figure.
+			log.Printf("period_rollover: pre-fill income source %d into period %s: %v", srcID, period.ID, incomeErr)
+		}
 	}
 
 	// Recalculate per-person tax reserve entries.
@@ -295,10 +321,13 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 	for _, fe := range fixedExpenses {
 		// Auto-deactivate when the plan's end date has passed.
 		if fe.EndDate.Valid && startDate.After(fe.EndDate.Time) {
-			_ = s.fixedExpenses.Deactivate(ctx, db.DeactivateFixedExpenseParams{
+			if deactivateErr := s.fixedExpenses.Deactivate(ctx, db.DeactivateFixedExpenseParams{
 				ID:              fe.ID,
 				BudgetProfileID: profile.ID,
-			})
+			}); deactivateErr != nil {
+				// A finished payment plan keeps spawning bills the user no longer owes.
+				log.Printf("period_rollover: deactivate ended fixed expense %s: %v", fe.ID, deactivateErr)
+			}
 			continue
 		}
 		if isFixedExpenseWeekUnit(fe) {
@@ -319,7 +348,7 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 		}
 		txDate := pgtype.Date{Time: fixedExpenseDateInMonth(fe, monthStart), Valid: true}
 		name := fe.Name
-		_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
+		if _, spawnErr := s.transactions.Create(ctx, db.CreateTransactionParams{
 			Name:              &name,
 			Amount:            fe.PlannedAmount,
 			PlannedAmount:     fe.PlannedAmount,
@@ -329,7 +358,10 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 			PaymentMethodID:   fe.PaymentMethodID,
 			TransactionTypeID: &txTypeFixed,
 			FixedExpenseID:    &feID,
-		})
+		}); spawnErr != nil {
+			// A bill the user owes this period simply never appears.
+			log.Printf("period_rollover: spawn fixed expense %s into period %s: %v", feID, period.ID, spawnErr)
+		}
 	}
 
 	// Carry the closing period's ending balance forward, if the budget opted
@@ -366,22 +398,29 @@ func (s *BudgetProfileService) applyCarryover(ctx context.Context, profile db.Bu
 		BudgetPeriodID:            next.ID,
 		CarriedFromBudgetPeriodID: closing.ID,
 	})
-	if err != nil || carried > 0 {
+	if err != nil {
+		log.Printf("carryover: check whether period %s was already carried into %s: %v", closing.ID, next.ID, err)
+		return
+	}
+	if carried > 0 {
 		return
 	}
 
 	categoryIDs, err := s.transactions.ListSystemCategories(ctx)
 	if err != nil {
+		log.Printf("carryover: load system categories for profile %s: %v", profile.ID, err)
 		return
 	}
 	incomeCategoryID, hasIncomeCategory := categoryIDs["Income"]
 
 	txs, err := s.transactions.List(ctx, db.ListTransactionsParams{BudgetPeriodID: closing.ID})
 	if err != nil {
+		log.Printf("carryover: list transactions for closing period %s: %v", closing.ID, err)
 		return
 	}
 	incomeEntries, err := s.profiles.ListIncomeEntries(ctx, closing.ID)
 	if err != nil {
+		log.Printf("carryover: list income entries for closing period %s: %v", closing.ID, err)
 		return
 	}
 
@@ -400,11 +439,12 @@ func (s *BudgetProfileService) applyCarryover(ctx context.Context, profile db.Bu
 			// Savings and Debt are both seeded system categories, so this only
 			// fires on a database missing migration 000052. Skipping beats
 			// creating an uncategorized row the user can't interpret.
+			log.Printf("carryover: system category %q missing — skipping a carried row for profile %s", row.categoryName, profile.ID)
 			continue
 		}
 		name := carryoverTransactionName(row, closing)
 		amount := numericFromNanos(row.amountNanos)
-		_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
+		if _, createErr := s.transactions.Create(ctx, db.CreateTransactionParams{
 			Name:                      &name,
 			Amount:                    amount,
 			PlannedAmount:             amount,
@@ -414,7 +454,11 @@ func (s *BudgetProfileService) applyCarryover(ctx context.Context, profile db.Bu
 			PaymentMethodID:           row.paymentMethodID,
 			TransactionTypeID:         &txTypeVariable,
 			CarriedFromBudgetPeriodID: &closingID,
-		})
+		}); createErr != nil {
+			// Partial carryover: the rows already written stay, so the carried
+			// total no longer matches the balance it came from.
+			log.Printf("carryover: create %s row for period %s from %s: %v", row.categoryName, next.ID, closing.ID, createErr)
+		}
 	}
 }
 
@@ -613,7 +657,7 @@ func (s *BudgetProfileService) spawnWeeklyFixedExpenseOccurrences(ctx context.Co
 		if exists {
 			continue
 		}
-		_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
+		if _, savErr := s.transactions.Create(ctx, db.CreateTransactionParams{
 			Name:              &name,
 			Amount:            fe.PlannedAmount,
 			PlannedAmount:     fe.PlannedAmount,
@@ -623,7 +667,10 @@ func (s *BudgetProfileService) spawnWeeklyFixedExpenseOccurrences(ctx context.Co
 			PaymentMethodID:   fe.PaymentMethodID,
 			TransactionTypeID: &txTypeFixed,
 			FixedExpenseID:    &feID,
-		})
+		}); savErr != nil {
+			// A weekly bill the user owes this period simply never appears.
+			log.Printf("period_rollover: spawn weekly occurrence of fixed expense %s into period %s: %v", feID, periodID, savErr)
+		}
 	}
 }
 
@@ -949,7 +996,9 @@ func (s *BudgetProfileService) recalculateTaxReserve(ctx context.Context, profil
 	}
 
 	// Delete all existing tax reserve entries; re-create one per person.
-	_ = s.profiles.DeleteTaxReserveSavingsSource(ctx, profileID)
+	if taxErr := s.profiles.DeleteTaxReserveSavingsSource(ctx, profileID); taxErr != nil {
+		log.Printf("tax_reserve: clear existing reserve for profile %s: %v", profileID, taxErr)
+	}
 	if len(incomeByPerson) == 0 {
 		return
 	}
@@ -989,13 +1038,16 @@ func (s *BudgetProfileService) recalculateTaxReserve(ctx context.Context, profil
 		}
 
 		estimate := tax.Estimate(annualIncome, stateCode, tax.FilingStatus(fsInt))
-		_, _ = s.profiles.UpsertTaxReserveSavingsSource(ctx, db.UpsertTaxReserveSavingsSourceParams{
+		if _, upsertErr := s.profiles.UpsertTaxReserveSavingsSource(ctx, db.UpsertTaxReserveSavingsSourceParams{
 			BudgetProfileID: profileID,
 			BudgetPersonID:  &pid,
 			Amount:          toMonthly(estimate.TotalAnnual),
 			FederalAmount:   toMonthly(estimate.FederalTax),
 			StateAmount:     toMonthly(estimate.StateTax),
-		})
+		}); upsertErr != nil {
+			// The person's tax reserve silently stops tracking their income.
+			log.Printf("tax_reserve: upsert reserve for profile %s: %v", profileID, upsertErr)
+		}
 	}
 }
 
@@ -1192,12 +1244,15 @@ func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32
 			for _, c := range cats {
 				if c.IsSystem && c.Name == "Savings" {
 					catID := c.ID
-					_ = s.transactions.DeleteSavingsSourceTransactions(ctx, db.DeleteSavingsSourceTransactionsParams{
+					if delErr := s.transactions.DeleteSavingsSourceTransactions(ctx, db.DeleteSavingsSourceTransactionsParams{
 						BudgetProfileID: profileID,
 						Name:            &old.Name,
 						PaymentMethodID: *old.PaymentMethodID,
 						CategoryID:      &catID,
-					})
+					}); delErr != nil {
+						// Orphaned savings rows keep counting against the budget.
+						log.Printf("savings: delete transactions for changed source: %v", delErr)
+					}
 					break
 				}
 			}
@@ -1232,12 +1287,15 @@ func (s *BudgetProfileService) DeleteSavingsSource(ctx context.Context, id int32
 			}
 		}
 		if savingsCatID != nil {
-			_ = s.transactions.DeleteSavingsSourceTransactions(ctx, db.DeleteSavingsSourceTransactionsParams{
+			if delErr := s.transactions.DeleteSavingsSourceTransactions(ctx, db.DeleteSavingsSourceTransactionsParams{
 				BudgetProfileID: profileID,
 				Name:            &src.Name,
 				PaymentMethodID: *src.PaymentMethodID,
 				CategoryID:      savingsCatID,
-			})
+			}); delErr != nil {
+				// Orphaned savings rows keep counting against the budget.
+				log.Printf("savings: delete transactions for removed source: %v", delErr)
+			}
 		}
 	}
 	return s.profiles.DeleteSavingsSource(ctx, db.DeleteSavingsSourceParams{
@@ -1634,10 +1692,13 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 	}
 	startDate := period.StartDate.Time
 	if !isFixedExpenseDueInMonth(fe, startDate) {
-		_ = s.fixedExpenses.DeleteUnpaidTransactions(ctx, db.DeleteUnpaidTransactionByFixedExpenseParams{
+		if delErr := s.fixedExpenses.DeleteUnpaidTransactions(ctx, db.DeleteUnpaidTransactionByFixedExpenseParams{
 			FixedExpenseID:  fe.ID,
 			BudgetProfileID: profileID,
-		})
+		}); delErr != nil {
+			// A stale unpaid bill outlives the template change that should have replaced it.
+			log.Printf("fixed_expense: delete unpaid transactions: %v", delErr)
+		}
 		return fe, nil
 	}
 	lastDay := time.Date(startDate.Year(), startDate.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
@@ -1659,7 +1720,7 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 		// date was removed or moved to past). Spawn one for the current period.
 		txTypeFixed := int32(1)
 		feID := fe.ID
-		_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
+		if _, spawnErr := s.transactions.Create(ctx, db.CreateTransactionParams{
 			Name:              &name,
 			Amount:            fe.PlannedAmount,
 			PlannedAmount:     fe.PlannedAmount,
@@ -1669,9 +1730,12 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 			PaymentMethodID:   fe.PaymentMethodID,
 			TransactionTypeID: &txTypeFixed,
 			FixedExpenseID:    &feID,
-		})
+		}); spawnErr != nil {
+			// A bill the user owes this period simply never appears.
+			log.Printf("period_rollover: spawn fixed expense %s into period %s: %v", feID, period.ID, spawnErr)
+		}
 	} else {
-		_ = s.fixedExpenses.UpdateTransactionFromFixedExpense(ctx, db.UpdateTransactionFromFixedExpenseParams{
+		if syncErr := s.fixedExpenses.UpdateTransactionFromFixedExpense(ctx, db.UpdateTransactionFromFixedExpenseParams{
 			FixedExpenseID:  fe.ID,
 			BudgetProfileID: profileID,
 			Name:            &name,
@@ -1679,7 +1743,10 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 			CategoryID:      fe.CategoryID,
 			PaymentMethodID: fe.PaymentMethodID,
 			Date:            txDate,
-		})
+		}); syncErr != nil {
+			// The current period keeps the old amount while the template shows the new one.
+			log.Printf("fixed_expense: sync current period transaction: %v", syncErr)
+		}
 	}
 
 	return fe, nil
@@ -1699,10 +1766,13 @@ func (s *BudgetProfileService) DeleteFixedExpense(ctx context.Context, id uuid.U
 	}
 
 	// Remove unpaid transaction from the active period.
-	_ = s.fixedExpenses.DeleteUnpaidTransactions(ctx, db.DeleteUnpaidTransactionByFixedExpenseParams{
+	if delErr := s.fixedExpenses.DeleteUnpaidTransactions(ctx, db.DeleteUnpaidTransactionByFixedExpenseParams{
 		FixedExpenseID:  id,
 		BudgetProfileID: profileID,
-	})
+	}); delErr != nil {
+		// A deactivated template's unpaid bill stays on the period.
+		log.Printf("fixed_expense: delete unpaid transactions on deactivate: %v", delErr)
+	}
 
 	return s.fixedExpenses.Deactivate(ctx, db.DeactivateFixedExpenseParams{
 		ID:              id,

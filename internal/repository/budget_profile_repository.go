@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
+	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
-	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 )
 
 type BudgetProfileRepository interface {
@@ -21,6 +21,7 @@ type BudgetProfileRepository interface {
 	Create(ctx context.Context, arg db.CreateBudgetProfileParams) (db.BudgetProfile, error)
 	Update(ctx context.Context, arg db.UpdateBudgetProfileParams) (db.BudgetProfile, error)
 	SetCarryoverEnabled(ctx context.Context, arg db.SetBudgetProfileCarryoverEnabledParams) (db.BudgetProfile, error)
+	SetAutoUpdatePlannedAmount(ctx context.Context, arg db.SetBudgetProfileAutoUpdatePlannedAmountParams) (db.BudgetProfile, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 
 	// Period
@@ -115,6 +116,14 @@ func (r *budgetProfileRepository) Update(ctx context.Context, arg db.UpdateBudge
 
 func (r *budgetProfileRepository) SetCarryoverEnabled(ctx context.Context, arg db.SetBudgetProfileCarryoverEnabledParams) (db.BudgetProfile, error) {
 	p, err := r.q.SetBudgetProfileCarryoverEnabled(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.BudgetProfile{}, apperr.NotFound("budget_profile", arg.ID.String())
+	}
+	return p, err
+}
+
+func (r *budgetProfileRepository) SetAutoUpdatePlannedAmount(ctx context.Context, arg db.SetBudgetProfileAutoUpdatePlannedAmountParams) (db.BudgetProfile, error) {
+	p, err := r.q.SetBudgetProfileAutoUpdatePlannedAmount(ctx, arg)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.BudgetProfile{}, apperr.NotFound("budget_profile", arg.ID.String())
 	}

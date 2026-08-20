@@ -460,7 +460,11 @@ func (s *PlaidService) Disconnect(ctx context.Context, userID, connectionID uuid
 
 	// Best-effort: notify Plaid that the item is being removed.
 	if decrypted, err := crypto.Decrypt(item.AccessToken, s.encryptionKey); err == nil {
-		_ = s.plaid.RemoveItem(ctx, decrypted)
+		if removeErr := s.plaid.RemoveItem(ctx, decrypted); removeErr != nil {
+			// The item stays live at Plaid — we keep billing for a connection the
+			// user believes they removed.
+			log.Printf("plaid: remove item at Plaid during disconnect: %v", removeErr)
+		}
 	}
 
 	_, err = s.items.UpdateStatus(ctx, db.UpdatePlaidItemStatusParams{
@@ -498,7 +502,11 @@ func (s *PlaidService) createMissingPaymentMethods(ctx context.Context, item db.
 		// If a method with the same name exists, update its plaid_account_id
 		// so future reconnects dedup correctly, then skip creation.
 		if existing, existsErr := s.transactions.GetPaymentMethodByUserAndName(ctx, userID, name); existsErr == nil {
-			_ = s.transactions.UpdatePaymentMethodPlaidAccountID(ctx, existing.ID, plaidAcctID)
+			if linkErr := s.transactions.UpdatePaymentMethodPlaidAccountID(ctx, existing.ID, plaidAcctID); linkErr != nil {
+				// Future reconnects will duplicate this payment method instead of
+				// reusing it.
+				log.Printf("plaid: link payment method %s to account %s: %v", existing.ID, plaidAcctID, linkErr)
+			}
 			continue
 		}
 
