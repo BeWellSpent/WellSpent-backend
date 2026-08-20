@@ -45,13 +45,14 @@ type BudgetPeriod struct {
 }
 
 type BudgetProfile struct {
-	ID               uuid.UUID          `json:"id"`
-	UserID           uuid.UUID          `json:"user_id"`
-	Name             string             `json:"name"`
-	Cycle            string             `json:"cycle"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	CountryCode      *string            `json:"country_code"`
-	CarryoverEnabled bool               `json:"carryover_enabled"`
+	ID                      uuid.UUID          `json:"id"`
+	UserID                  uuid.UUID          `json:"user_id"`
+	Name                    string             `json:"name"`
+	Cycle                   string             `json:"cycle"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	CountryCode             *string            `json:"country_code"`
+	CarryoverEnabled        bool               `json:"carryover_enabled"`
+	AutoUpdatePlannedAmount bool               `json:"auto_update_planned_amount"`
 }
 
 type BudgetToProfileMapping struct {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log"
 
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
@@ -282,7 +283,12 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 	if upErr != nil || unpaid.BudgetPeriodID == nil {
 		return
 	}
-	_, _ = s.reviews.Upsert(ctx, periodID, tx.ID, unpaid.ID, bestScore)
+	if _, reviewErr := s.reviews.Upsert(ctx, periodID, tx.ID, unpaid.ID, bestScore); reviewErr != nil {
+		// Not fatal: the transaction is created and correct, it just won't be
+		// offered for review. Logged because silence here is what made a missing
+		// review look like the matcher simply not firing.
+		log.Printf("transaction.create: queue review for transaction %s against %s: %v", tx.ID, unpaid.ID, reviewErr)
+	}
 	if s.notifs != nil && tx.Name != nil {
 		s.notifs.HandleReviewPending(ctx, period.BudgetProfileID, *tx.Name)
 	}
@@ -435,29 +441,21 @@ func (s *TransactionService) UpdatePaymentMethod(ctx context.Context, arg db.Upd
 // actual amount and date. If the paid amount differs from planned, also updates
 // the fixed expense template so future periods carry the corrected planned cost.
 func (s *TransactionService) MarkTransactionAsPaid(ctx context.Context, id uuid.UUID, periodID uuid.UUID, paidAmount pgtype.Numeric, paidDate pgtype.Date, userID uuid.UUID) (db.Transaction, error) {
-	if _, err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
-		return db.Transaction{}, err
-	}
-
-	tx, err := s.transactions.MarkAsPaid(ctx, db.MarkTransactionAsPaidParams{
-		ID:             id,
-		BudgetPeriodID: periodID,
-		Amount:         paidAmount,
-		PaidDate:       paidDate,
-	})
+	period, err := s.assertPeriodCollaborator(ctx, periodID, userID)
 	if err != nil {
 		return db.Transaction{}, err
 	}
 
-	// Keep the fixed expense template in sync when the paid amount differs from planned.
-	if tx.FixedExpenseID != nil {
-		_ = s.fixedExpenses.UpdatePlannedAmount(ctx, db.UpdateFixedExpensePlannedAmountParams{
-			ID:            *tx.FixedExpenseID,
-			PlannedAmount: paidAmount,
-		})
-	}
-
-	return tx, nil
+	return markFixedTransactionPaid(ctx, s.transactions, s.fixedExpenses,
+		db.MarkTransactionAsPaidParams{
+			ID:             id,
+			BudgetPeriodID: periodID,
+			Amount:         paidAmount,
+			PaidDate:       paidDate,
+		},
+		autoUpdatePlannedAmountFor(ctx, s.profiles, period.BudgetProfileID, "transaction.mark_paid"),
+		"transaction.mark_paid",
+	)
 }
 
 func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uuid.UUID, periodID uuid.UUID, userID uuid.UUID) (db.Transaction, error) {
@@ -480,14 +478,26 @@ func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uui
 	review, rErr := s.reviews.GetConfirmedByMatchedTransaction(ctx, tx.ID)
 	if rErr == nil {
 		if varTx, txErr := s.transactions.GetByID(ctx, review.TransactionID); txErr == nil && varTx.Name != nil && tx.FixedExpenseID != nil {
-			_ = s.reviews.DeleteAlias(ctx, *tx.FixedExpenseID, *varTx.Name)
+			if aliasErr := s.reviews.DeleteAlias(ctx, *tx.FixedExpenseID, *varTx.Name); aliasErr != nil {
+				log.Printf("transaction.unmark_paid: drop alias %q for fixed expense %s: %v", *varTx.Name, *tx.FixedExpenseID, aliasErr)
+			}
 		}
-		_ = s.reviews.ResetByMatchedTransaction(ctx, tx.ID)
-		_, _ = s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
+		if resetErr := s.reviews.ResetByMatchedTransaction(ctx, tx.ID); resetErr != nil {
+			// Leaves the review confirmed against a bill that is no longer paid —
+			// the inconsistency this whole undo path exists to prevent, so it must
+			// not pass silently.
+			log.Printf("transaction.unmark_paid: reset review for transaction %s: %v", tx.ID, resetErr)
+		}
+		if _, excludeErr := s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
 			ID:             review.TransactionID,
 			BudgetPeriodID: review.BudgetPeriodID,
 			Excluded:       false,
-		})
+		}); excludeErr != nil {
+			// The import stays excluded from totals while no longer being
+			// matched to anything — money the user spent that counts nowhere.
+			log.Printf("transaction.unmark_paid: un-exclude imported transaction %s: %v",
+				review.TransactionID, excludeErr)
+		}
 	}
 
 	return tx, nil
@@ -584,7 +594,10 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 	if err != nil {
 		return err
 	}
-	if err := s.assertPeriodMember(ctx, review.BudgetPeriodID, userID); err != nil {
+	// Takes the period rather than assertPeriodMember's bare error, since the
+	// budget's auto_update_planned_amount setting is resolved from it below.
+	period, _, err := s.getUserRoleForPeriod(ctx, review.BudgetPeriodID, userID)
+	if err != nil {
 		return err
 	}
 
@@ -597,7 +610,12 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 		// from a FixedExpense template; savings-derived transactions have no
 		// template to alias against.
 		if importedTxErr == nil && matchedTx.FixedExpenseID != nil && importedTx.Name != nil {
-			_ = s.reviews.CreateAlias(ctx, *matchedTx.FixedExpenseID, *importedTx.Name)
+			if aliasErr := s.reviews.CreateAlias(ctx, *matchedTx.FixedExpenseID, *importedTx.Name); aliasErr != nil {
+				// Not fatal: the alias only speeds up *future* imports of this
+				// merchant. This confirmation still stands.
+				log.Printf("transaction.confirm_review: save alias %q for fixed expense %s: %v",
+					*importedTx.Name, *matchedTx.FixedExpenseID, aliasErr)
+			}
 		}
 
 		// Mark the matched transaction paid if it isn't already. Use the
@@ -609,12 +627,25 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 			if importedTxErr == nil {
 				paidAmount = importedTx.Amount
 			}
-			_, _ = s.transactions.MarkAsPaid(ctx, db.MarkTransactionAsPaidParams{
-				ID:             matchedTx.ID,
-				BudgetPeriodID: *matchedTx.BudgetPeriodID,
-				Amount:         paidAmount,
-				PaidDate:       matchedTx.Date,
-			})
+			// This error used to be discarded outright, so a bill that failed
+			// to be marked paid was indistinguishable from one that succeeded,
+			// and the RPC still reported success to the caller.
+			if _, paidErr := markFixedTransactionPaid(ctx, s.transactions, s.fixedExpenses,
+				db.MarkTransactionAsPaidParams{
+					ID:             matchedTx.ID,
+					BudgetPeriodID: *matchedTx.BudgetPeriodID,
+					Amount:         paidAmount,
+					PaidDate:       matchedTx.Date,
+				},
+				autoUpdatePlannedAmountFor(ctx, s.profiles, period.BudgetProfileID, "transaction.confirm_review"),
+				"transaction.confirm_review",
+			); paidErr != nil {
+				// Fatal here, unlike the alias above: confirming a review whose
+				// whole point is "this bill was paid" must not report success
+				// when the bill is still unpaid. Nothing has been excluded and
+				// the review is still pending, so the user can retry.
+				return paidErr
+			}
 		}
 	}
 
@@ -623,13 +654,24 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 	// entirely. It stays visible and toggleable, so unmarking the matched
 	// fixed expense later (which resets this review to "pending") never
 	// leaves it stranded behind a review-status side channel.
-	_, _ = s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
+	if _, excludeErr := s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
 		ID:             review.TransactionID,
 		BudgetPeriodID: review.BudgetPeriodID,
 		Excluded:       true,
-	})
+	}); excludeErr != nil {
+		// Not fatal: the bill is paid and the link is about to be recorded, so
+		// the match holds. The consequence is a duplicate still counting toward
+		// totals, which the user can toggle off — visible and recoverable,
+		// unlike the silent version this replaces.
+		log.Printf("transaction.confirm_review: exclude imported transaction %s: %v",
+			review.TransactionID, excludeErr)
+	}
 
-	return s.reviews.UpdateStatus(ctx, reviewID, "confirmed")
+	if statusErr := s.reviews.UpdateStatus(ctx, reviewID, "confirmed"); statusErr != nil {
+		log.Printf("transaction.confirm_review: confirm review %s: %v", reviewID, statusErr)
+		return statusErr
+	}
+	return nil
 }
 
 func (s *TransactionService) DismissTransactionReview(ctx context.Context, userID, reviewID uuid.UUID) error {

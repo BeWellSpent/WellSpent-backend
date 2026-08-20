@@ -180,10 +180,15 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 
 	added, modified, removedIDs, nextCursor, err := s.plaid.SyncTransactions(ctx, accessToken, cursor)
 	if err != nil {
-		_, _ = s.items.UpdateStatus(ctx, db.UpdatePlaidItemStatusParams{
+		if _, statusErr := s.items.UpdateStatus(ctx, db.UpdatePlaidItemStatusParams{
 			ID:     item.ID,
 			Status: "error",
-		})
+		}); statusErr != nil {
+			// The connection stays reading "active" while it is in fact broken,
+			// so both clients' bank-connection panels show it healthy and
+			// nobody knows to reconnect.
+			log.Printf("plaid item %s: mark item errored after sync failure: %v", item.ID, statusErr)
+		}
 		return result, err
 	}
 
@@ -215,6 +220,10 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 	queued := 0
 	skippedNoPeriod := 0
 	skippedDuplicate := 0
+
+	// Read once per item rather than per transaction: it cannot change mid-run,
+	// and a sync can import hundreds of rows.
+	autoUpdatePlanned := autoUpdatePlannedAmountFor(ctx, s.budgets, item.BudgetProfileID, "plaid.auto_confirm")
 
 	for _, tx := range added {
 		date := pgtype.Date{Time: tx.Date, Valid: true}
@@ -319,12 +328,19 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 			// never recorded — was indistinguishable from a clean one in both
 			// the run summary and the per-budget notification. That is why
 			// issue #41 could only be diagnosed from the database.
-			if _, mErr := s.transactions.MarkAsPaid(ctx, db.MarkTransactionAsPaidParams{
-				ID:             unpaid.ID,
-				BudgetPeriodID: *unpaid.BudgetPeriodID,
-				Amount:         amount, // use actual Plaid amount, not template planned amount
-				PaidDate:       unpaid.Date,
-			}); mErr != nil {
+			// Shared with the manual button and ConfirmTransactionReview, so
+			// whether the plan follows the real cost is decided once by the
+			// budget rather than three times by whichever path got there.
+			if _, mErr := markFixedTransactionPaid(ctx, s.transactions, s.fixedExpenses,
+				db.MarkTransactionAsPaidParams{
+					ID:             unpaid.ID,
+					BudgetPeriodID: *unpaid.BudgetPeriodID,
+					Amount:         amount, // use actual Plaid amount, not template planned amount
+					PaidDate:       unpaid.Date,
+				},
+				autoUpdatePlanned,
+				"plaid.auto_confirm",
+			); mErr != nil {
 				log.Printf("plaid item %s: auto-confirm %q: mark paid: %v", item.ID, tx.Name, mErr)
 				byAccount[accountName]++
 				continue

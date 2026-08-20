@@ -29,6 +29,7 @@ type mockBudgetProfileRepo struct {
 	update                        func(context.Context, db.UpdateBudgetProfileParams) (db.BudgetProfile, error)
 	delete                        func(context.Context, uuid.UUID) error
 	setCarryoverEnabled           func(context.Context, db.SetBudgetProfileCarryoverEnabledParams) (db.BudgetProfile, error)
+	setAutoUpdatePlannedAmount    func(context.Context, db.SetBudgetProfileAutoUpdatePlannedAmountParams) (db.BudgetProfile, error)
 	createPeriod                  func(context.Context, db.CreateBudgetPeriodParams) (db.BudgetPeriod, error)
 	getPeriodByID                 func(context.Context, uuid.UUID) (db.BudgetPeriod, error)
 	listPeriods                   func(context.Context, uuid.UUID) ([]db.BudgetPeriod, error)
@@ -105,6 +106,12 @@ func (m *mockBudgetProfileRepo) SetCarryoverEnabled(ctx context.Context, arg db.
 		return m.setCarryoverEnabled(ctx, arg)
 	}
 	return db.BudgetProfile{ID: arg.ID, CarryoverEnabled: arg.CarryoverEnabled}, nil
+}
+func (m *mockBudgetProfileRepo) SetAutoUpdatePlannedAmount(ctx context.Context, arg db.SetBudgetProfileAutoUpdatePlannedAmountParams) (db.BudgetProfile, error) {
+	if m.setAutoUpdatePlannedAmount != nil {
+		return m.setAutoUpdatePlannedAmount(ctx, arg)
+	}
+	return db.BudgetProfile{ID: arg.ID, AutoUpdatePlannedAmount: arg.AutoUpdatePlannedAmount}, nil
 }
 func (m *mockBudgetProfileRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	if m.delete != nil {

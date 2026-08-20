@@ -184,7 +184,7 @@ const createBudgetProfile = `-- name: CreateBudgetProfile :one
 
 INSERT INTO budget_profile (user_id, name, cycle, country_code)
 VALUES ($1, $2, $3, $4)
-RETURNING id, user_id, name, cycle, created_at, country_code, carryover_enabled
+RETURNING id, user_id, name, cycle, created_at, country_code, carryover_enabled, auto_update_planned_amount
 `
 
 type CreateBudgetProfileParams struct {
@@ -211,6 +211,7 @@ func (q *Queries) CreateBudgetProfile(ctx context.Context, arg CreateBudgetProfi
 		&i.CreatedAt,
 		&i.CountryCode,
 		&i.CarryoverEnabled,
+		&i.AutoUpdatePlannedAmount,
 	)
 	return i, err
 }
@@ -489,7 +490,7 @@ func (q *Queries) GetBudgetPersonByUserID(ctx context.Context, arg GetBudgetPers
 }
 
 const getBudgetProfileByID = `-- name: GetBudgetProfileByID :one
-SELECT id, user_id, name, cycle, created_at, country_code, carryover_enabled
+SELECT id, user_id, name, cycle, created_at, country_code, carryover_enabled, auto_update_planned_amount
 FROM budget_profile
 WHERE id = $1
 LIMIT 1
@@ -506,6 +507,7 @@ func (q *Queries) GetBudgetProfileByID(ctx context.Context, id uuid.UUID) (Budge
 		&i.CreatedAt,
 		&i.CountryCode,
 		&i.CarryoverEnabled,
+		&i.AutoUpdatePlannedAmount,
 	)
 	return i, err
 }
@@ -666,7 +668,7 @@ func (q *Queries) ListBudgetPeriods(ctx context.Context, budgetProfileID uuid.UU
 }
 
 const listBudgetProfilesByUser = `-- name: ListBudgetProfilesByUser :many
-SELECT id, user_id, name, cycle, created_at, country_code, carryover_enabled
+SELECT id, user_id, name, cycle, created_at, country_code, carryover_enabled, auto_update_planned_amount
 FROM budget_profile
 WHERE user_id = $1
 ORDER BY created_at DESC
@@ -689,6 +691,7 @@ func (q *Queries) ListBudgetProfilesByUser(ctx context.Context, userID uuid.UUID
 			&i.CreatedAt,
 			&i.CountryCode,
 			&i.CarryoverEnabled,
+			&i.AutoUpdatePlannedAmount,
 		); err != nil {
 			return nil, err
 		}
@@ -701,7 +704,7 @@ func (q *Queries) ListBudgetProfilesByUser(ctx context.Context, userID uuid.UUID
 }
 
 const listBudgetProfilesByUserOrMember = `-- name: ListBudgetProfilesByUserOrMember :many
-SELECT DISTINCT bp.id, bp.user_id, bp.name, bp.cycle, bp.created_at, bp.country_code, bp.carryover_enabled
+SELECT DISTINCT bp.id, bp.user_id, bp.name, bp.cycle, bp.created_at, bp.country_code, bp.carryover_enabled, bp.auto_update_planned_amount
 FROM budget_profile bp
 LEFT JOIN budget_to_profile_mapping btpm
     ON btpm.budget_profile_id = bp.id
@@ -728,6 +731,7 @@ func (q *Queries) ListBudgetProfilesByUserOrMember(ctx context.Context, userID *
 			&i.CreatedAt,
 			&i.CountryCode,
 			&i.CarryoverEnabled,
+			&i.AutoUpdatePlannedAmount,
 		); err != nil {
 			return nil, err
 		}
@@ -885,11 +889,42 @@ func (q *Queries) ListSavingsSources(ctx context.Context, budgetProfileID uuid.U
 	return items, nil
 }
 
+const setBudgetProfileAutoUpdatePlannedAmount = `-- name: SetBudgetProfileAutoUpdatePlannedAmount :one
+UPDATE budget_profile
+SET auto_update_planned_amount = $1
+WHERE id = $2::uuid
+RETURNING id, user_id, name, cycle, created_at, country_code, carryover_enabled, auto_update_planned_amount
+`
+
+type SetBudgetProfileAutoUpdatePlannedAmountParams struct {
+	AutoUpdatePlannedAmount bool      `json:"auto_update_planned_amount"`
+	ID                      uuid.UUID `json:"id"`
+}
+
+// Its own statement rather than a column on UpdateBudgetProfile: that one takes
+// name + cycle, so an older client calling it without the new field would
+// silently switch carryover back off.
+func (q *Queries) SetBudgetProfileAutoUpdatePlannedAmount(ctx context.Context, arg SetBudgetProfileAutoUpdatePlannedAmountParams) (BudgetProfile, error) {
+	row := q.db.QueryRow(ctx, setBudgetProfileAutoUpdatePlannedAmount, arg.AutoUpdatePlannedAmount, arg.ID)
+	var i BudgetProfile
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Cycle,
+		&i.CreatedAt,
+		&i.CountryCode,
+		&i.CarryoverEnabled,
+		&i.AutoUpdatePlannedAmount,
+	)
+	return i, err
+}
+
 const setBudgetProfileCarryoverEnabled = `-- name: SetBudgetProfileCarryoverEnabled :one
 UPDATE budget_profile
 SET carryover_enabled = $1
 WHERE id = $2::uuid
-RETURNING id, user_id, name, cycle, created_at, country_code, carryover_enabled
+RETURNING id, user_id, name, cycle, created_at, country_code, carryover_enabled, auto_update_planned_amount
 `
 
 type SetBudgetProfileCarryoverEnabledParams struct {
@@ -897,9 +932,6 @@ type SetBudgetProfileCarryoverEnabledParams struct {
 	ID               uuid.UUID `json:"id"`
 }
 
-// Its own statement rather than a column on UpdateBudgetProfile: that one takes
-// name + cycle, so an older client calling it without the new field would
-// silently switch carryover back off.
 func (q *Queries) SetBudgetProfileCarryoverEnabled(ctx context.Context, arg SetBudgetProfileCarryoverEnabledParams) (BudgetProfile, error) {
 	row := q.db.QueryRow(ctx, setBudgetProfileCarryoverEnabled, arg.CarryoverEnabled, arg.ID)
 	var i BudgetProfile
@@ -911,6 +943,7 @@ func (q *Queries) SetBudgetProfileCarryoverEnabled(ctx context.Context, arg SetB
 		&i.CreatedAt,
 		&i.CountryCode,
 		&i.CarryoverEnabled,
+		&i.AutoUpdatePlannedAmount,
 	)
 	return i, err
 }
@@ -1090,7 +1123,7 @@ const updateBudgetProfile = `-- name: UpdateBudgetProfile :one
 UPDATE budget_profile
 SET name = $2, cycle = $3
 WHERE id = $1
-RETURNING id, user_id, name, cycle, created_at, country_code, carryover_enabled
+RETURNING id, user_id, name, cycle, created_at, country_code, carryover_enabled, auto_update_planned_amount
 `
 
 type UpdateBudgetProfileParams struct {
@@ -1110,6 +1143,7 @@ func (q *Queries) UpdateBudgetProfile(ctx context.Context, arg UpdateBudgetProfi
 		&i.CreatedAt,
 		&i.CountryCode,
 		&i.CarryoverEnabled,
+		&i.AutoUpdatePlannedAmount,
 	)
 	return i, err
 }
