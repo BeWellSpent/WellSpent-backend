@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
+	"github.com/BeWellSpent/wellspent-backend/internal/category"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -41,7 +42,7 @@ type TransactionRepository interface {
 	DeletePaymentMethodAndReassign(ctx context.Context, arg db.DeletePaymentMethodAndReassignParams) error
 	DeleteSavingsSourceTransactions(ctx context.Context, arg db.DeleteSavingsSourceTransactionsParams) error
 
-	ListSystemCategories(ctx context.Context) (map[string]int32, error)
+	ListSystemCategories(ctx context.Context) (map[category.Key]int32, error)
 
 	// Plaid
 	CreateTransactionFromPlaid(ctx context.Context, arg db.CreateTransactionFromPlaidParams) (db.Transaction, error)
@@ -172,6 +173,7 @@ func (r *transactionRepository) ListCategoriesForBudget(ctx context.Context, use
 		result[i] = db.ListCategoriesRow{
 			ID: r.ID, Name: r.Name, TypeID: r.TypeID,
 			IsSystem: r.IsSystem, UserID: r.UserID, Color: r.Color,
+			SystemKey: r.SystemKey,
 		}
 	}
 	return result, nil
@@ -233,14 +235,25 @@ func (r *transactionRepository) DeleteSavingsSourceTransactions(ctx context.Cont
 	return r.q.DeleteSavingsSourceTransactions(ctx, arg)
 }
 
-func (r *transactionRepository) ListSystemCategories(ctx context.Context) (map[string]int32, error) {
+// ListSystemCategories maps each seeded system category's stable key to its
+// ID. Keyed on system_key rather than the English name (issue #49) so callers
+// keep working when the name becomes a localized display string.
+//
+// A system category with no key is skipped rather than falling back to its
+// name: a nil key means migration 000054's backfill missed a row, and silently
+// keying that row by name would hide the gap behind a lookup that happens to
+// still work in English.
+func (r *transactionRepository) ListSystemCategories(ctx context.Context) (map[category.Key]int32, error) {
 	rows, err := r.q.ListSystemCategories(ctx)
 	if err != nil {
 		return nil, err
 	}
-	m := make(map[string]int32, len(rows))
+	m := make(map[category.Key]int32, len(rows))
 	for _, row := range rows {
-		m[row.Name] = row.ID
+		if row.SystemKey == nil {
+			continue
+		}
+		m[category.Key(*row.SystemKey)] = row.ID
 	}
 	return m, nil
 }

@@ -7,6 +7,7 @@ import (
 
 	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
+	"github.com/BeWellSpent/wellspent-backend/internal/category"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
@@ -273,7 +274,7 @@ func (s *ExpenseSummaryService) loadPaymentMethods(ctx context.Context, profileI
 	return methods, nil
 }
 
-// loadSystemCategoryIDs resolves the "Income" and "Savings" system category
+// loadSystemCategoryIDs resolves the Income and Savings system category
 // IDs, needed respectively for transaction exclusion and the Savings
 // special-case. Either may legitimately not exist (not yet seeded in a
 // fresh environment) — that's reported via the hasX bool, not an error.
@@ -283,8 +284,8 @@ func (s *ExpenseSummaryService) loadSystemCategoryIDs(ctx context.Context) (inco
 		s.log.Error("expense_summary.loadSystemCategoryIDs: list system categories", zap.Error(err))
 		return 0, false, 0, false, err
 	}
-	incomeCategoryID, hasIncome = categories["Income"]
-	savingsCategoryID, hasSavings = categories["Savings"]
+	incomeCategoryID, hasIncome = categories[category.Income]
+	savingsCategoryID, hasSavings = categories[category.Savings]
 	return incomeCategoryID, hasIncome, savingsCategoryID, hasSavings, nil
 }
 

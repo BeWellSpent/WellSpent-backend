@@ -903,7 +903,7 @@ type SetBudgetProfileAutoUpdatePlannedAmountParams struct {
 
 // Its own statement rather than a column on UpdateBudgetProfile: that one takes
 // name + cycle, so an older client calling it without the new field would
-// silently switch carryover back off.
+// silently switch this back to the default.
 func (q *Queries) SetBudgetProfileAutoUpdatePlannedAmount(ctx context.Context, arg SetBudgetProfileAutoUpdatePlannedAmountParams) (BudgetProfile, error) {
 	row := q.db.QueryRow(ctx, setBudgetProfileAutoUpdatePlannedAmount, arg.AutoUpdatePlannedAmount, arg.ID)
 	var i BudgetProfile
@@ -932,6 +932,7 @@ type SetBudgetProfileCarryoverEnabledParams struct {
 	ID               uuid.UUID `json:"id"`
 }
 
+// Its own statement, for the same reason as the one above.
 func (q *Queries) SetBudgetProfileCarryoverEnabled(ctx context.Context, arg SetBudgetProfileCarryoverEnabledParams) (BudgetProfile, error) {
 	row := q.db.QueryRow(ctx, setBudgetProfileCarryoverEnabled, arg.CarryoverEnabled, arg.ID)
 	var i BudgetProfile

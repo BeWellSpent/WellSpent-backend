@@ -136,13 +136,13 @@ AND payment_method_id = sqlc.arg('payment_method_id')::uuid
 AND category_id = sqlc.arg('category_id');
 
 -- name: GetCategory :one
-SELECT id, name, type_id, is_system, user_id, color
+SELECT id, name, type_id, is_system, user_id, color, system_key
 FROM category
 WHERE id = $1
 LIMIT 1;
 
 -- name: ListCategories :many
-SELECT id, name, type_id, is_system, user_id, color
+SELECT id, name, type_id, is_system, user_id, color, system_key
 FROM category
 WHERE (user_id = $1::uuid AND is_active = TRUE) OR user_id IS NULL
 ORDER BY name;
@@ -151,7 +151,7 @@ ORDER BY name;
 -- Returns the same set as ListCategories but also includes categories referenced
 -- by transactions or fixed expenses in the given budget, so collaborators/viewers
 -- can see categories created by the budget owner.
-SELECT DISTINCT c.id, c.name, c.type_id, c.is_system, c.user_id, c.color
+SELECT DISTINCT c.id, c.name, c.type_id, c.is_system, c.user_id, c.color, c.system_key
 FROM category c
 WHERE (
   (c.user_id = sqlc.arg('user_id')::uuid AND c.is_active = TRUE)
@@ -180,19 +180,19 @@ VALUES (
     sqlc.arg('user_id')::uuid,
     sqlc.arg('color')
 )
-RETURNING id, name, type_id, is_system, user_id, color;
+RETURNING id, name, type_id, is_system, user_id, color, system_key;
 
 -- name: UpdateCategory :one
 UPDATE category
 SET name = sqlc.arg('name'), color = sqlc.arg('color')
 WHERE id = sqlc.arg('id') AND user_id = sqlc.arg('user_id')::uuid AND is_system = FALSE
-RETURNING id, name, type_id, is_system, user_id, color;
+RETURNING id, name, type_id, is_system, user_id, color, system_key;
 
 -- name: UpdateSystemCategoryColor :one
 UPDATE category
 SET color = sqlc.arg('color')
 WHERE id = sqlc.arg('id') AND is_system = TRUE
-RETURNING id, name, type_id, is_system, user_id, color;
+RETURNING id, name, type_id, is_system, user_id, color, system_key;
 
 -- Reassigns all transactions and fixed-expense templates referencing this
 -- category to the replacement, then soft-deletes the category. Fixed expenses
@@ -213,10 +213,11 @@ UPDATE category
 SET is_active = FALSE
 WHERE category.id = sqlc.arg('id') AND category.user_id = sqlc.arg('user_id')::uuid AND category.is_system = FALSE;
 
--- Returns all system (global) categories. Used by the Plaid sync job to
--- resolve category names to IDs without a user context.
+-- Returns all system (global) categories. Used by the Plaid sync job and the
+-- carryover step to resolve a system_key to a category ID without a user
+-- context. Ordered by name only for stable output; callers key on system_key.
 -- name: ListSystemCategories :many
-SELECT id, name FROM category WHERE is_system = TRUE ORDER BY name;
+SELECT id, name, system_key FROM category WHERE is_system = TRUE ORDER BY name;
 
 -- name: GetPaymentMethod :one
 SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id, alias, plaid_item_id

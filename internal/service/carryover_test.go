@@ -38,7 +38,7 @@ func TestComputeCarryover_Leftover_SingleSavingsRowWithNoMethod(t *testing.T) {
 
 	require.Len(t, rows, 1)
 	assert.Equal(t, dollars(500), rows[0].amountNanos)
-	assert.Equal(t, carryoverCategorySavings, rows[0].categoryName)
+	assert.Equal(t, carryoverCategorySavings, rows[0].categoryKey)
 	// A surplus is owed to nobody, so it must not be pinned on the method the
 	// money happened to be spent through.
 	assert.Nil(t, rows[0].paymentMethodID)
@@ -52,7 +52,7 @@ func TestComputeCarryover_Shortfall_SingleMethodTakesAll(t *testing.T) {
 
 	require.Len(t, rows, 1)
 	assert.Equal(t, dollars(300), rows[0].amountNanos)
-	assert.Equal(t, carryoverCategoryDebt, rows[0].categoryName)
+	assert.Equal(t, carryoverCategoryDebt, rows[0].categoryKey)
 	require.NotNil(t, rows[0].paymentMethodID)
 	assert.Equal(t, method, *rows[0].paymentMethodID)
 }
@@ -73,7 +73,7 @@ func TestComputeCarryover_Shortfall_SplitProportionallyAcrossMethods(t *testing.
 	byMethod := map[uuid.UUID]int64{}
 	for _, r := range rows {
 		require.NotNil(t, r.paymentMethodID)
-		assert.Equal(t, carryoverCategoryDebt, r.categoryName)
+		assert.Equal(t, carryoverCategoryDebt, r.categoryKey)
 		byMethod[*r.paymentMethodID] = r.amountNanos
 	}
 	assert.Equal(t, dollars(234.78), byMethod[debit])
@@ -152,7 +152,7 @@ func TestComputeCarryover_Shortfall_NoSpendFallsBackToUnattributedRow(t *testing
 
 	require.Len(t, rows, 1)
 	assert.Nil(t, rows[0].paymentMethodID)
-	assert.Equal(t, carryoverCategoryDebt, rows[0].categoryName)
+	assert.Equal(t, carryoverCategoryDebt, rows[0].categoryKey)
 	assert.Equal(t, dollars(300), rows[0].amountNanos)
 }
 

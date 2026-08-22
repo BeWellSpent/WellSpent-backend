@@ -1,6 +1,7 @@
 package plaid
 
 import (
+	"github.com/BeWellSpent/wellspent-backend/internal/category"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,19 +45,19 @@ func TestResolvePlaidCategory_EveryPlaidPrimaryResolves(t *testing.T) {
 }
 
 func TestResolvePlaidCategory_IncomePrimaryMapsToIncome(t *testing.T) {
-	assert.Equal(t, "Income", ResolvePlaidCategory("INCOME", "INCOME_WAGES"))
-	assert.Equal(t, "Income", ResolvePlaidCategory("INCOME", "INCOME_DIVIDENDS"))
-	assert.Equal(t, "Income", ResolvePlaidCategory("INCOME", "INCOME_OTHER_INCOME"))
+	assert.Equal(t, category.Income, ResolvePlaidCategory("INCOME", "INCOME_WAGES"))
+	assert.Equal(t, category.Income, ResolvePlaidCategory("INCOME", "INCOME_DIVIDENDS"))
+	assert.Equal(t, category.Income, ResolvePlaidCategory("INCOME", "INCOME_OTHER_INCOME"))
 }
 
 func TestResolvePlaidCategory_TransfersMappedToTransfer(t *testing.T) {
-	assert.Equal(t, "Transfer", ResolvePlaidCategory("TRANSFER_IN", "TRANSFER_IN_ACCOUNT_TRANSFER"))
-	assert.Equal(t, "Transfer", ResolvePlaidCategory("TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER"))
+	assert.Equal(t, category.Transfer, ResolvePlaidCategory("TRANSFER_IN", "TRANSFER_IN_ACCOUNT_TRANSFER"))
+	assert.Equal(t, category.Transfer, ResolvePlaidCategory("TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER"))
 }
 
 func TestResolvePlaidCategory_SavingsTransfersSplitOutOfTransfer(t *testing.T) {
-	assert.Equal(t, "Savings", ResolvePlaidCategory("TRANSFER_IN", "TRANSFER_IN_SAVINGS"))
-	assert.Equal(t, "Savings", ResolvePlaidCategory("TRANSFER_OUT", "TRANSFER_OUT_SAVINGS"))
+	assert.Equal(t, category.Savings, ResolvePlaidCategory("TRANSFER_IN", "TRANSFER_IN_SAVINGS"))
+	assert.Equal(t, category.Savings, ResolvePlaidCategory("TRANSFER_OUT", "TRANSFER_OUT_SAVINGS"))
 }
 
 func TestResolvePlaidCategory_CreditCardPaymentsMappedToPayment(t *testing.T) {
@@ -65,7 +66,7 @@ func TestResolvePlaidCategory_CreditCardPaymentsMappedToPayment(t *testing.T) {
 	// assert it, but no LOAN_DISBURSEMENTS primary exists anywhere in Plaid's
 	// taxonomy — the key never matched a real transaction, and the assertion
 	// is what made it look covered.
-	assert.Equal(t, "Payment", ResolvePlaidCategory("LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"))
+	assert.Equal(t, category.Payment, ResolvePlaidCategory("LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"))
 }
 
 func TestResolvePlaidCategory_OtherLoanPaymentsMappedToLoan(t *testing.T) {
@@ -76,7 +77,7 @@ func TestResolvePlaidCategory_OtherLoanPaymentsMappedToLoan(t *testing.T) {
 		"LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT",
 		"LOAN_PAYMENTS_OTHER_PAYMENT",
 	} {
-		assert.Equalf(t, "Loan", ResolvePlaidCategory("LOAN_PAYMENTS", detailed),
+		assert.Equalf(t, category.Loan, ResolvePlaidCategory("LOAN_PAYMENTS", detailed),
 			"%s should be debt service", detailed)
 	}
 }
@@ -89,12 +90,12 @@ func TestResolvePlaidCategory_TransportationNoLongerFallsIntoMisc(t *testing.T) 
 		"TRANSPORTATION_BIKES_AND_SCOOTERS",
 		"TRANSPORTATION_OTHER_TRANSPORTATION",
 	} {
-		assert.Equalf(t, "Transportation", ResolvePlaidCategory("TRANSPORTATION", detailed),
+		assert.Equalf(t, category.Transportation, ResolvePlaidCategory("TRANSPORTATION", detailed),
 			"%s should be Transportation, not Misc", detailed)
 	}
 	// Fuel and tolls stay with the car-running costs.
-	assert.Equal(t, "Gas", ResolvePlaidCategory("TRANSPORTATION", "TRANSPORTATION_GAS"))
-	assert.Equal(t, "Gas", ResolvePlaidCategory("TRANSPORTATION", "TRANSPORTATION_TOLLS"))
+	assert.Equal(t, category.Gas, ResolvePlaidCategory("TRANSPORTATION", "TRANSPORTATION_GAS"))
+	assert.Equal(t, category.Gas, ResolvePlaidCategory("TRANSPORTATION", "TRANSPORTATION_TOLLS"))
 }
 
 func TestResolvePlaidCategory_UtilitiesSplitFromRent(t *testing.T) {
@@ -106,22 +107,22 @@ func TestResolvePlaidCategory_UtilitiesSplitFromRent(t *testing.T) {
 		"RENT_AND_UTILITIES_SEWAGE_AND_WASTE_MANAGEMENT",
 		"RENT_AND_UTILITIES_OTHER_UTILITIES",
 	} {
-		assert.Equalf(t, "Utilities", ResolvePlaidCategory("RENT_AND_UTILITIES", detailed),
+		assert.Equalf(t, category.Utilities, ResolvePlaidCategory("RENT_AND_UTILITIES", detailed),
 			"%s should be Utilities, not Rent", detailed)
 	}
-	assert.Equal(t, "Rent", ResolvePlaidCategory("RENT_AND_UTILITIES", "RENT_AND_UTILITIES_RENT"))
+	assert.Equal(t, category.Rent, ResolvePlaidCategory("RENT_AND_UTILITIES", "RENT_AND_UTILITIES_RENT"))
 }
 
 func TestResolvePlaidCategory_StreamingMappedToSubscription(t *testing.T) {
-	assert.Equal(t, "Subscription", ResolvePlaidCategory("ENTERTAINMENT", "ENTERTAINMENT_TV_AND_MOVIES"))
+	assert.Equal(t, category.Subscription, ResolvePlaidCategory("ENTERTAINMENT", "ENTERTAINMENT_TV_AND_MOVIES"))
 	// Other entertainment stays put.
-	assert.Equal(t, "Entertainment", ResolvePlaidCategory("ENTERTAINMENT", "ENTERTAINMENT_VIDEO_GAMES"))
+	assert.Equal(t, category.Entertainment, ResolvePlaidCategory("ENTERTAINMENT", "ENTERTAINMENT_VIDEO_GAMES"))
 }
 
 func TestResolvePlaidCategory_DetailedOverridesPrimary(t *testing.T) {
-	assert.Equal(t, "Groceries", ResolvePlaidCategory("FOOD_AND_DRINK", "FOOD_AND_DRINK_GROCERIES"))
+	assert.Equal(t, category.Groceries, ResolvePlaidCategory("FOOD_AND_DRINK", "FOOD_AND_DRINK_GROCERIES"))
 }
 
 func TestResolvePlaidCategory_UnknownReturnsEmpty(t *testing.T) {
-	assert.Equal(t, "", ResolvePlaidCategory("SOMETHING_NEW", "SOMETHING_NEW_SUBTYPE"))
+	assert.Equal(t, category.Key(""), ResolvePlaidCategory("SOMETHING_NEW", "SOMETHING_NEW_SUBTYPE"))
 }

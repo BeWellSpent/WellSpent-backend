@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BeWellSpent/wellspent-backend/internal/category"
 	"github.com/BeWellSpent/wellspent-backend/internal/crypto"
 	plaidclient "github.com/BeWellSpent/wellspent-backend/internal/plaid"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
@@ -248,7 +249,7 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 		plaidID := tx.PlaidID
 		periodID := period.ID
 
-		categoryName, categoryID := syncResolveCategoryID(tx.Name, tx.PFCPrimary, tx.PFCDetailed, categoryIDs)
+		categoryKey, categoryID := syncResolveCategoryID(tx.Name, tx.PFCPrimary, tx.PFCDetailed, categoryIDs)
 
 		var paymentMethodID *uuid.UUID
 		accountName := result.InstitutionName
@@ -287,7 +288,7 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 			log.Printf("plaid item %s: insert tx %s: %v", item.ID, tx.PlaidID, err)
 			continue
 		}
-		log.Printf("plaid item %s: imported %q  %s  $%.2f  category=%s", item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount, syncCategoryLogValue(categoryName, categoryID))
+		log.Printf("plaid item %s: imported %q  %s  $%.2f  category=%s", item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount, syncCategoryLogValue(categoryKey, categoryID))
 		importedAdded++
 
 		// Tracks whether this transaction was consumed by the fixed-expense
@@ -452,32 +453,32 @@ func syncAmountToNumeric(f float64) pgtype.Numeric {
 func syncInt32Ptr(i int32) *int32 { return &i }
 
 // syncResolveCategory resolves the system category for an imported transaction.
-// Plaid's own personal_finance_category classification (INCOME -> "Income",
-// see plaidclient.ResolvePlaidCategory) is the primary signal. A name
-// containing "payroll" is checked first as a fallback override for accounts
-// where Plaid doesn't return personal_finance_category data at all, since
-// payroll deposits should never count toward the spending total either way.
-func syncResolveCategory(name, pfcPrimary, pfcDetailed string) string {
+// Plaid's own personal_finance_category classification (INCOME -> Income, see
+// plaidclient.ResolvePlaidCategory) is the primary signal. A name containing
+// "payroll" is checked first as a fallback override for accounts where Plaid
+// doesn't return personal_finance_category data at all, since payroll deposits
+// should never count toward the spending total either way.
+func syncResolveCategory(name, pfcPrimary, pfcDetailed string) category.Key {
 	if strings.Contains(strings.ToLower(name), "payroll") {
-		return "Income"
+		return category.Income
 	}
 	return plaidclient.ResolvePlaidCategory(pfcPrimary, pfcDetailed)
 }
 
-// syncResolveCategoryID resolves a transaction's category name and looks up
-// its ID in the system-category map. A non-empty name with a nil ID means
-// the resolved name has no matching system category — the transaction still
+// syncResolveCategoryID resolves a transaction's system category key and looks
+// up its ID in the system-category map. A non-empty key with a nil ID means
+// the resolved key has no matching system category — the transaction still
 // imports, just without a category — which is otherwise invisible unless
 // distinguished from a clean resolution (see syncCategoryLogValue).
-func syncResolveCategoryID(txName, pfcPrimary, pfcDetailed string, categoryIDs map[string]int32) (categoryName string, categoryID *int32) {
-	categoryName = syncResolveCategory(txName, pfcPrimary, pfcDetailed)
-	if categoryName == "" {
+func syncResolveCategoryID(txName, pfcPrimary, pfcDetailed string, categoryIDs map[category.Key]int32) (categoryKey category.Key, categoryID *int32) {
+	categoryKey = syncResolveCategory(txName, pfcPrimary, pfcDetailed)
+	if categoryKey == "" {
 		return "", nil
 	}
-	if id, ok := categoryIDs[categoryName]; ok {
-		return categoryName, &id
+	if id, ok := categoryIDs[categoryKey]; ok {
+		return categoryKey, &id
 	}
-	return categoryName, nil
+	return categoryKey, nil
 }
 
 // syncCategoryLogValue renders the outcome of category resolution for the
@@ -485,12 +486,12 @@ func syncResolveCategoryID(txName, pfcPrimary, pfcDetailed string, categoryIDs m
 // (regardless of whether it actually mapped to an ID) would make an
 // "unmapped" transaction — imported with no category — indistinguishable
 // from a correctly categorized one in the logs.
-func syncCategoryLogValue(categoryName string, categoryID *int32) string {
+func syncCategoryLogValue(categoryKey category.Key, categoryID *int32) string {
 	switch {
 	case categoryID != nil:
-		return fmt.Sprintf("%q", categoryName)
-	case categoryName != "":
-		return fmt.Sprintf("%q (unmapped — no matching system category, imported without a category)", categoryName)
+		return fmt.Sprintf("%q", categoryKey)
+	case categoryKey != "":
+		return fmt.Sprintf("%q (unmapped — no matching system category, imported without a category)", categoryKey)
 	default:
 		return "none"
 	}
