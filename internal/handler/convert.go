@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"github.com/BeWellSpent/wellspent-backend/internal/category"
 	"math/big"
 
 	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
@@ -103,4 +104,64 @@ func filingStatusFromString(s string) v1.FilingStatus {
 // taxPaymentFrequencyFromProto converts a proto TaxPaymentFrequency enum to its int32 month value.
 func taxPaymentFrequencyFromProto(t v1.TaxPaymentFrequency) int32 {
 	return int32(t)
+}
+
+// systemCategoryByKey maps category.system_key to its wire enum. Kept as an
+// explicit map rather than derived from the enum name so a rename on either
+// side is a compile error here instead of a silent UNSPECIFIED — which would
+// degrade to the English name on every client with nothing logged.
+var systemCategoryByKey = map[category.Key]v1.SystemCategory{
+	category.Entertainment:  v1.SystemCategory_SYSTEM_CATEGORY_ENTERTAINMENT,
+	category.Insurance:      v1.SystemCategory_SYSTEM_CATEGORY_INSURANCE,
+	category.Loan:           v1.SystemCategory_SYSTEM_CATEGORY_LOAN,
+	category.Wellness:       v1.SystemCategory_SYSTEM_CATEGORY_WELLNESS,
+	category.Services:       v1.SystemCategory_SYSTEM_CATEGORY_SERVICES,
+	category.Subscription:   v1.SystemCategory_SYSTEM_CATEGORY_SUBSCRIPTION,
+	category.Rent:           v1.SystemCategory_SYSTEM_CATEGORY_RENT,
+	category.Travel:         v1.SystemCategory_SYSTEM_CATEGORY_TRAVEL,
+	category.EatingOut:      v1.SystemCategory_SYSTEM_CATEGORY_EATING_OUT,
+	category.Groceries:      v1.SystemCategory_SYSTEM_CATEGORY_GROCERIES,
+	category.Baby:           v1.SystemCategory_SYSTEM_CATEGORY_BABY,
+	category.Pet:            v1.SystemCategory_SYSTEM_CATEGORY_PET,
+	category.Misc:           v1.SystemCategory_SYSTEM_CATEGORY_MISC,
+	category.House:          v1.SystemCategory_SYSTEM_CATEGORY_HOUSE,
+	category.Gas:            v1.SystemCategory_SYSTEM_CATEGORY_GAS,
+	category.Auto:           v1.SystemCategory_SYSTEM_CATEGORY_AUTO,
+	category.Savings:        v1.SystemCategory_SYSTEM_CATEGORY_SAVINGS,
+	category.Shopping:       v1.SystemCategory_SYSTEM_CATEGORY_SHOPPING,
+	category.Family:         v1.SystemCategory_SYSTEM_CATEGORY_FAMILY,
+	category.Income:         v1.SystemCategory_SYSTEM_CATEGORY_INCOME,
+	category.Payment:        v1.SystemCategory_SYSTEM_CATEGORY_PAYMENT,
+	category.Transfer:       v1.SystemCategory_SYSTEM_CATEGORY_TRANSFER,
+	category.Transportation: v1.SystemCategory_SYSTEM_CATEGORY_TRANSPORTATION,
+	category.Utilities:      v1.SystemCategory_SYSTEM_CATEGORY_UTILITIES,
+	category.Debt:           v1.SystemCategory_SYSTEM_CATEGORY_DEBT,
+}
+
+// protoSystemCategory maps a nullable system_key to the wire enum. UNSPECIFIED
+// for a user-created category (key is NULL) and for a key this build doesn't
+// know, which is the same thing from a client's point of view: fall back to
+// name.
+func protoSystemCategory(systemKey *string) v1.SystemCategory {
+	if systemKey == nil {
+		return v1.SystemCategory_SYSTEM_CATEGORY_UNSPECIFIED
+	}
+	return systemCategoryByKey[category.Key(*systemKey)]
+}
+
+// toProtoCategory builds the wire Category. One helper rather than three
+// inline literals: every category-returning RPC has to set system_category,
+// and three separate literals is how one of them gets missed.
+//
+// Name is always the English value. It is the fallback a client renders when
+// it doesn't recognise system_category, so it stays populated even for system
+// categories the client will translate itself.
+func toProtoCategory(id int32, name string, isSystem bool, color string, systemKey *string) *v1.Category {
+	return &v1.Category{
+		Id:             id,
+		Name:           name,
+		IsSystem:       isSystem,
+		Color:          color,
+		SystemCategory: protoSystemCategory(systemKey),
+	}
 }

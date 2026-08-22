@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"github.com/BeWellSpent/wellspent-backend/internal/category"
 	"testing"
 	"time"
 
@@ -405,8 +406,8 @@ func TestGetSummary_SavingsCategory_UsesSavingsSourceSum(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{
-			listSystemCategories: func(_ context.Context) (map[string]int32, error) {
-				return map[string]int32{"Savings": savingsCatID}, nil
+			listSystemCategories: func(_ context.Context) (map[category.Key]int32, error) {
+				return map[category.Key]int32{category.Savings: savingsCatID}, nil
 			},
 		},
 		// Deliberately also give the Savings category an allocation — it must
@@ -445,8 +446,8 @@ func TestGetSummary_ExclusionRules_IsExcludedAndIncomeCategory(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{
-			listSystemCategories: func(_ context.Context) (map[string]int32, error) {
-				return map[string]int32{"Income": incomeCatID}, nil
+			listSystemCategories: func(_ context.Context) (map[category.Key]int32, error) {
+				return map[category.Key]int32{category.Income: incomeCatID}, nil
 			},
 			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
 				return []db.Transaction{

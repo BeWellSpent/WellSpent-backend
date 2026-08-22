@@ -87,7 +87,7 @@ VALUES (
     $2::uuid,
     $3
 )
-RETURNING id, name, type_id, is_system, user_id, color
+RETURNING id, name, type_id, is_system, user_id, color, system_key
 `
 
 type CreateCategoryParams struct {
@@ -97,12 +97,13 @@ type CreateCategoryParams struct {
 }
 
 type CreateCategoryRow struct {
-	ID       int32      `json:"id"`
-	Name     string     `json:"name"`
-	TypeID   *int32     `json:"type_id"`
-	IsSystem bool       `json:"is_system"`
-	UserID   *uuid.UUID `json:"user_id"`
-	Color    string     `json:"color"`
+	ID        int32      `json:"id"`
+	Name      string     `json:"name"`
+	TypeID    *int32     `json:"type_id"`
+	IsSystem  bool       `json:"is_system"`
+	UserID    *uuid.UUID `json:"user_id"`
+	Color     string     `json:"color"`
+	SystemKey *string    `json:"system_key"`
 }
 
 func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) (CreateCategoryRow, error) {
@@ -115,6 +116,7 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 		&i.IsSystem,
 		&i.UserID,
 		&i.Color,
+		&i.SystemKey,
 	)
 	return i, err
 }
@@ -499,19 +501,20 @@ func (q *Queries) ExistsTransactionByPlaidID(ctx context.Context, plaidTransacti
 }
 
 const getCategory = `-- name: GetCategory :one
-SELECT id, name, type_id, is_system, user_id, color
+SELECT id, name, type_id, is_system, user_id, color, system_key
 FROM category
 WHERE id = $1
 LIMIT 1
 `
 
 type GetCategoryRow struct {
-	ID       int32      `json:"id"`
-	Name     string     `json:"name"`
-	TypeID   *int32     `json:"type_id"`
-	IsSystem bool       `json:"is_system"`
-	UserID   *uuid.UUID `json:"user_id"`
-	Color    string     `json:"color"`
+	ID        int32      `json:"id"`
+	Name      string     `json:"name"`
+	TypeID    *int32     `json:"type_id"`
+	IsSystem  bool       `json:"is_system"`
+	UserID    *uuid.UUID `json:"user_id"`
+	Color     string     `json:"color"`
+	SystemKey *string    `json:"system_key"`
 }
 
 func (q *Queries) GetCategory(ctx context.Context, id int32) (GetCategoryRow, error) {
@@ -524,6 +527,7 @@ func (q *Queries) GetCategory(ctx context.Context, id int32) (GetCategoryRow, er
 		&i.IsSystem,
 		&i.UserID,
 		&i.Color,
+		&i.SystemKey,
 	)
 	return i, err
 }
@@ -716,19 +720,20 @@ func (q *Queries) ListActivePaymentMethodsByPlaidItem(ctx context.Context, plaid
 }
 
 const listCategories = `-- name: ListCategories :many
-SELECT id, name, type_id, is_system, user_id, color
+SELECT id, name, type_id, is_system, user_id, color, system_key
 FROM category
 WHERE (user_id = $1::uuid AND is_active = TRUE) OR user_id IS NULL
 ORDER BY name
 `
 
 type ListCategoriesRow struct {
-	ID       int32      `json:"id"`
-	Name     string     `json:"name"`
-	TypeID   *int32     `json:"type_id"`
-	IsSystem bool       `json:"is_system"`
-	UserID   *uuid.UUID `json:"user_id"`
-	Color    string     `json:"color"`
+	ID        int32      `json:"id"`
+	Name      string     `json:"name"`
+	TypeID    *int32     `json:"type_id"`
+	IsSystem  bool       `json:"is_system"`
+	UserID    *uuid.UUID `json:"user_id"`
+	Color     string     `json:"color"`
+	SystemKey *string    `json:"system_key"`
 }
 
 func (q *Queries) ListCategories(ctx context.Context, dollar_1 uuid.UUID) ([]ListCategoriesRow, error) {
@@ -747,6 +752,7 @@ func (q *Queries) ListCategories(ctx context.Context, dollar_1 uuid.UUID) ([]Lis
 			&i.IsSystem,
 			&i.UserID,
 			&i.Color,
+			&i.SystemKey,
 		); err != nil {
 			return nil, err
 		}
@@ -759,7 +765,7 @@ func (q *Queries) ListCategories(ctx context.Context, dollar_1 uuid.UUID) ([]Lis
 }
 
 const listCategoriesForBudget = `-- name: ListCategoriesForBudget :many
-SELECT DISTINCT c.id, c.name, c.type_id, c.is_system, c.user_id, c.color
+SELECT DISTINCT c.id, c.name, c.type_id, c.is_system, c.user_id, c.color, c.system_key
 FROM category c
 WHERE (
   (c.user_id = $1::uuid AND c.is_active = TRUE)
@@ -787,12 +793,13 @@ type ListCategoriesForBudgetParams struct {
 }
 
 type ListCategoriesForBudgetRow struct {
-	ID       int32      `json:"id"`
-	Name     string     `json:"name"`
-	TypeID   *int32     `json:"type_id"`
-	IsSystem bool       `json:"is_system"`
-	UserID   *uuid.UUID `json:"user_id"`
-	Color    string     `json:"color"`
+	ID        int32      `json:"id"`
+	Name      string     `json:"name"`
+	TypeID    *int32     `json:"type_id"`
+	IsSystem  bool       `json:"is_system"`
+	UserID    *uuid.UUID `json:"user_id"`
+	Color     string     `json:"color"`
+	SystemKey *string    `json:"system_key"`
 }
 
 // Returns the same set as ListCategories but also includes categories referenced
@@ -814,6 +821,7 @@ func (q *Queries) ListCategoriesForBudget(ctx context.Context, arg ListCategorie
 			&i.IsSystem,
 			&i.UserID,
 			&i.Color,
+			&i.SystemKey,
 		); err != nil {
 			return nil, err
 		}
@@ -877,16 +885,18 @@ func (q *Queries) ListPaymentMethods(ctx context.Context, dollar_1 uuid.UUID) ([
 }
 
 const listSystemCategories = `-- name: ListSystemCategories :many
-SELECT id, name FROM category WHERE is_system = TRUE ORDER BY name
+SELECT id, name, system_key FROM category WHERE is_system = TRUE ORDER BY name
 `
 
 type ListSystemCategoriesRow struct {
-	ID   int32  `json:"id"`
-	Name string `json:"name"`
+	ID        int32   `json:"id"`
+	Name      string  `json:"name"`
+	SystemKey *string `json:"system_key"`
 }
 
-// Returns all system (global) categories. Used by the Plaid sync job to
-// resolve category names to IDs without a user context.
+// Returns all system (global) categories. Used by the Plaid sync job and the
+// carryover step to resolve a system_key to a category ID without a user
+// context. Ordered by name only for stable output; callers key on system_key.
 func (q *Queries) ListSystemCategories(ctx context.Context) ([]ListSystemCategoriesRow, error) {
 	rows, err := q.db.Query(ctx, listSystemCategories)
 	if err != nil {
@@ -896,7 +906,7 @@ func (q *Queries) ListSystemCategories(ctx context.Context) ([]ListSystemCategor
 	var items []ListSystemCategoriesRow
 	for rows.Next() {
 		var i ListSystemCategoriesRow
-		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+		if err := rows.Scan(&i.ID, &i.Name, &i.SystemKey); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1251,7 +1261,7 @@ const updateCategory = `-- name: UpdateCategory :one
 UPDATE category
 SET name = $1, color = $2
 WHERE id = $3 AND user_id = $4::uuid AND is_system = FALSE
-RETURNING id, name, type_id, is_system, user_id, color
+RETURNING id, name, type_id, is_system, user_id, color, system_key
 `
 
 type UpdateCategoryParams struct {
@@ -1262,12 +1272,13 @@ type UpdateCategoryParams struct {
 }
 
 type UpdateCategoryRow struct {
-	ID       int32      `json:"id"`
-	Name     string     `json:"name"`
-	TypeID   *int32     `json:"type_id"`
-	IsSystem bool       `json:"is_system"`
-	UserID   *uuid.UUID `json:"user_id"`
-	Color    string     `json:"color"`
+	ID        int32      `json:"id"`
+	Name      string     `json:"name"`
+	TypeID    *int32     `json:"type_id"`
+	IsSystem  bool       `json:"is_system"`
+	UserID    *uuid.UUID `json:"user_id"`
+	Color     string     `json:"color"`
+	SystemKey *string    `json:"system_key"`
 }
 
 func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) (UpdateCategoryRow, error) {
@@ -1285,6 +1296,7 @@ func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) 
 		&i.IsSystem,
 		&i.UserID,
 		&i.Color,
+		&i.SystemKey,
 	)
 	return i, err
 }
@@ -1346,7 +1358,7 @@ const updateSystemCategoryColor = `-- name: UpdateSystemCategoryColor :one
 UPDATE category
 SET color = $1
 WHERE id = $2 AND is_system = TRUE
-RETURNING id, name, type_id, is_system, user_id, color
+RETURNING id, name, type_id, is_system, user_id, color, system_key
 `
 
 type UpdateSystemCategoryColorParams struct {
@@ -1355,12 +1367,13 @@ type UpdateSystemCategoryColorParams struct {
 }
 
 type UpdateSystemCategoryColorRow struct {
-	ID       int32      `json:"id"`
-	Name     string     `json:"name"`
-	TypeID   *int32     `json:"type_id"`
-	IsSystem bool       `json:"is_system"`
-	UserID   *uuid.UUID `json:"user_id"`
-	Color    string     `json:"color"`
+	ID        int32      `json:"id"`
+	Name      string     `json:"name"`
+	TypeID    *int32     `json:"type_id"`
+	IsSystem  bool       `json:"is_system"`
+	UserID    *uuid.UUID `json:"user_id"`
+	Color     string     `json:"color"`
+	SystemKey *string    `json:"system_key"`
 }
 
 func (q *Queries) UpdateSystemCategoryColor(ctx context.Context, arg UpdateSystemCategoryColorParams) (UpdateSystemCategoryColorRow, error) {
@@ -1373,6 +1386,7 @@ func (q *Queries) UpdateSystemCategoryColor(ctx context.Context, arg UpdateSyste
 		&i.IsSystem,
 		&i.UserID,
 		&i.Color,
+		&i.SystemKey,
 	)
 	return i, err
 }

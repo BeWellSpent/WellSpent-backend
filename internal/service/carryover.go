@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"sort"
 
+	"github.com/BeWellSpent/wellspent-backend/internal/category"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -31,12 +32,12 @@ import (
 // transaction set the Expense Summary uses, so the number carried forward is
 // always the number the user was shown.
 
-// carryoverCategorySavings and carryoverCategoryDebt are the system category
-// names a carried row is filed under. Both are resolved through
-// ListSystemCategories by the caller; Debt was seeded by migration 000052.
+// carryoverCategorySavings and carryoverCategoryDebt are the system categories
+// a carried row is filed under. Both are resolved through ListSystemCategories
+// by the caller; Debt was seeded by migration 000052.
 const (
-	carryoverCategorySavings = "Savings"
-	carryoverCategoryDebt    = "Debt"
+	carryoverCategorySavings = category.Savings
+	carryoverCategoryDebt    = category.Debt
 )
 
 // nanosPerCent is the quantum every carried amount is rounded to. Amounts are
@@ -47,8 +48,8 @@ const nanosPerCent = 10_000_000
 
 // carryoverRow is one transaction to create in the new period.
 type carryoverRow struct {
-	amountNanos  int64
-	categoryName string
+	amountNanos int64
+	categoryKey category.Key
 	// paymentMethodID is nil for the leftover row (a surplus belongs to no
 	// particular method) and for the share of a shortfall attributable to
 	// spend that had no payment method recorded against it.
@@ -88,8 +89,8 @@ func computeCarryover(
 	// there is nothing to attribute to a payment method.
 	if remainderNanos > 0 {
 		return []carryoverRow{{
-			amountNanos:  remainderNanos,
-			categoryName: carryoverCategorySavings,
+			amountNanos: remainderNanos,
+			categoryKey: carryoverCategorySavings,
 		}}
 	}
 
@@ -102,8 +103,8 @@ func computeCarryover(
 	// balance is the exact bug this feature exists to fix.
 	if totalSpend <= 0 {
 		return []carryoverRow{{
-			amountNanos:  shortfall,
-			categoryName: carryoverCategoryDebt,
+			amountNanos: shortfall,
+			categoryKey: carryoverCategoryDebt,
 		}}
 	}
 
@@ -116,7 +117,7 @@ func computeCarryover(
 		}
 		rows = append(rows, carryoverRow{
 			amountNanos:     share,
-			categoryName:    carryoverCategoryDebt,
+			categoryKey:     carryoverCategoryDebt,
 			paymentMethodID: buckets[i].methodID,
 		})
 	}

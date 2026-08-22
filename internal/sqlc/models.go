@@ -68,13 +68,14 @@ type BudgetToProfileMapping struct {
 }
 
 type Category struct {
-	ID       int32      `json:"id"`
-	Name     string     `json:"name"`
-	TypeID   *int32     `json:"type_id"`
-	UserID   *uuid.UUID `json:"user_id"`
-	IsSystem bool       `json:"is_system"`
-	IsActive bool       `json:"is_active"`
-	Color    string     `json:"color"`
+	ID        int32      `json:"id"`
+	Name      string     `json:"name"`
+	TypeID    *int32     `json:"type_id"`
+	UserID    *uuid.UUID `json:"user_id"`
+	IsSystem  bool       `json:"is_system"`
+	IsActive  bool       `json:"is_active"`
+	Color     string     `json:"color"`
+	SystemKey *string    `json:"system_key"`
 }
 
 type CategoryType struct {

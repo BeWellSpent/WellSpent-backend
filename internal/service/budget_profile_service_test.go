@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/BeWellSpent/wellspent-backend/internal/category"
 	"math/big"
 	"testing"
 	"time"
@@ -1985,8 +1986,8 @@ func newCarryoverFixture(carryoverEnabled bool) (*carryoverFixture, *BudgetProfi
 				}
 				return []db.Transaction{spend(dollars(2300), &method)}, nil
 			},
-			listSystemCategories: func(_ context.Context) (map[string]int32, error) {
-				return map[string]int32{"Income": 1, "Savings": 2, "Debt": 3}, nil
+			listSystemCategories: func(_ context.Context) (map[category.Key]int32, error) {
+				return map[category.Key]int32{category.Income: 1, category.Savings: 2, category.Debt: 3}, nil
 			},
 			countCarried: func(_ context.Context, _ db.CountCarriedTransactionsParams) (int64, error) {
 				return f.carried, nil

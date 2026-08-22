@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/BeWellSpent/wellspent-backend/internal/category"
 	"testing"
 	"time"
 
@@ -104,52 +105,52 @@ func TestSyncNameWordsOverlap(t *testing.T) {
 }
 
 func TestSyncResolveCategory_PayrollNameOverridesPFCCategory(t *testing.T) {
-	assert.Equal(t, "Income", syncResolveCategory("ACME CORP PAYROLL", "TRANSFER_IN", "TRANSFER_IN_DEPOSIT"))
-	assert.Equal(t, "Income", syncResolveCategory("payroll deposit", "", ""))
-	assert.Equal(t, "Income", syncResolveCategory("Bi-Weekly Payroll", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_PET_SUPPLIES"))
+	assert.Equal(t, category.Income, syncResolveCategory("ACME CORP PAYROLL", "TRANSFER_IN", "TRANSFER_IN_DEPOSIT"))
+	assert.Equal(t, category.Income, syncResolveCategory("payroll deposit", "", ""))
+	assert.Equal(t, category.Income, syncResolveCategory("Bi-Weekly Payroll", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_PET_SUPPLIES"))
 }
 
 func TestSyncResolveCategory_NonPayrollFallsBackToPFCMapping(t *testing.T) {
-	assert.Equal(t, "Groceries", syncResolveCategory("WHOLE FOODS", "FOOD_AND_DRINK", "FOOD_AND_DRINK_GROCERIES"))
-	assert.Equal(t, "", syncResolveCategory("UNKNOWN MERCHANT", "", ""))
+	assert.Equal(t, category.Groceries, syncResolveCategory("WHOLE FOODS", "FOOD_AND_DRINK", "FOOD_AND_DRINK_GROCERIES"))
+	assert.Equal(t, category.Key(""), syncResolveCategory("UNKNOWN MERCHANT", "", ""))
 }
 
 func TestSyncResolveCategory_IncomePFCPrimaryResolvesWithoutPayrollInName(t *testing.T) {
 	// A direct-deposit paycheck whose name never says "payroll" (e.g. the
 	// employer's legal entity name) must still resolve to Income via Plaid's
 	// own personal_finance_category classification, not just the name check.
-	assert.Equal(t, "Income", syncResolveCategory("ACME CORP DIRECT DEP", "INCOME", "INCOME_WAGES"))
-	assert.Equal(t, "Income", syncResolveCategory("IRS TREAS 310 TAX REF", "INCOME", "INCOME_TAX_REFUND"))
+	assert.Equal(t, category.Income, syncResolveCategory("ACME CORP DIRECT DEP", "INCOME", "INCOME_WAGES"))
+	assert.Equal(t, category.Income, syncResolveCategory("IRS TREAS 310 TAX REF", "INCOME", "INCOME_TAX_REFUND"))
 }
 
 func TestSyncResolveCategoryID_ResolvesToKnownID(t *testing.T) {
-	categoryIDs := map[string]int32{"Shopping": 7}
-	name, id := syncResolveCategoryID("AMAZON.COM", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES", categoryIDs)
-	assert.Equal(t, "Shopping", name)
+	categoryIDs := map[category.Key]int32{category.Shopping: 7}
+	key, id := syncResolveCategoryID("AMAZON.COM", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES", categoryIDs)
+	assert.Equal(t, category.Shopping, key)
 	require.NotNil(t, id)
 	assert.Equal(t, int32(7), *id)
 }
 
 func TestSyncResolveCategoryID_UnmappedNameReturnsNilID(t *testing.T) {
-	// Resolves to "Shopping" but the system-category map doesn't have it —
+	// Resolves to Shopping but the system-category map doesn't have it —
 	// this is exactly the scenario that silently drops the category: the
 	// transaction still imports, just with category_id NULL.
-	categoryIDs := map[string]int32{"Groceries": 3}
-	name, id := syncResolveCategoryID("AMAZON.COM", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES", categoryIDs)
-	assert.Equal(t, "Shopping", name)
+	categoryIDs := map[category.Key]int32{category.Groceries: 3}
+	key, id := syncResolveCategoryID("AMAZON.COM", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES", categoryIDs)
+	assert.Equal(t, category.Shopping, key)
 	assert.Nil(t, id)
 }
 
 func TestSyncResolveCategoryID_NoResolvedNameReturnsEmpty(t *testing.T) {
-	name, id := syncResolveCategoryID("UNKNOWN MERCHANT", "", "", map[string]int32{})
-	assert.Equal(t, "", name)
+	key, id := syncResolveCategoryID("UNKNOWN MERCHANT", "", "", map[category.Key]int32{})
+	assert.Equal(t, category.Key(""), key)
 	assert.Nil(t, id)
 }
 
 func TestSyncCategoryLogValue(t *testing.T) {
 	id := int32(7)
-	assert.Equal(t, `"Shopping"`, syncCategoryLogValue("Shopping", &id))
-	assert.Equal(t, `"Shopping" (unmapped — no matching system category, imported without a category)`, syncCategoryLogValue("Shopping", nil))
+	assert.Equal(t, `"shopping"`, syncCategoryLogValue(category.Shopping, &id))
+	assert.Equal(t, `"shopping" (unmapped — no matching system category, imported without a category)`, syncCategoryLogValue(category.Shopping, nil))
 	assert.Equal(t, "none", syncCategoryLogValue("", nil))
 }
 

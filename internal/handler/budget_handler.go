@@ -336,7 +336,7 @@ func (h *BudgetHandler) ListCategories(ctx context.Context, req *connect.Request
 	}
 	protos := make([]*v1.Category, len(cats))
 	for i, c := range cats {
-		protos[i] = &v1.Category{Id: c.ID, Name: c.Name, IsSystem: c.IsSystem, Color: c.Color}
+		protos[i] = toProtoCategory(c.ID, c.Name, c.IsSystem, c.Color, c.SystemKey)
 	}
 	return connect.NewResponse(&v1.ListCategoriesResponse{Categories: protos}), nil
 }
@@ -355,7 +355,7 @@ func (h *BudgetHandler) CreateCategory(ctx context.Context, req *connect.Request
 		return nil, toConnectError(svcErr)
 	}
 	return connect.NewResponse(&v1.CreateCategoryResponse{
-		Category: &v1.Category{Id: cat.ID, Name: cat.Name, IsSystem: cat.IsSystem, Color: cat.Color},
+		Category: toProtoCategory(cat.ID, cat.Name, cat.IsSystem, cat.Color, cat.SystemKey),
 	}), nil
 }
 
@@ -374,7 +374,7 @@ func (h *BudgetHandler) UpdateCategory(ctx context.Context, req *connect.Request
 		return nil, toConnectError(svcErr)
 	}
 	return connect.NewResponse(&v1.UpdateCategoryResponse{
-		Category: &v1.Category{Id: cat.ID, Name: cat.Name, IsSystem: cat.IsSystem, Color: cat.Color},
+		Category: toProtoCategory(cat.ID, cat.Name, cat.IsSystem, cat.Color, cat.SystemKey),
 	}), nil
 }
 

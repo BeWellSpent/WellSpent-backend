@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
+	"github.com/BeWellSpent/wellspent-backend/internal/category"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/BeWellSpent/wellspent-backend/internal/tax"
@@ -411,7 +412,7 @@ func (s *BudgetProfileService) applyCarryover(ctx context.Context, profile db.Bu
 		log.Printf("carryover: load system categories for profile %s: %v", profile.ID, err)
 		return
 	}
-	incomeCategoryID, hasIncomeCategory := categoryIDs["Income"]
+	incomeCategoryID, hasIncomeCategory := categoryIDs[category.Income]
 
 	txs, err := s.transactions.List(ctx, db.ListTransactionsParams{BudgetPeriodID: closing.ID})
 	if err != nil {
@@ -434,12 +435,12 @@ func (s *BudgetProfileService) applyCarryover(ctx context.Context, profile db.Bu
 	txDate := pgtype.Date{Time: next.StartDate.Time, Valid: true}
 	closingID := closing.ID
 	for _, row := range rows {
-		categoryID, ok := categoryIDs[row.categoryName]
+		categoryID, ok := categoryIDs[row.categoryKey]
 		if !ok {
 			// Savings and Debt are both seeded system categories, so this only
 			// fires on a database missing migration 000052. Skipping beats
 			// creating an uncategorized row the user can't interpret.
-			log.Printf("carryover: system category %q missing — skipping a carried row for profile %s", row.categoryName, profile.ID)
+			log.Printf("carryover: system category %q missing — skipping a carried row for profile %s", row.categoryKey, profile.ID)
 			continue
 		}
 		name := carryoverTransactionName(row, closing)
@@ -457,7 +458,7 @@ func (s *BudgetProfileService) applyCarryover(ctx context.Context, profile db.Bu
 		}); createErr != nil {
 			// Partial carryover: the rows already written stay, so the carried
 			// total no longer matches the balance it came from.
-			log.Printf("carryover: create %s row for period %s from %s: %v", row.categoryName, next.ID, closing.ID, createErr)
+			log.Printf("carryover: create %s row for period %s from %s: %v", row.categoryKey, next.ID, closing.ID, createErr)
 		}
 	}
 }
@@ -468,7 +469,7 @@ func (s *BudgetProfileService) applyCarryover(ctx context.Context, profile db.Bu
 // is what a bare CSV export or a psql session sees.
 func carryoverTransactionName(row carryoverRow, closing db.BudgetPeriod) string {
 	label := closing.StartDate.Time.Format("Jan 2006")
-	if row.categoryName == carryoverCategorySavings {
+	if row.categoryKey == carryoverCategorySavings {
 		return "Left over from " + label
 	}
 	return "Carried balance from " + label
@@ -1135,14 +1136,7 @@ func (s *BudgetProfileService) createSavingsTransactions(ctx context.Context, pr
 	if err != nil {
 		return
 	}
-	var savingsCatID *int32
-	for _, c := range cats {
-		if c.Name == "Savings" && c.IsSystem {
-			id := c.ID
-			savingsCatID = &id
-			break
-		}
-	}
+	savingsCatID := findSystemCategoryID(cats, category.Savings)
 	if savingsCatID == nil {
 		return
 	}
@@ -1241,19 +1235,15 @@ func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32
 	if old.PaymentMethodID != nil {
 		cats, err := s.transactions.ListCategories(ctx, userID)
 		if err == nil {
-			for _, c := range cats {
-				if c.IsSystem && c.Name == "Savings" {
-					catID := c.ID
-					if delErr := s.transactions.DeleteSavingsSourceTransactions(ctx, db.DeleteSavingsSourceTransactionsParams{
-						BudgetProfileID: profileID,
-						Name:            &old.Name,
-						PaymentMethodID: *old.PaymentMethodID,
-						CategoryID:      &catID,
-					}); delErr != nil {
-						// Orphaned savings rows keep counting against the budget.
-						log.Printf("savings: delete transactions for changed source: %v", delErr)
-					}
-					break
+			if catID := findSystemCategoryID(cats, category.Savings); catID != nil {
+				if delErr := s.transactions.DeleteSavingsSourceTransactions(ctx, db.DeleteSavingsSourceTransactionsParams{
+					BudgetProfileID: profileID,
+					Name:            &old.Name,
+					PaymentMethodID: *old.PaymentMethodID,
+					CategoryID:      catID,
+				}); delErr != nil {
+					// Orphaned savings rows keep counting against the budget.
+					log.Printf("savings: delete transactions for changed source: %v", delErr)
 				}
 			}
 		}
@@ -1278,14 +1268,7 @@ func (s *BudgetProfileService) DeleteSavingsSource(ctx context.Context, id int32
 		if err != nil {
 			return err
 		}
-		var savingsCatID *int32
-		for _, c := range cats {
-			if c.IsSystem && c.Name == "Savings" {
-				id32 := c.ID
-				savingsCatID = &id32
-				break
-			}
-		}
+		savingsCatID := findSystemCategoryID(cats, category.Savings)
 		if savingsCatID != nil {
 			if delErr := s.transactions.DeleteSavingsSourceTransactions(ctx, db.DeleteSavingsSourceTransactionsParams{
 				BudgetProfileID: profileID,
