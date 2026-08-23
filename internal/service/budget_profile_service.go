@@ -633,6 +633,89 @@ func fixedExpenseNextDueDateWeekly(fe db.FixedExpense, from time.Time) time.Time
 	return fixedExpenseDateInWeek(fe, fixedExpenseWeekStart(from))
 }
 
+// FixedExpensePaymentsMade returns how many of fe's planned payments have come
+// due as of `asOf`, clamped to [0, TotalPayments]. Returns 0 when TotalPayments
+// is unset — "3 of 0 payments" is not a progress figure.
+//
+// Computed rather than persisted, exactly like FixedExpenseNextDueDate: the
+// answer depends on today's date, so storing it would be stale the next day.
+//
+// This lives on the server because a client cannot get it right. The schedule
+// anchors on fixedExpenseAnchor, which falls back to fe.CreatedAt when
+// AnchorDate is null (every row predating migration 000025) — and CreatedAt is
+// not on the wire. Both clients substituted an anchor of their own and
+// disagreed with each other and, on web, with itself.
+//
+// It also counts actual due dates rather than whole calendar months. The
+// previous client formulas floored a month difference and added one, so a bill
+// due on the 28th counted February's payment as already made on February 3rd.
+func FixedExpensePaymentsMade(fe db.FixedExpense, asOf time.Time) int32 {
+	if fe.TotalPayments == nil || *fe.TotalPayments <= 0 {
+		return 0
+	}
+	var made int
+	if isFixedExpenseWeekUnit(fe) {
+		made = fixedExpensePaymentsMadeWeekly(fe, asOf)
+	} else {
+		made = fixedExpensePaymentsMadeMonthly(fe, asOf)
+	}
+	if made < 0 {
+		made = 0
+	}
+	if total := int(*fe.TotalPayments); made > total {
+		made = total
+	}
+	return int32(made)
+}
+
+// fixedExpensePaymentsMadeMonthly counts due occurrences at or before asOf for
+// a MONTH-unit expense. Due months are the anchor month plus multiples of
+// IntervalMonths, so the count is however many whole intervals have elapsed,
+// plus one more if that interval's own due date has actually arrived.
+func fixedExpensePaymentsMadeMonthly(fe db.FixedExpense, asOf time.Time) int {
+	interval := int(fe.IntervalMonths)
+	if interval < 1 {
+		interval = 1
+	}
+	diff := fixedExpenseMonthIndex(asOf) - fixedExpenseMonthIndex(fixedExpenseAnchor(fe))
+	if diff < 0 {
+		return 0
+	}
+	elapsed := diff / interval
+	if diff%interval != 0 {
+		// The most recent due month is behind us, so its payment is in.
+		return elapsed + 1
+	}
+	// asOf falls inside a due month: count it only once its day has arrived.
+	monthStart := time.Date(asOf.Year(), asOf.Month(), 1, 0, 0, 0, 0, time.UTC)
+	if fixedExpenseDateInMonth(fe, monthStart).After(asOf) {
+		return elapsed
+	}
+	return elapsed + 1
+}
+
+// fixedExpensePaymentsMadeWeekly is the WEEK-unit counterpart, over week
+// indices instead of month indices.
+func fixedExpensePaymentsMadeWeekly(fe db.FixedExpense, asOf time.Time) int {
+	interval := int(fe.IntervalWeeks)
+	if interval < 1 {
+		interval = 1
+	}
+	ws := fixedExpenseWeekStart(asOf)
+	diff := fixedExpenseWeekIndex(ws) - fixedExpenseWeekIndex(fixedExpenseWeekStart(fixedExpenseAnchor(fe)))
+	if diff < 0 {
+		return 0
+	}
+	elapsed := diff / interval
+	if diff%interval != 0 {
+		return elapsed + 1
+	}
+	if fixedExpenseDateInWeek(fe, ws).After(asOf) {
+		return elapsed
+	}
+	return elapsed + 1
+}
+
 // spawnWeeklyFixedExpenseOccurrences spawns one transaction for every due
 // week (per IntervalWeeks/DayOfWeek) whose date falls within
 // [startDate, endDate). Unlike MONTH-unit expenses — at most one transaction

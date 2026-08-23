@@ -562,3 +562,177 @@ func TestGetSummary_PersonBreakdowns(t *testing.T) {
 	assert.Equal(t, int64(30), byPerson[int64(person1)])
 	assert.Equal(t, int64(70), byPerson[int64(person2)])
 }
+
+// day is a short pgtype.Date builder for chronological test data.
+func day(y int, m time.Month, d int) pgtype.Date {
+	return pgtype.Date{Time: time.Date(y, m, d, 0, 0, 0, 0, time.UTC), Valid: true}
+}
+
+func TestGetSummary_ActualSplitByType_SumsToTotalActual(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+	userID := uuid.New()
+	catID := int32(7)
+	fixedType := int32(1)
+	variableType := int32(2)
+
+	svc := newTestExpenseSummarySvc(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				return []db.Transaction{
+					{ID: uuid.New(), CategoryID: &catID, Amount: n(t, "100.00"), TransactionTypeID: &fixedType, IsPaid: true},
+					// Unpaid Fixed: not spend yet, so it counts toward neither half.
+					{ID: uuid.New(), CategoryID: &catID, Amount: n(t, "500.00"), TransactionTypeID: &fixedType, IsPaid: false},
+					{ID: uuid.New(), CategoryID: &catID, Amount: n(t, "30.00"), TransactionTypeID: &variableType},
+					// Uncategorized still has to land in a half, or the two
+					// stop summing to total_actual.
+					{ID: uuid.New(), CategoryID: nil, Amount: n(t, "5.00"), TransactionTypeID: &variableType},
+				}, nil
+			},
+		},
+		nil, nil,
+	)
+
+	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(100), resp.FixedActualTotal.Units, "only the paid fixed transaction counts")
+	assert.Equal(t, int64(35), resp.VariableActualTotal.Units, "includes the uncategorized row")
+	assert.Equal(t, int64(135), resp.TotalActual.Units)
+	assert.Equal(t,
+		resp.TotalActual.Units,
+		resp.FixedActualTotal.Units+resp.VariableActualTotal.Units,
+		"the two halves must always reconstruct total_actual")
+}
+
+func TestGetSummary_OverBudgetIDs_FlagFromCrossingPointOnward(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+	userID := uuid.New()
+	catID := int32(7)
+	variableType := int32(2)
+
+	under := uuid.New()    // running 40, plan 100 — under
+	crossing := uuid.New() // running 110 — this one crosses
+	after := uuid.New()    // running 130 — already over
+
+	svc := newTestExpenseSummarySvc(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				// Deliberately out of chronological order: the walk has to sort.
+				return []db.Transaction{
+					{ID: after, CategoryID: &catID, Amount: n(t, "20.00"), TransactionTypeID: &variableType, Date: day(2026, time.June, 20)},
+					{ID: under, CategoryID: &catID, Amount: n(t, "40.00"), TransactionTypeID: &variableType, Date: day(2026, time.June, 1)},
+					{ID: crossing, CategoryID: &catID, Amount: n(t, "70.00"), TransactionTypeID: &variableType, Date: day(2026, time.June, 10)},
+				}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.ExpenseAllocation, error) {
+				return []db.ExpenseAllocation{{CategoryID: catID, PlannedAmount: n(t, "100.00")}}, nil
+			},
+		},
+		nil,
+	)
+
+	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{crossing.String(), after.String()}, resp.OverBudgetTransactionIds,
+		"only from the crossing point onward, not every transaction in an over-budget category")
+}
+
+func TestGetSummary_OverBudgetIDs_IgnoreFixedAndReceived(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+	userID := uuid.New()
+	catID := int32(7)
+	fixedType := int32(1)
+	variableType := int32(2)
+
+	received := uuid.New()
+	fixed := uuid.New()
+
+	svc := newTestExpenseSummarySvc(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				return []db.Transaction{
+					// Paid Fixed well past the plan — never a filter candidate,
+					// the filter is about variable spending.
+					{ID: fixed, CategoryID: &catID, Amount: n(t, "900.00"), TransactionTypeID: &fixedType, IsPaid: true, Date: day(2026, time.June, 1)},
+					// Money in cannot push a category over.
+					{ID: received, CategoryID: &catID, Amount: n(t, "-50.00"), TransactionTypeID: &variableType, Date: day(2026, time.June, 2)},
+				}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.ExpenseAllocation, error) {
+				return []db.ExpenseAllocation{{CategoryID: catID, PlannedAmount: n(t, "10.00")}}, nil
+			},
+		},
+		nil,
+	)
+
+	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	require.NoError(t, err)
+
+	assert.Empty(t, resp.OverBudgetTransactionIds)
+}
+
+func TestGetSummary_OverBudgetIDs_UnplannedCategoryFlagsFromFirstSpend(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+	userID := uuid.New()
+	catID := int32(7)
+	variableType := int32(2)
+	first := uuid.New()
+
+	svc := newTestExpenseSummarySvc(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				return []db.Transaction{
+					{ID: first, CategoryID: &catID, Amount: n(t, "5.00"), TransactionTypeID: &variableType, Date: day(2026, time.June, 1)},
+				}, nil
+			},
+		},
+		nil, nil,
+	)
+
+	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{first.String()}, resp.OverBudgetTransactionIds,
+		"spending in a category with no plan is over budget from its first transaction")
+}

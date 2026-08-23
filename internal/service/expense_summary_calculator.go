@@ -5,6 +5,7 @@ import (
 	"time"
 
 	v1 "github.com/BeWellSpent/wellspent-backend/gen/wellspent/v1"
+	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -53,6 +54,16 @@ type expenseSummaryCalculator struct {
 	savingsTotal    int64
 	savingsByPerson map[int32]int64
 
+	// total_actual split by transaction type, under the same filter, so the
+	// Transactions tab's per-tab totals come from here rather than each
+	// client re-summing the rows it happens to have fetched.
+	fixedActual    int64
+	variableActual int64
+
+	// Variable transactions that pushed their category past plannedTotal —
+	// the "Exceeded only" filter. See computeOverBudget.
+	overBudgetTxIDs []string
+
 	pmPersonMap map[uuid.UUID]int32
 }
 
@@ -62,6 +73,8 @@ func newExpenseSummaryCalculator(data *expenseSummaryData) *expenseSummaryCalcul
 	c.computeActuals()
 	c.computePlannedTiers()
 	c.computeSavings()
+	// Depends on both planned tiers and savings, so it runs last.
+	c.computeOverBudget()
 	return c
 }
 
@@ -86,6 +99,13 @@ func (c *expenseSummaryCalculator) computeActuals() {
 			continue
 		}
 		amt := numericToNanos(tx.Amount)
+		// Split before the uncategorized branch, so the two halves still sum
+		// to total_actual when a transaction has no category.
+		if isFixed(tx) {
+			c.fixedActual += amt
+		} else {
+			c.variableActual += amt
+		}
 		if tx.CategoryID == nil {
 			c.uncategorized += amt
 			continue
@@ -180,6 +200,56 @@ func (c *expenseSummaryCalculator) plannedTotal(catID int32) int64 {
 		return alloc
 	}
 	return c.fixedDueByCat[catID]
+}
+
+// computeOverBudget flags the variable transactions that pushed their category
+// past its plan, walking each category chronologically and marking every
+// transaction from the point the running total first crosses the plan onward —
+// not every transaction in an over-budget category. Drives the Transactions
+// tab's "Exceeded only" filter.
+//
+// The baseline is plannedTotal, the same per-category figure this response
+// already reports and the same number the Plan and Overview tabs print. Both
+// clients previously derived their own, and disagreed twice over: on whether a
+// not-yet-due bill counts (settled by issue #48) and on whether an allocation
+// and a fixed bill in one category add together or fall back — web adds, iOS
+// falls back, and that one is still live. Using plannedTotal settles it on the
+// figure the user is actually shown; a screen cannot hold two definitions of
+// "the plan" for one category.
+//
+// Received transactions (negative amounts) never flag: money coming in cannot
+// push a category over.
+func (c *expenseSummaryCalculator) computeOverBudget() {
+	byCat := map[int32][]db.Transaction{}
+	for _, tx := range c.data.transactions {
+		if isFixed(tx) || tx.CategoryID == nil {
+			continue
+		}
+		byCat[*tx.CategoryID] = append(byCat[*tx.CategoryID], tx)
+	}
+
+	// Sorted for a stable answer: two transactions on the same day have no
+	// inherent order, so ID breaks the tie the same way on every call.
+	for catID, txs := range byCat {
+		planned := c.plannedTotal(catID)
+		sort.Slice(txs, func(i, j int) bool {
+			if !txs[i].Date.Time.Equal(txs[j].Date.Time) {
+				return txs[i].Date.Time.Before(txs[j].Date.Time)
+			}
+			return txs[i].ID.String() < txs[j].ID.String()
+		})
+		var running int64
+		for _, tx := range txs {
+			amt := numericToNanos(tx.Amount)
+			running += amt
+			if running > planned && amt > 0 {
+				c.overBudgetTxIDs = append(c.overBudgetTxIDs, tx.ID.String())
+			}
+		}
+	}
+	// Map iteration order is random; without this the same period returns its
+	// IDs in a different order on every call.
+	sort.Strings(c.overBudgetTxIDs)
 }
 
 // notDueSummary returns the informational not-due fields for a category, both
@@ -353,13 +423,17 @@ func (c *expenseSummaryCalculator) response() *v1.GetExpenseSummaryResponse {
 		TotalCommitted:      nanosToMoney(totalCommitted),
 		TotalPlanned:        nanosToMoney(totalPlanned),
 		TotalActual:         nanosToMoney(totalActual),
-		UncategorizedActual: nanosToMoney(c.uncategorized),
-		TotalOverBudget:     nanosToMoney(totalOverBudget),
-		TotalUnplanned:      nanosToMoney(totalUnplanned),
-		RemainderPlan:       nanosToMoney(incomeFromSources - totalCommitted),
-		RemainderActual:     nanosToMoney(incomeFromEntries - totalActual),
-		RemainderPlanned:    nanosToMoney(incomeFromEntries - totalPlanned),
-		PlanCategories:      planCategories,
-		OverviewCategories:  overviewCategories,
+		FixedActualTotal:    nanosToMoney(c.fixedActual),
+		VariableActualTotal: nanosToMoney(c.variableActual),
+
+		OverBudgetTransactionIds: c.overBudgetTxIDs,
+		UncategorizedActual:      nanosToMoney(c.uncategorized),
+		TotalOverBudget:          nanosToMoney(totalOverBudget),
+		TotalUnplanned:           nanosToMoney(totalUnplanned),
+		RemainderPlan:            nanosToMoney(incomeFromSources - totalCommitted),
+		RemainderActual:          nanosToMoney(incomeFromEntries - totalActual),
+		RemainderPlanned:         nanosToMoney(incomeFromEntries - totalPlanned),
+		PlanCategories:           planCategories,
+		OverviewCategories:       overviewCategories,
 	}
 }
