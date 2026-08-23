@@ -31,3 +31,9 @@ func isNonSpendTransaction(tx db.Transaction, incomeCategoryID int32, hasIncomeC
 func isUnpaidFixed(tx db.Transaction) bool {
 	return tx.TransactionTypeID != nil && *tx.TransactionTypeID == fixedTransactionTypeID && !tx.IsPaid
 }
+
+// isFixed reports whether tx is a Fixed-type transaction. Companion to
+// isUnpaidFixed, which additionally requires it to be unpaid.
+func isFixed(tx db.Transaction) bool {
+	return tx.TransactionTypeID != nil && *tx.TransactionTypeID == fixedTransactionTypeID
+}

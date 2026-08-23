@@ -579,6 +579,7 @@ func toProtoFixedExpense(fe db.FixedExpense) *v1.FixedExpense {
 		IsInstallmentPlan: fe.IsInstallmentPlan,
 		IntervalMonths:    fe.IntervalMonths,
 		NextDueDate:       timestamppb.New(service.FixedExpenseNextDueDate(fe, time.Now().UTC())),
+		PaymentsMade:      service.FixedExpensePaymentsMade(fe, time.Now().UTC()),
 		FrequencyUnit:     v1.FrequencyUnit(fe.FrequencyUnit),
 		IntervalWeeks:     fe.IntervalWeeks,
 		DayOfWeek:         int32(fe.DayOfWeek),

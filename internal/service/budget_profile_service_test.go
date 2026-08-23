@@ -2078,3 +2078,94 @@ func TestCreateBudgetPeriod_Carryover_SkippedWithoutAClosingPeriod(t *testing.T)
 		assert.Nil(t, c.CarriedFromBudgetPeriodID)
 	}
 }
+
+func TestFixedExpensePaymentsMade(t *testing.T) {
+	anchor := time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)
+	total := int32(12)
+	monthly := db.FixedExpense{
+		CreatedAt:      pgtype.Timestamptz{Time: anchor, Valid: true},
+		IntervalMonths: 1,
+		DayOfMonth:     15,
+		TotalPayments:  &total,
+	}
+
+	cases := []struct {
+		name string
+		asOf time.Time
+		want int32
+	}{
+		{"before the anchor month", time.Date(2025, time.December, 20, 0, 0, 0, 0, time.UTC), 0},
+		{"anchor month, before the due day", time.Date(2026, time.January, 3, 0, 0, 0, 0, time.UTC), 0},
+		{"anchor month, on the due day", anchor, 1},
+		{"anchor month, after the due day", time.Date(2026, time.January, 20, 0, 0, 0, 0, time.UTC), 1},
+		// The old client formulas floored a bare month difference and added
+		// one, so this case returned 2 — counting February's payment as made
+		// on February 3rd, twelve days before the bill is due.
+		{"next month, before the due day", time.Date(2026, time.February, 3, 0, 0, 0, 0, time.UTC), 1},
+		{"next month, after the due day", time.Date(2026, time.February, 20, 0, 0, 0, 0, time.UTC), 2},
+		{"clamped at total_payments", time.Date(2030, time.January, 1, 0, 0, 0, 0, time.UTC), 12},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, FixedExpensePaymentsMade(monthly, tc.asOf))
+		})
+	}
+}
+
+func TestFixedExpensePaymentsMade_NoPlanReturnsZero(t *testing.T) {
+	fe := db.FixedExpense{
+		CreatedAt:      pgtype.Timestamptz{Time: time.Date(2020, time.January, 15, 0, 0, 0, 0, time.UTC), Valid: true},
+		IntervalMonths: 1,
+		DayOfMonth:     15,
+	}
+	// Years of due occurrences, but no payment plan — "74 of 0 payments" is
+	// not a progress figure, so nothing is reported.
+	assert.Equal(t, int32(0), FixedExpensePaymentsMade(fe, time.Date(2026, time.March, 1, 0, 0, 0, 0, time.UTC)))
+}
+
+// The case neither client can reach: with no anchor_date (every row predating
+// migration 000025), the schedule anchors on created_at — which is not on the
+// wire. Web guessed 1/N here and iOS reconstructed a date from day_of_month.
+func TestFixedExpensePaymentsMade_FallsBackToCreatedAtWhenNoAnchorDate(t *testing.T) {
+	total := int32(6)
+	fe := db.FixedExpense{
+		CreatedAt:      pgtype.Timestamptz{Time: time.Date(2026, time.January, 10, 0, 0, 0, 0, time.UTC), Valid: true},
+		IntervalMonths: 1,
+		DayOfMonth:     10,
+		TotalPayments:  &total,
+	}
+	assert.False(t, fe.AnchorDate.Valid, "the scenario under test is a null anchor_date")
+	assert.Equal(t, int32(3), FixedExpensePaymentsMade(fe, time.Date(2026, time.March, 15, 0, 0, 0, 0, time.UTC)))
+}
+
+func TestFixedExpensePaymentsMade_QuarterlyCountsDueMonthsNotElapsedMonths(t *testing.T) {
+	total := int32(4)
+	fe := db.FixedExpense{
+		CreatedAt:      pgtype.Timestamptz{Time: time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC), Valid: true},
+		IntervalMonths: 3,
+		DayOfMonth:     15,
+		TotalPayments:  &total,
+	}
+	// Jan and Apr are due; Feb, Mar, May are not.
+	assert.Equal(t, int32(1), FixedExpensePaymentsMade(fe, time.Date(2026, time.March, 31, 0, 0, 0, 0, time.UTC)))
+	assert.Equal(t, int32(2), FixedExpensePaymentsMade(fe, time.Date(2026, time.April, 15, 0, 0, 0, 0, time.UTC)))
+	assert.Equal(t, int32(2), FixedExpensePaymentsMade(fe, time.Date(2026, time.May, 31, 0, 0, 0, 0, time.UTC)))
+}
+
+func TestFixedExpensePaymentsMade_WeeklyUnit(t *testing.T) {
+	total := int32(8)
+	// Monday 2026-01-05; due every 2 weeks on Wednesday (ISO day 3).
+	fe := db.FixedExpense{
+		CreatedAt:     pgtype.Timestamptz{Time: time.Date(2026, time.January, 5, 0, 0, 0, 0, time.UTC), Valid: true},
+		FrequencyUnit: frequencyUnitWeek,
+		IntervalWeeks: 2,
+		DayOfWeek:     3,
+		TotalPayments: &total,
+	}
+	assert.Equal(t, int32(0), FixedExpensePaymentsMade(fe, time.Date(2026, time.January, 6, 0, 0, 0, 0, time.UTC)),
+		"Tuesday of the anchor week — Wednesday hasn't arrived")
+	assert.Equal(t, int32(1), FixedExpensePaymentsMade(fe, time.Date(2026, time.January, 7, 0, 0, 0, 0, time.UTC)))
+	assert.Equal(t, int32(1), FixedExpensePaymentsMade(fe, time.Date(2026, time.January, 14, 0, 0, 0, 0, time.UTC)),
+		"the skipped week is not a due week")
+	assert.Equal(t, int32(2), FixedExpensePaymentsMade(fe, time.Date(2026, time.January, 21, 0, 0, 0, 0, time.UTC)))
+}
