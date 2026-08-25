@@ -58,6 +58,7 @@ func main() {
 	reviewRepo := repository.NewTransactionReviewRepository(queries)
 	notifRepo := repository.NewNotificationRepository(queries)
 	statusBannerRepo := repository.NewStatusBannerRepository(queries)
+	changelogRepo := repository.NewChangelogRepository(queries)
 
 	logVerificationExemptAccounts(ctx, userRepo, cfg.Env, logger)
 
@@ -71,6 +72,7 @@ func main() {
 	userSvc := service.NewUserService(userRepo, appleAuth, cfg.EncryptionKey, cfg, logger)
 	notifSvc := service.NewNotificationService(notifRepo, transactionRepo, budgetProfileRepo, allocationRepo, userRepo, cfg, logger)
 	statusBannerSvc := service.NewStatusBannerService(statusBannerRepo, userRepo)
+	changelogSvc := service.NewChangelogService(changelogRepo, userRepo)
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo).WithNotifications(notifSvc)
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo).WithNotifications(notifSvc)
 	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
@@ -120,6 +122,7 @@ func main() {
 	mux.Handle(wellspentv1connect.NewInviteServiceHandler(handler.NewInviteHandler(inviteSvc), interceptors))
 	mux.Handle(wellspentv1connect.NewNotificationServiceHandler(handler.NewNotificationHandler(notifSvc), interceptors))
 	mux.Handle(wellspentv1connect.NewStatusServiceHandler(handler.NewStatusHandler(statusBannerSvc), interceptors))
+	mux.Handle(wellspentv1connect.NewChangelogServiceHandler(handler.NewChangelogHandler(changelogSvc), interceptors))
 	if plaidSvc != nil {
 		mux.Handle(wellspentv1connect.NewPlaidServiceHandler(handler.NewPlaidHandler(plaidSvc), interceptors))
 	}

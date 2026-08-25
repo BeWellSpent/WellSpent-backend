@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.0.0",
+  "items": [
+    {
+      "changeType": "added",
+      "summaryEn": "Release notes are now recorded per version, so you can see what changed in the app and behind it.",
+      "summaryEs": "Ahora guardamos las notas de cada versión, así puedes ver qué cambió en la aplicación y detrás de ella."
+    }
+  ]
+}

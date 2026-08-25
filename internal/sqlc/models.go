@@ -83,6 +83,25 @@ type CategoryType struct {
 	Name string `json:"name"`
 }
 
+type ChangelogItem struct {
+	ID         uuid.UUID          `json:"id"`
+	ReleaseID  uuid.UUID          `json:"release_id"`
+	ChangeType string             `json:"change_type"`
+	SummaryEn  string             `json:"summary_en"`
+	SummaryEs  string             `json:"summary_es"`
+	Position   int32              `json:"position"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type ChangelogRelease struct {
+	ID         uuid.UUID          `json:"id"`
+	Component  string             `json:"component"`
+	Version    string             `json:"version"`
+	ReleasedAt pgtype.Timestamptz `json:"released_at"`
+	CreatedBy  uuid.UUID          `json:"created_by"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
 type Country struct {
 	Code      string             `json:"code"`
 	Name      string             `json:"name"`

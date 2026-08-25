@@ -57,6 +57,7 @@ sql:
       - "internal/db/migrations/000052_carryover_balance.sql"
       - "internal/db/migrations/000053_auto_update_planned_amount.sql"
       - "internal/db/migrations/000054_category_system_key.sql"
+      - "internal/db/migrations/000055_changelog.sql"
     gen:
       go:
         package: "db"
