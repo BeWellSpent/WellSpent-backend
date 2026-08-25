@@ -12,7 +12,6 @@
 set -euo pipefail
 
 API_PROD="https://wellspent-backend-1065664306856.us-central1.run.app"
-API_STAGING="https://wellspent-backend-staging-1065664306856.us-central1.run.app"
 API_LOCAL="http://localhost:8080"
 
 TARGET="prod"
@@ -41,7 +40,7 @@ Severity (either spelling works):
 Options:
   -d, --hours N     how long it stays up (default: 24)
   -s, --es TEXT     Spanish text (default: Spanish readers see the English)
-  -e, --env ENV     prod | staging | local (default: prod)
+  -e, --env ENV     prod | local (default: prod)
   -y, --yes         skip the confirmation prompt on prod
   -h, --help        this
 
@@ -110,9 +109,8 @@ done
 
 case "$TARGET" in
     prod)    API_URL="$API_PROD" ;;
-    staging) API_URL="$API_STAGING" ;;
     local)   API_URL="$API_LOCAL" ;;
-    *)       die "--env must be prod, staging or local (got: $TARGET)" ;;
+    *)       die "--env must be prod or local (got: $TARGET)" ;;
 esac
 
 command -v curl >/dev/null || die "curl is required"
