@@ -86,6 +86,22 @@ bypass := map[string]bool{
 
 `.env.dev` is gitignored. `.env.dev.enc` is the SOPS-encrypted version (committed). Age private key lives at `%APPDATA%\sops\age\keys.txt` (Windows) or `~/.config/sops/age/keys.txt`.
 
+## Version bump (required for every feature)
+
+The server has a version now: `internal/version/version.go`'s `Current`. Bump it
+once per feature, the same way `WellSpent-web`'s `package.json` is bumped —
+patch for fixes, minor for new behaviour, major for a breaking change.
+
+It is not decorative. `ListChangelog` reports it so a client can tell which
+server releases are new to it, and a changelog release is keyed on it. If the
+constant doesn't move, the changelog has nothing to hang off and readers never
+see what shipped.
+
+Write the matching release notes in the same change: `changelog/server-<version>.json`
+(see `changelog/README.md`). Authoring is part of the feature; **publishing is
+not** — that happens at release time via `./scripts/changelog.sh publish`,
+because at feature time nothing has shipped yet.
+
 ## Git workflow
 
 `main` is production. Never commit or push directly to `main`. Never add a `Co-Authored-By: Claude` (or any AI attribution) trailer to commit messages — standing rule across the whole workspace.
