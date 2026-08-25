@@ -9,10 +9,8 @@ tmp/
 # Environment — plaintext files are never committed
 # Commit the .enc equivalents instead (encrypted with SOPS + age)
 .env.dev
-.env.staging
 .env.prod
 !.env.dev.enc
-!.env.staging.enc
 !.env.prod.enc
 
 # Generated code (regenerate with `make generate`)

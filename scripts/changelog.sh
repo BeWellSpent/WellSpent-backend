@@ -28,7 +28,6 @@
 set -euo pipefail
 
 API_PROD="https://wellspent-backend-1065664306856.us-central1.run.app"
-API_STAGING="https://wellspent-backend-staging-1065664306856.us-central1.run.app"
 API_LOCAL="http://localhost:8080"
 
 TARGET="prod"
@@ -46,7 +45,7 @@ Usage:
   changelog.sh --list [web|ios|server]
 
 Options:
-  -e, --env ENV     prod | staging | local (default: prod)
+  -e, --env ENV     prod | local (default: prod)
   -y, --yes         skip the confirmation prompt on prod
   -h, --help        this
 
@@ -63,7 +62,6 @@ second attempt fails loudly rather than listing the release twice.
 
 Examples:
   changelog.sh publish changelog/web-1.28.0.json
-  changelog.sh publish changelog/server-1.1.0.json --env staging
   changelog.sh --list ios
 EOF
 }
@@ -108,9 +106,8 @@ done
 
 case "$TARGET" in
     prod) API_URL="$API_PROD" ;;
-    staging) API_URL="$API_STAGING" ;;
     local) API_URL="$API_LOCAL" ;;
-    *) die "unknown env: $TARGET (prod | staging | local)" ;;
+    *) die "unknown env: $TARGET (prod | local)" ;;
 esac
 
 command -v curl >/dev/null || die "curl is required"
