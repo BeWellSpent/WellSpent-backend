@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.0.2",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summaryEn": "Credit card payments no longer count as spending, so a card's total is what you actually spent on it instead of being cancelled out by the payments you made.",
+      "summaryEs": "Los pagos de tarjeta de crédito ya no cuentan como gasto, así que el total de una tarjeta refleja lo que realmente gastaste en ella en vez de anularse con los pagos que hiciste."
+    }
+  ]
+}

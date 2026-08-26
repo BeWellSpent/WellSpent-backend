@@ -412,7 +412,7 @@ func (s *BudgetProfileService) applyCarryover(ctx context.Context, profile db.Bu
 		log.Printf("carryover: load system categories for profile %s: %v", profile.ID, err)
 		return
 	}
-	incomeCategoryID, hasIncomeCategory := categoryIDs[category.Income]
+	nonSpend := nonSpendCategoryIDs(categoryIDs)
 
 	txs, err := s.transactions.List(ctx, db.ListTransactionsParams{BudgetPeriodID: closing.ID})
 	if err != nil {
@@ -425,7 +425,7 @@ func (s *BudgetProfileService) applyCarryover(ctx context.Context, profile db.Bu
 		return
 	}
 
-	remainder, spendByMethod, unattributed := carryoverInputs(txs, incomeEntries, incomeCategoryID, hasIncomeCategory)
+	remainder, spendByMethod, unattributed := carryoverInputs(txs, incomeEntries, nonSpend)
 	rows := computeCarryover(remainder, spendByMethod, unattributed)
 	if len(rows) == 0 {
 		return
