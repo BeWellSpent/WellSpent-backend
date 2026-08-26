@@ -1,0 +1,16 @@
+{
+  "component": "server",
+  "version": "1.1.0",
+  "items": [
+    {
+      "changeType": "changed",
+      "summaryEn": "The country list, the status banner and the changelog now load faster, and keep working from cache when the network is slow.",
+      "summaryEs": "La lista de países, el aviso de estado y el registro de cambios ahora cargan más rápido y siguen funcionando desde la caché cuando la red está lenta."
+    },
+    {
+      "changeType": "added",
+      "summaryEn": "A health check you can open in a browser to tell whether the API itself is reachable.",
+      "summaryEs": "Una comprobación de estado que puedes abrir en el navegador para saber si la API está accesible."
+    }
+  ]
+}

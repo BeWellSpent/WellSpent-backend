@@ -1,0 +1,17 @@
+# Generates Go types and a routing interface from the OpenAPI contract in
+# WellSpent-proto. See that repo's openapi/README.md for what belongs there.
+#
+# Output lands in gen/rest/ — inside the already-gitignored gen/ tree, which
+# means the existing CI "Generate proto" job's artifact upload carries it with
+# no extra plumbing. Same policy as the protobuf output beside it: generated
+# from a remote contract, never committed, never hand-edited.
+package: restgen
+output: gen/rest/wellspent.gen.go
+generate:
+  models: true
+  # Plain std-http-server rather than strict-server: these endpoints exist to
+  # set Cache-Control, emit ETags and return 304s, and the strict variant owns
+  # response writing in a way that makes all three awkward.
+  std-http-server: true
+output-options:
+  skip-prune: false
