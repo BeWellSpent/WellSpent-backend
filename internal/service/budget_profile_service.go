@@ -316,6 +316,7 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 	// than one period inside that month. WEEK-unit expenses use a separate
 	// per-date path since a single period can contain several due weeks.
 	fixedExpenses, _ := s.fixedExpenses.List(ctx, profile.ID)
+	activeMethods := s.activePaymentMethodIDs(ctx, profile.ID)
 	txTypeFixed := int32(1)
 	monthStart := time.Date(startDate.Year(), startDate.Month(), 1, 0, 0, 0, 0, time.UTC)
 	monthEnd := monthStart.AddDate(0, 1, 0)
@@ -332,7 +333,7 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 			continue
 		}
 		if isFixedExpenseWeekUnit(fe) {
-			s.spawnWeeklyFixedExpenseOccurrences(ctx, fe, period.ID, startDate, endDate)
+			s.spawnWeeklyFixedExpenseOccurrences(ctx, fe, period.ID, startDate, endDate, activeMethods)
 			continue
 		}
 		if !isFixedExpenseDueInMonth(fe, monthStart) {
@@ -356,7 +357,7 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 			Date:              txDate,
 			BudgetPeriodID:    &period.ID,
 			CategoryID:        fe.CategoryID,
-			PaymentMethodID:   fe.PaymentMethodID,
+			PaymentMethodID:   livePaymentMethod(fe.PaymentMethodID, activeMethods),
 			TransactionTypeID: &txTypeFixed,
 			FixedExpenseID:    &feID,
 		}); spawnErr != nil {
@@ -722,7 +723,7 @@ func fixedExpensePaymentsMadeWeekly(fe db.FixedExpense, asOf time.Time) int {
 // per period — a WEEK-unit expense can have several due occurrences inside a
 // single period (e.g. "every week" within a monthly budget period), so
 // de-duplication is per exact date rather than per calendar month.
-func (s *BudgetProfileService) spawnWeeklyFixedExpenseOccurrences(ctx context.Context, fe db.FixedExpense, periodID uuid.UUID, startDate, endDate time.Time) {
+func (s *BudgetProfileService) spawnWeeklyFixedExpenseOccurrences(ctx context.Context, fe db.FixedExpense, periodID uuid.UUID, startDate, endDate time.Time, activeMethods map[uuid.UUID]bool) {
 	txTypeFixed := int32(1)
 	feID := fe.ID
 	name := fe.Name
@@ -748,7 +749,7 @@ func (s *BudgetProfileService) spawnWeeklyFixedExpenseOccurrences(ctx context.Co
 			Date:              pgtype.Date{Time: date, Valid: true},
 			BudgetPeriodID:    &periodID,
 			CategoryID:        fe.CategoryID,
-			PaymentMethodID:   fe.PaymentMethodID,
+			PaymentMethodID:   livePaymentMethod(fe.PaymentMethodID, activeMethods),
 			TransactionTypeID: &txTypeFixed,
 			FixedExpenseID:    &feID,
 		}); savErr != nil {
@@ -1473,7 +1474,10 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 		// separate gate is needed here. There's no single transaction to
 		// return in the response — the caller relies on re-fetching
 		// transactions afterward, same as createNextPeriod's spawn path.
-		s.spawnWeeklyFixedExpenseOccurrences(ctx, fe, period.ID, startDate, period.EndDate.Time)
+		// nil active-set: the payment method came from the request the user
+		// just submitted, and the picker only offers live ones. Only the
+		// unattended rollover needs to re-check a template it didn't write.
+		s.spawnWeeklyFixedExpenseOccurrences(ctx, fe, period.ID, startDate, period.EndDate.Time, nil)
 		return fe, nil, nil
 	}
 
@@ -1869,6 +1873,44 @@ func (s *BudgetProfileService) DeleteFixedExpense(ctx context.Context, id uuid.U
 }
 
 // ── Period date helpers ───────────────────────────────────────────────────────
+
+// activePaymentMethodIDs is the set of payment methods a spawned bill may be
+// attributed to. ListPaymentMethods already filters to is_active.
+//
+// A failure returns nil, which livePaymentMethod reads as "don't second-guess
+// the template" — losing attribution on every bill in a period because one
+// lookup failed would be worse than the problem this guards against.
+func (s *BudgetProfileService) activePaymentMethodIDs(ctx context.Context, profileID uuid.UUID) map[uuid.UUID]bool {
+	methods, err := s.transactions.ListPaymentMethods(ctx, profileID)
+	if err != nil {
+		log.Printf("period_rollover: list payment methods for profile %s: %v", profileID, err)
+		return nil
+	}
+	active := make(map[uuid.UUID]bool, len(methods))
+	for _, m := range methods {
+		active[m.ID] = true
+	}
+	return active
+}
+
+// livePaymentMethod drops a template's payment method when that method has been
+// deactivated, so the spawned bill lands unattributed rather than on an account
+// the user has removed.
+//
+// Deleting a payment method reassigns its fixed expenses to the replacement the
+// user picked (DeletePaymentMethodAndReassign), but the Plaid refresh path
+// deactivates a method with no replacement to offer -- and the template kept
+// pointing at it, so the bill respawned onto a dead account every month. Four
+// removed accounts on one production budget were still collecting bills that
+// way.
+//
+// nil active means the lookup failed; leave the template's own value alone.
+func livePaymentMethod(id *uuid.UUID, active map[uuid.UUID]bool) *uuid.UUID {
+	if id == nil || active == nil || active[*id] {
+		return id
+	}
+	return nil
+}
 
 func computeFirstPeriodDates(cycle string) (start, end time.Time) {
 	now := time.Now().UTC()

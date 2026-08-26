@@ -190,7 +190,8 @@ func (q *Queries) GetFixedExpense(ctx context.Context, id uuid.UUID) (FixedExpen
 const getTransactionByFixedExpense = `-- name: GetTransactionByFixedExpense :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE fixed_expense_id = $1::uuid
   AND budget_period_id IN (
@@ -234,6 +235,10 @@ func (q *Queries) GetTransactionByFixedExpense(ctx context.Context, arg GetTrans
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
@@ -241,7 +246,8 @@ func (q *Queries) GetTransactionByFixedExpense(ctx context.Context, arg GetTrans
 const getUnpaidTransactionByFixedExpense = `-- name: GetUnpaidTransactionByFixedExpense :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE fixed_expense_id = $1::uuid
   AND is_paid = FALSE
@@ -281,6 +287,10 @@ func (q *Queries) GetUnpaidTransactionByFixedExpense(ctx context.Context, arg Ge
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
@@ -288,7 +298,8 @@ func (q *Queries) GetUnpaidTransactionByFixedExpense(ctx context.Context, arg Ge
 const getUnpaidTransactionByFixedExpenseInPeriod = `-- name: GetUnpaidTransactionByFixedExpenseInPeriod :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE fixed_expense_id = $1::uuid
   AND is_paid = FALSE
@@ -329,6 +340,10 @@ func (q *Queries) GetUnpaidTransactionByFixedExpenseInPeriod(ctx context.Context
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }

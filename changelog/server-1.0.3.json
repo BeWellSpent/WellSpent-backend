@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.0.3",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summaryEn": "Recurring bills no longer reappear each month on a payment method you removed — they arrive unassigned so you can point them at the right account.",
+      "summaryEs": "Los gastos recurrentes ya no reaparecen cada mes en un método de pago que eliminaste: llegan sin asignar para que los asocies a la cuenta correcta."
+    }
+  ]
+}

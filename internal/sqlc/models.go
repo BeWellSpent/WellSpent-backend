@@ -280,6 +280,10 @@ type Transaction struct {
 	IsExcluded                bool           `json:"is_excluded"`
 	InstallmentFixedExpenseID *uuid.UUID     `json:"installment_fixed_expense_id"`
 	CarriedFromBudgetPeriodID *uuid.UUID     `json:"carried_from_budget_period_id"`
+	PlaidPfcPrimary           *string        `json:"plaid_pfc_primary"`
+	PlaidPfcDetailed          *string        `json:"plaid_pfc_detailed"`
+	PlaidReferenceNumber      *string        `json:"plaid_reference_number"`
+	PlaidPpdID                *string        `json:"plaid_ppd_id"`
 }
 
 type TransactionFrequency struct {

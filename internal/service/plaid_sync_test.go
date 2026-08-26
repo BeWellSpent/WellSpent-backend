@@ -832,3 +832,13 @@ func TestSyncItem_AutoConfirmReviewFails_NotCountedAsConfirmed(t *testing.T) {
 	assert.False(t, excludedCalled, "must stop once the review can't be recorded, rather than excluding an import with no link")
 	assert.NotContains(t, notificationBody, "auto-confirmed", "a failed match must not be reported to the user as auto-confirmed")
 }
+
+// Plaid leaves every payment_meta field null for anything that is not an
+// inter-bank transfer, which is most transactions. Storing "" would make an
+// absent value indistinguishable from an empty one.
+func TestSyncTextPtr(t *testing.T) {
+	assert.Nil(t, syncTextPtr(""), "an absent Plaid field must store as NULL, not empty string")
+	v := syncTextPtr("TRANSFER_IN")
+	require.NotNil(t, v)
+	assert.Equal(t, "TRANSFER_IN", *v)
+}
