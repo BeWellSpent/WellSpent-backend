@@ -115,3 +115,44 @@ WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
       WHERE budget_profile_id = sqlc.arg('budget_profile_id')::uuid
         AND is_archived = FALSE
   );
+
+-- Reconciling an edited template needs to know whether the current period's
+-- bill exists at all, not whether it is unpaid. GetUnpaidTransactionByFixedExpense
+-- answers the narrower question, and UpdateFixedExpense used to read a miss from
+-- it as "this bill just became due" and spawn a second transaction — so editing a
+-- bill after marking it paid produced a duplicate (issue #62).
+-- name: GetTransactionByFixedExpense :one
+SELECT id, name, amount, planned_amount, date, renewal_date,
+       budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+FROM transaction
+WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
+  AND budget_period_id IN (
+      SELECT id FROM budget_period
+      WHERE budget_profile_id = sqlc.arg('budget_profile_id')::uuid
+        AND is_archived = FALSE
+  )
+ORDER BY is_paid, date DESC NULLS LAST
+LIMIT 1;
+
+-- Propagate a template edit onto an already-paid transaction.
+--
+-- Deliberately narrower than UpdateTransactionFromFixedExpense: `amount` is what
+-- the user actually paid and `planned_amount` is what this period was planned at,
+-- and neither is the template's business once the bill is settled. Only future
+-- periods follow the template's amount — the same rule
+-- docs/features/planned-amount-follows-paid.md already sets for the reverse
+-- direction. is_paid/paid_date are untouched for the same reason: editing a
+-- bill's category must never quietly un-pay it.
+-- name: UpdatePaidTransactionFromFixedExpense :exec
+UPDATE transaction
+SET name              = sqlc.arg('name'),
+    category_id       = sqlc.arg('category_id'),
+    payment_method_id = sqlc.arg('payment_method_id')
+WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
+  AND is_paid = TRUE
+  AND budget_period_id IN (
+      SELECT id FROM budget_period
+      WHERE budget_profile_id = sqlc.arg('budget_profile_id')::uuid
+        AND is_archived = FALSE
+  );

@@ -19,8 +19,10 @@ type FixedExpenseRepository interface {
 	Deactivate(ctx context.Context, arg db.DeactivateFixedExpenseParams) error
 	GetUnpaidTransaction(ctx context.Context, arg db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error)
 	GetUnpaidTransactionInPeriod(ctx context.Context, arg db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error)
+	GetTransaction(ctx context.Context, arg db.GetTransactionByFixedExpenseParams) (db.Transaction, error)
 	DeleteUnpaidTransactions(ctx context.Context, arg db.DeleteUnpaidTransactionByFixedExpenseParams) error
 	UpdateTransactionFromFixedExpense(ctx context.Context, arg db.UpdateTransactionFromFixedExpenseParams) error
+	UpdatePaidTransactionFromFixedExpense(ctx context.Context, arg db.UpdatePaidTransactionFromFixedExpenseParams) error
 	HasTransactionInMonth(ctx context.Context, arg db.FixedExpenseHasTransactionInMonthParams) (bool, error)
 	HasTransactionOnDate(ctx context.Context, arg db.FixedExpenseHasTransactionOnDateParams) (bool, error)
 }
@@ -84,12 +86,31 @@ func (r *fixedExpenseRepository) GetUnpaidTransactionInPeriod(ctx context.Contex
 	return tx, err
 }
 
+// GetTransaction finds this fixed expense's transaction in any live period
+// regardless of whether it has been paid, preferring an unpaid one. Reconciling
+// an edited template needs "does the bill exist" — asking only for the unpaid
+// one made an already-paid bill look absent and spawned a duplicate.
+func (r *fixedExpenseRepository) GetTransaction(ctx context.Context, arg db.GetTransactionByFixedExpenseParams) (db.Transaction, error) {
+	tx, err := r.q.GetTransactionByFixedExpense(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.Transaction{}, apperr.NotFound("transaction", arg.FixedExpenseID.String())
+	}
+	return tx, err
+}
+
 func (r *fixedExpenseRepository) DeleteUnpaidTransactions(ctx context.Context, arg db.DeleteUnpaidTransactionByFixedExpenseParams) error {
 	return r.q.DeleteUnpaidTransactionByFixedExpense(ctx, arg)
 }
 
 func (r *fixedExpenseRepository) UpdateTransactionFromFixedExpense(ctx context.Context, arg db.UpdateTransactionFromFixedExpenseParams) error {
 	return r.q.UpdateTransactionFromFixedExpense(ctx, arg)
+}
+
+// UpdatePaidTransactionFromFixedExpense carries a template edit onto an
+// already-settled bill: name, category and payment method only. See the query
+// for why the money and the paid flag are deliberately left behind.
+func (r *fixedExpenseRepository) UpdatePaidTransactionFromFixedExpense(ctx context.Context, arg db.UpdatePaidTransactionFromFixedExpenseParams) error {
+	return r.q.UpdatePaidTransactionFromFixedExpense(ctx, arg)
 }
 
 func (r *fixedExpenseRepository) HasTransactionInMonth(ctx context.Context, arg db.FixedExpenseHasTransactionInMonthParams) (bool, error) {

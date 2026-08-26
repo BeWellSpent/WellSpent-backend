@@ -66,8 +66,10 @@ type mockFixedExpenseRepo struct {
 	deactivate                 func(context.Context, db.DeactivateFixedExpenseParams) error
 	getUnpaidTransaction       func(context.Context, db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error)
 	getUnpaidTransactionInPer  func(context.Context, db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error)
+	getTransaction             func(context.Context, db.GetTransactionByFixedExpenseParams) (db.Transaction, error)
 	deleteUnpaidTransactions   func(context.Context, db.DeleteUnpaidTransactionByFixedExpenseParams) error
 	updateTransactionFromFixed func(context.Context, db.UpdateTransactionFromFixedExpenseParams) error
+	updatePaidTxFromFixed      func(context.Context, db.UpdatePaidTransactionFromFixedExpenseParams) error
 	hasTransactionInMonth      func(context.Context, db.FixedExpenseHasTransactionInMonthParams) (bool, error)
 	hasTransactionOnDate       func(context.Context, db.FixedExpenseHasTransactionOnDateParams) (bool, error)
 }
@@ -120,6 +122,12 @@ func (m *mockFixedExpenseRepo) GetUnpaidTransactionInPeriod(ctx context.Context,
 	}
 	return db.Transaction{}, nil
 }
+func (m *mockFixedExpenseRepo) GetTransaction(ctx context.Context, arg db.GetTransactionByFixedExpenseParams) (db.Transaction, error) {
+	if m.getTransaction != nil {
+		return m.getTransaction(ctx, arg)
+	}
+	return db.Transaction{}, nil
+}
 func (m *mockFixedExpenseRepo) DeleteUnpaidTransactions(ctx context.Context, arg db.DeleteUnpaidTransactionByFixedExpenseParams) error {
 	if m.deleteUnpaidTransactions != nil {
 		return m.deleteUnpaidTransactions(ctx, arg)
@@ -129,6 +137,12 @@ func (m *mockFixedExpenseRepo) DeleteUnpaidTransactions(ctx context.Context, arg
 func (m *mockFixedExpenseRepo) UpdateTransactionFromFixedExpense(ctx context.Context, arg db.UpdateTransactionFromFixedExpenseParams) error {
 	if m.updateTransactionFromFixed != nil {
 		return m.updateTransactionFromFixed(ctx, arg)
+	}
+	return nil
+}
+func (m *mockFixedExpenseRepo) UpdatePaidTransactionFromFixedExpense(ctx context.Context, arg db.UpdatePaidTransactionFromFixedExpenseParams) error {
+	if m.updatePaidTxFromFixed != nil {
+		return m.updatePaidTxFromFixed(ctx, arg)
 	}
 	return nil
 }

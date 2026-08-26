@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.0.1",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summaryEn": "Editing a fixed expense after marking it paid no longer creates a duplicate row — the change is applied to the bill you already paid.",
+      "summaryEs": "Editar un gasto fijo después de marcarlo como pagado ya no crea una fila duplicada: el cambio se aplica al gasto que ya pagaste."
+    }
+  ]
+}
