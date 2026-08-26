@@ -20,7 +20,8 @@ WHERE id = $1::uuid
   AND budget_period_id = $2::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 `
 
 type ClearTransactionInstallmentPlanParams struct {
@@ -53,6 +54,10 @@ func (q *Queries) ClearTransactionInstallmentPlan(ctx context.Context, arg Clear
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
@@ -213,7 +218,8 @@ INSERT INTO transaction (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 `
 
 type CreateTransactionParams struct {
@@ -266,6 +272,10 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
@@ -275,11 +285,13 @@ const createTransactionFromPlaid = `-- name: CreateTransactionFromPlaid :one
 INSERT INTO transaction (
     name, amount, planned_amount, date, renewal_date,
     budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-    fixed_expense_id, plaid_transaction_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    fixed_expense_id, plaid_transaction_id,
+    plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 `
 
 type CreateTransactionFromPlaidParams struct {
@@ -295,6 +307,10 @@ type CreateTransactionFromPlaidParams struct {
 	TransactionTypeID      *int32         `json:"transaction_type_id"`
 	FixedExpenseID         *uuid.UUID     `json:"fixed_expense_id"`
 	PlaidTransactionID     *string        `json:"plaid_transaction_id"`
+	PlaidPfcPrimary        *string        `json:"plaid_pfc_primary"`
+	PlaidPfcDetailed       *string        `json:"plaid_pfc_detailed"`
+	PlaidReferenceNumber   *string        `json:"plaid_reference_number"`
+	PlaidPpdID             *string        `json:"plaid_ppd_id"`
 }
 
 // ── Plaid ─────────────────────────────────────────────────────────────────────
@@ -312,6 +328,10 @@ func (q *Queries) CreateTransactionFromPlaid(ctx context.Context, arg CreateTran
 		arg.TransactionTypeID,
 		arg.FixedExpenseID,
 		arg.PlaidTransactionID,
+		arg.PlaidPfcPrimary,
+		arg.PlaidPfcDetailed,
+		arg.PlaidReferenceNumber,
+		arg.PlaidPpdID,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -333,21 +353,41 @@ func (q *Queries) CreateTransactionFromPlaid(ctx context.Context, arg CreateTran
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
 
 const deactivatePaymentMethod = `-- name: DeactivatePaymentMethod :exec
+WITH cleared_fixed_expenses AS (
+    UPDATE fixed_expense SET payment_method_id = NULL
+    WHERE payment_method_id = $1
+), cleared_savings_sources AS (
+    UPDATE savings_source SET payment_method_id = NULL
+    WHERE payment_method_id = $1
+)
 UPDATE payment_methods
 SET is_active = FALSE
-WHERE id = $1
+WHERE payment_methods.id = $1
 `
 
 // Deactivates a payment method without reassigning its transactions —
 // used when an account is removed from a Plaid connection via update mode.
 // Unlike DeletePaymentMethodAndReassign, there's no user-chosen replacement
-// here, so existing transactions simply keep pointing at the now-inactive
-// method (consistent with how soft-deleted categories/methods already work).
+// here (this runs unattended, from the Plaid refresh that finds an account
+// gone), so existing transactions simply keep pointing at the now-inactive
+// method -- consistent with how soft-deleted categories/methods already work,
+// and correct: they record what really happened.
+//
+// The recurring TEMPLATES are a different matter and are cleared. A
+// fixed_expense still pointing here would respawn a bill onto the dead account
+// every month, forever; a savings_source would keep scheduling transfers from
+// it. NULL is the honest value -- "nobody knows which account pays this now" --
+// and it is what the user can see and correct, where a reference to a
+// deactivated method never appears in any picker.
 func (q *Queries) DeactivatePaymentMethod(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, deactivatePaymentMethod, id)
 	return err
@@ -615,7 +655,8 @@ func (q *Queries) GetPaymentMethodByUserAndName(ctx context.Context, arg GetPaym
 const getTransactionByID = `-- name: GetTransactionByID :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE id = $1
 LIMIT 1
@@ -643,6 +684,10 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
@@ -650,7 +695,8 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 const getTransactionByPlaidID = `-- name: GetTransactionByPlaidID :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE plaid_transaction_id = $1
 LIMIT 1
@@ -678,6 +724,10 @@ func (q *Queries) GetTransactionByPlaidID(ctx context.Context, plaidTransactionI
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
@@ -968,7 +1018,8 @@ func (q *Queries) ListTransactionTypes(ctx context.Context) ([]TransactionType, 
 const listTransactions = `-- name: ListTransactions :many
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE budget_period_id = $1::uuid
   AND ($2::int IS NULL OR category_id = $2)
@@ -1015,6 +1066,10 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.IsExcluded,
 			&i.InstallmentFixedExpenseID,
 			&i.CarriedFromBudgetPeriodID,
+			&i.PlaidPfcPrimary,
+			&i.PlaidPfcDetailed,
+			&i.PlaidReferenceNumber,
+			&i.PlaidPpdID,
 		); err != nil {
 			return nil, err
 		}
@@ -1029,7 +1084,8 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 const listTransactionsByFixedExpense = `-- name: ListTransactionsByFixedExpense :many
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE fixed_expense_id = $1::uuid
 `
@@ -1063,6 +1119,10 @@ func (q *Queries) ListTransactionsByFixedExpense(ctx context.Context, fixedExpen
 			&i.IsExcluded,
 			&i.InstallmentFixedExpenseID,
 			&i.CarriedFromBudgetPeriodID,
+			&i.PlaidPfcPrimary,
+			&i.PlaidPfcDetailed,
+			&i.PlaidReferenceNumber,
+			&i.PlaidPpdID,
 		); err != nil {
 			return nil, err
 		}
@@ -1083,7 +1143,8 @@ WHERE id = $3::uuid
   AND budget_period_id = $4::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 `
 
 type MarkTransactionAsPaidParams struct {
@@ -1120,6 +1181,10 @@ func (q *Queries) MarkTransactionAsPaid(ctx context.Context, arg MarkTransaction
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
@@ -1131,7 +1196,8 @@ WHERE id = $2::uuid
   AND budget_period_id = $3::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 `
 
 type SetTransactionExcludedParams struct {
@@ -1162,6 +1228,10 @@ func (q *Queries) SetTransactionExcluded(ctx context.Context, arg SetTransaction
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
@@ -1174,7 +1244,8 @@ WHERE id = $2::uuid
   AND budget_period_id = $3::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 `
 
 type SetTransactionInstallmentPlanParams struct {
@@ -1210,6 +1281,10 @@ func (q *Queries) SetTransactionInstallmentPlan(ctx context.Context, arg SetTran
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
@@ -1223,7 +1298,8 @@ WHERE id = $1::uuid
   AND budget_period_id = $2::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 `
 
 type UnmarkTransactionAsPaidParams struct {
@@ -1253,6 +1329,10 @@ func (q *Queries) UnmarkTransactionAsPaid(ctx context.Context, arg UnmarkTransac
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }
@@ -1398,7 +1478,8 @@ SET name = $2, amount = $3, planned_amount = $4, date = $5,
 WHERE id = $1
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 `
 
 type UpdateTransactionParams struct {
@@ -1445,6 +1526,10 @@ func (q *Queries) UpdateTransaction(ctx context.Context, arg UpdateTransactionPa
 		&i.IsExcluded,
 		&i.InstallmentFixedExpenseID,
 		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
 	)
 	return i, err
 }

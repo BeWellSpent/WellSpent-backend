@@ -62,7 +62,8 @@ WHERE id = sqlc.arg('id')::uuid
 -- name: GetUnpaidTransactionByFixedExpense :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
   AND is_paid = FALSE
@@ -82,7 +83,8 @@ LIMIT 1;
 -- name: GetUnpaidTransactionByFixedExpenseInPeriod :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
   AND is_paid = FALSE
@@ -124,7 +126,8 @@ WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
 -- name: GetTransactionByFixedExpense :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
   AND budget_period_id IN (

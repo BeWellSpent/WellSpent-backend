@@ -31,6 +31,14 @@ type Transaction struct {
 	Date        time.Time
 	PFCPrimary  string // personal_finance_category.primary (e.g. "FOOD_AND_DRINK")
 	PFCDetailed string // personal_finance_category.detailed (e.g. "FOOD_AND_DRINK_GROCERIES")
+
+	// payment_meta, populated by Plaid for inter-bank transfers and all-null
+	// otherwise (no element is guaranteed even then). These are the normalised
+	// form of identifiers that otherwise exist only inside Name: both legs of a
+	// Zelle transfer carry the same ReferenceNumber, and a payroll ACH its
+	// PPDID.
+	ReferenceNumber string
+	PPDID           string
 }
 
 // Client is a thin, mockable wrapper around the Plaid API.
@@ -323,6 +331,12 @@ func toTransactions(ts []plaidSDK.Transaction) []Transaction {
 			detailed = pfc.GetDetailed()
 		}
 
+		reference, ppdID := "", ""
+		if pm, ok := t.GetPaymentMetaOk(); ok && pm != nil {
+			reference = pm.GetReferenceNumber()
+			ppdID = pm.GetPpdId()
+		}
+
 		out = append(out, Transaction{
 			PlaidID:     t.GetTransactionId(),
 			AccountID:   t.GetAccountId(),
@@ -331,6 +345,9 @@ func toTransactions(ts []plaidSDK.Transaction) []Transaction {
 			Date:        d,
 			PFCPrimary:  primary,
 			PFCDetailed: detailed,
+
+			ReferenceNumber: reference,
+			PPDID:           ppdID,
 		})
 	}
 	return out

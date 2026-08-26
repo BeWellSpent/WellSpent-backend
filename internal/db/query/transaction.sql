@@ -6,7 +6,8 @@
 -- leaves it stranded/unrecoverable behind a review-status side channel.
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE budget_period_id = sqlc.arg('budget_period_id')::uuid
   AND (sqlc.narg('category_id')::int IS NULL OR category_id = sqlc.narg('category_id'))
@@ -16,7 +17,8 @@ ORDER BY date DESC NULLS LAST;
 -- name: GetTransactionByID :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE id = $1
 LIMIT 1;
@@ -29,7 +31,8 @@ INSERT INTO transaction (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id;
 
 -- name: UpdateTransaction :one
 UPDATE transaction
@@ -38,7 +41,8 @@ SET name = $2, amount = $3, planned_amount = $4, date = $5,
 WHERE id = $1
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id;
 
 -- name: DeleteTransaction :exec
 DELETE FROM transaction
@@ -53,7 +57,8 @@ WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id;
 
 -- name: UnmarkTransactionAsPaid :one
 UPDATE transaction
@@ -64,7 +69,8 @@ WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id;
 
 -- name: SetTransactionExcluded :one
 UPDATE transaction
@@ -73,7 +79,8 @@ WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id;
 
 -- Converts a transaction into an installment plan: excludes it from totals and
 -- records which plan it became. Both in one statement so a transaction can
@@ -88,7 +95,8 @@ WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id;
 
 -- Reverses an installment split: the purchase counts again and forgets the plan
 -- it briefly became. Paired with deleting the plan and its spawned payments in
@@ -101,13 +109,15 @@ WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id;
 
 -- Every transaction spawned by a fixed-expense template, across all periods.
 -- name: ListTransactionsByFixedExpense :many
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid;
 
@@ -309,12 +319,28 @@ WHERE plaid_item_id = $1 AND is_active = TRUE;
 -- Deactivates a payment method without reassigning its transactions —
 -- used when an account is removed from a Plaid connection via update mode.
 -- Unlike DeletePaymentMethodAndReassign, there's no user-chosen replacement
--- here, so existing transactions simply keep pointing at the now-inactive
--- method (consistent with how soft-deleted categories/methods already work).
+-- here (this runs unattended, from the Plaid refresh that finds an account
+-- gone), so existing transactions simply keep pointing at the now-inactive
+-- method -- consistent with how soft-deleted categories/methods already work,
+-- and correct: they record what really happened.
+--
+-- The recurring TEMPLATES are a different matter and are cleared. A
+-- fixed_expense still pointing here would respawn a bill onto the dead account
+-- every month, forever; a savings_source would keep scheduling transfers from
+-- it. NULL is the honest value -- "nobody knows which account pays this now" --
+-- and it is what the user can see and correct, where a reference to a
+-- deactivated method never appears in any picker.
 -- name: DeactivatePaymentMethod :exec
+WITH cleared_fixed_expenses AS (
+    UPDATE fixed_expense SET payment_method_id = NULL
+    WHERE payment_method_id = $1
+), cleared_savings_sources AS (
+    UPDATE savings_source SET payment_method_id = NULL
+    WHERE payment_method_id = $1
+)
 UPDATE payment_methods
 SET is_active = FALSE
-WHERE id = $1;
+WHERE payment_methods.id = $1;
 
 -- name: ListTransactionTypes :many
 SELECT id, name FROM transaction_type ORDER BY id;
@@ -328,16 +354,19 @@ SELECT id, name FROM transaction_frequency ORDER BY id;
 INSERT INTO transaction (
     name, amount, planned_amount, date, renewal_date,
     budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-    fixed_expense_id, plaid_transaction_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    fixed_expense_id, plaid_transaction_id,
+    plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING id, name, amount, planned_amount, date, renewal_date,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id;
 
 -- name: GetTransactionByPlaidID :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
 FROM transaction
 WHERE plaid_transaction_id = $1
 LIMIT 1;

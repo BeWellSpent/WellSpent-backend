@@ -283,6 +283,15 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 			TransactionFrequencyID: syncInt32Ptr(oneOffFreqID),
 			TransactionTypeID:      syncInt32Ptr(variableTypeID),
 			PlaidTransactionID:     &plaidID,
+			// Plaid's own classification, kept alongside the category we
+			// resolved from it. The mapping in internal/plaid/category.go is
+			// applied once here and used to be the only trace of it, which made
+			// every later improvement forward-only; with the source stored, a
+			// re-classification stays possible.
+			PlaidPfcPrimary:      syncTextPtr(tx.PFCPrimary),
+			PlaidPfcDetailed:     syncTextPtr(tx.PFCDetailed),
+			PlaidReferenceNumber: syncTextPtr(tx.ReferenceNumber),
+			PlaidPpdID:           syncTextPtr(tx.PPDID),
 		})
 		if err != nil {
 			log.Printf("plaid item %s: insert tx %s: %v", item.ID, tx.PlaidID, err)
@@ -458,6 +467,17 @@ func syncInt32Ptr(i int32) *int32 { return &i }
 // "payroll" is checked first as a fallback override for accounts where Plaid
 // doesn't return personal_finance_category data at all, since payroll deposits
 // should never count toward the spending total either way.
+// syncTextPtr stores an optional Plaid string as NULL rather than "" when
+// absent, so a missing value is distinguishable from an empty one. Plaid leaves
+// every payment_meta field null for anything that is not an inter-bank
+// transfer, which is most transactions.
+func syncTextPtr(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
 func syncResolveCategory(name, pfcPrimary, pfcDetailed string) category.Key {
 	if strings.Contains(strings.ToLower(name), "payroll") {
 		return category.Income
