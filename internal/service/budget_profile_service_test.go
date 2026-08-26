@@ -1131,6 +1131,9 @@ func TestUpdateFixedExpense_StillDue_PropagatesToUnpaidTransaction(t *testing.T)
 				deleted = true
 				return nil
 			},
+			getTransaction: func(_ context.Context, _ db.GetTransactionByFixedExpenseParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New(), IsPaid: false}, nil
+			},
 			updateTransactionFromFixed: func(_ context.Context, _ db.UpdateTransactionFromFixedExpenseParams) error {
 				propagated = true
 				return nil
@@ -1146,6 +1149,126 @@ func TestUpdateFixedExpense_StillDue_PropagatesToUnpaidTransaction(t *testing.T)
 	require.NoError(t, err)
 	assert.True(t, propagated, "still-due expense should have its unpaid transaction updated in place")
 	assert.False(t, deleted)
+}
+
+// Editing a bill that has already been marked paid used to spawn a SECOND
+// transaction for the same fixed expense in the same period: the reconciliation
+// asked for the *unpaid* transaction, got nothing back, and read that as "this
+// bill just became due". Reported against production data where a paid bill was
+// edited to correct its payment method.
+func TestUpdateFixedExpense_PaidTransaction_UpdatesInPlaceAndDoesNotSpawn(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	newMethodID := uuid.New()
+	newCategoryID := int32(7)
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	spawned := false
+	unpaidPathUsed := false
+	var paidUpdate *db.UpdatePaidTransactionFromFixedExpenseParams
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: uuid.New(), StartDate: pgtype.Date{Time: currentMonthStart, Valid: true}}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				spawned = true
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			update: func(_ context.Context, arg db.UpdateFixedExpenseParams) (db.FixedExpense, error) {
+				return db.FixedExpense{
+					ID: feID, Name: arg.Name, DayOfMonth: arg.DayOfMonth,
+					IntervalMonths: arg.IntervalMonths,
+					CategoryID:     arg.CategoryID, PaymentMethodID: arg.PaymentMethodID,
+				}, nil
+			},
+			// What the real repository does once the bill is paid — this is the
+			// miss the old code read as "not due yet" before spawning.
+			getUnpaidTransaction: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error) {
+				return db.Transaction{}, apperr.NotFound("transaction", feID.String())
+			},
+			getTransaction: func(_ context.Context, _ db.GetTransactionByFixedExpenseParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New(), IsPaid: true}, nil
+			},
+			updateTransactionFromFixed: func(_ context.Context, _ db.UpdateTransactionFromFixedExpenseParams) error {
+				unpaidPathUsed = true
+				return nil
+			},
+			updatePaidTxFromFixed: func(_ context.Context, arg db.UpdatePaidTransactionFromFixedExpenseParams) error {
+				paidUpdate = &arg
+				return nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.UpdateFixedExpense(context.Background(), feID, profileID, userID, FixedExpenseInput{
+		Name:            "Paid bill",
+		DayOfMonth:      5,
+		CategoryID:      &newCategoryID,
+		PaymentMethodID: &newMethodID,
+	})
+	require.NoError(t, err)
+
+	assert.False(t, spawned, "editing a paid bill must not create a second transaction")
+	assert.False(t, unpaidPathUsed, "the unpaid sync would overwrite amount with planned_amount")
+	require.NotNil(t, paidUpdate, "the paid transaction should still receive the edit")
+	assert.Equal(t, &newMethodID, paidUpdate.PaymentMethodID)
+	assert.Equal(t, &newCategoryID, paidUpdate.CategoryID)
+}
+
+// The spawn branch still has to work: this is the case it was written for, a
+// template that only just became due for the current period.
+func TestUpdateFixedExpense_NoTransactionYet_Spawns(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	spawned := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: uuid.New(), StartDate: pgtype.Date{Time: currentMonthStart, Valid: true}}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, arg db.CreateTransactionParams) (db.Transaction, error) {
+				spawned = true
+				assert.Equal(t, &feID, arg.FixedExpenseID)
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			update: func(_ context.Context, arg db.UpdateFixedExpenseParams) (db.FixedExpense, error) {
+				return db.FixedExpense{ID: feID, Name: arg.Name, DayOfMonth: arg.DayOfMonth, IntervalMonths: arg.IntervalMonths}, nil
+			},
+			getTransaction: func(_ context.Context, _ db.GetTransactionByFixedExpenseParams) (db.Transaction, error) {
+				return db.Transaction{}, apperr.NotFound("transaction", feID.String())
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.UpdateFixedExpense(context.Background(), feID, profileID, userID, FixedExpenseInput{
+		Name:       "Newly due",
+		DayOfMonth: 5,
+	})
+	require.NoError(t, err)
+	assert.True(t, spawned, "a template with no transaction this period should spawn one")
 }
 
 func TestDeleteFixedExpense_Success(t *testing.T) {

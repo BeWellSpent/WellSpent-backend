@@ -1777,12 +1777,17 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 		Valid: true,
 	}
 	name := fe.Name
-	_, getErr := s.fixedExpenses.GetUnpaidTransaction(ctx, db.GetUnpaidTransactionByFixedExpenseParams{
+	// Ask whether the bill exists at all, not whether it is unpaid. Asking for
+	// the unpaid one made an already-paid bill look absent, so editing a bill
+	// after marking it paid fell into the spawn branch below and produced a
+	// second transaction for the same fixed expense in the same period.
+	existing, getErr := s.fixedExpenses.GetTransaction(ctx, db.GetTransactionByFixedExpenseParams{
 		FixedExpenseID:  fe.ID,
 		BudgetProfileID: profileID,
 	})
-	if getErr != nil {
-		// No existing unpaid transaction — expense just became due (e.g. anchor
+	switch {
+	case getErr != nil:
+		// No existing transaction — expense just became due (e.g. anchor
 		// date was removed or moved to past). Spawn one for the current period.
 		txTypeFixed := int32(1)
 		feID := fe.ID
@@ -1800,7 +1805,24 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 			// A bill the user owes this period simply never appears.
 			log.Printf("period_rollover: spawn fixed expense %s into period %s: %v", feID, period.ID, spawnErr)
 		}
-	} else {
+	case existing.IsPaid:
+		// The bill is settled, so only the descriptive fields follow the
+		// template. Amount, planned amount and the paid flag stay as recorded:
+		// what was paid is a fact about this period, and re-planning it belongs
+		// to future periods only (docs/features/planned-amount-follows-paid.md).
+		// Date stays too — it is when the payment happened.
+		if syncErr := s.fixedExpenses.UpdatePaidTransactionFromFixedExpense(ctx, db.UpdatePaidTransactionFromFixedExpenseParams{
+			FixedExpenseID:  fe.ID,
+			BudgetProfileID: profileID,
+			Name:            &name,
+			CategoryID:      fe.CategoryID,
+			PaymentMethodID: fe.PaymentMethodID,
+		}); syncErr != nil {
+			// The paid row keeps the old category/payment method while the
+			// template shows the new one.
+			log.Printf("fixed_expense: sync paid current period transaction: %v", syncErr)
+		}
+	default:
 		if syncErr := s.fixedExpenses.UpdateTransactionFromFixedExpense(ctx, db.UpdateTransactionFromFixedExpenseParams{
 			FixedExpenseID:  fe.ID,
 			BudgetProfileID: profileID,
