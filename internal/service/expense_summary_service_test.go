@@ -470,6 +470,74 @@ func TestGetSummary_ExclusionRules_IsExcludedAndIncomeCategory(t *testing.T) {
 	assert.Equal(t, int64(15), resp.TotalActual.Units, "the $2000 Income-category transaction must not count as spend")
 }
 
+// A credit card payment arrives TWICE from Plaid: positive on the account that
+// paid and negative on the card that was paid, both filed under Payment. While
+// nothing filtered that category, the negative leg cancelled the card's own
+// purchases — a Costco Visa carrying $1,477.86 of real spend reported −$29.01,
+// and the checking account that settled it absorbed the difference.
+//
+// Real production figures, kept verbatim so the case stays recognisable.
+func TestGetSummary_CardPaymentDoesNotCancelTheCardsOwnPurchases(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+	userID := uuid.New()
+	cardID := uuid.New()
+	personID := int32(1)
+	shoppingCatID := int32(20)
+	paymentCatID := int32(23)
+	variableType := int32(2)
+
+	svc := newTestExpenseSummarySvc(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			listPeople: func(_ context.Context, _ uuid.UUID) ([]db.BudgetToProfileMapping, error) {
+				return []db.BudgetToProfileMapping{{ID: personID}}, nil
+			},
+		},
+		&mockTransactionRepo{
+			listSystemCategories: func(_ context.Context) (map[category.Key]int32, error) {
+				return map[category.Key]int32{category.Payment: paymentCatID}, nil
+			},
+			listPaymentMethods: func(_ context.Context, _ uuid.UUID) ([]db.ListPaymentMethodsRow, error) {
+				p := personID
+				return []db.ListPaymentMethodsRow{{ID: cardID, BudgetPersonID: &p}}, nil
+			},
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				pm := cardID
+				return []db.Transaction{
+					{CategoryID: &shoppingCatID, PaymentMethodID: &pm, Amount: n(t, "1477.86"), PlannedAmount: n(t, "1477.86"), TransactionTypeID: &variableType},
+					// The two "ONLINE PAYMENT, THANK YOU" rows on the card.
+					{CategoryID: &paymentCatID, PaymentMethodID: &pm, Amount: n(t, "-988.35"), PlannedAmount: n(t, "-988.35"), TransactionTypeID: &variableType},
+					{CategoryID: &paymentCatID, PaymentMethodID: &pm, Amount: n(t, "-518.52"), PlannedAmount: n(t, "-518.52"), TransactionTypeID: &variableType},
+				}, nil
+			},
+		},
+		nil,
+		nil,
+	)
+
+	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1477), resp.TotalActual.Units, "card payments must not net against the card's purchases")
+	assert.Equal(t, int32(860000000), resp.TotalActual.Nanos)
+	assert.Equal(t, int64(1477), resp.VariableActualTotal.Units)
+
+	require.Len(t, resp.OverviewCategories, 1, "the Payment category should not appear as spending at all")
+	assert.Equal(t, shoppingCatID, resp.OverviewCategories[0].CategoryId)
+
+	// The person the card is attributed to is credited with the purchases, not
+	// with purchases-minus-settlements.
+	breakdowns := resp.OverviewCategories[0].PersonBreakdowns
+	require.Len(t, breakdowns, 1)
+	assert.Equal(t, int64(1477), breakdowns[0].ActualTotal.Units)
+}
+
 func TestGetSummary_OverBudgetAndUnplanned(t *testing.T) {
 	profileID := uuid.New()
 	periodID := uuid.New()

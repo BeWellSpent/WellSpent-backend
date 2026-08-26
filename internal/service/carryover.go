@@ -243,14 +243,13 @@ func numericFromNanos(totalNanos int64) pgtype.Numeric {
 func carryoverInputs(
 	txs []db.Transaction,
 	incomeEntries []db.IncomeEntry,
-	incomeCategoryID int32,
-	hasIncomeCategory bool,
+	nonSpend map[int32]bool,
 ) (remainderNanos int64, spendByMethod map[uuid.UUID]int64, unattributedSpendNanos int64) {
 	spendByMethod = map[uuid.UUID]int64{}
 
 	var totalSpend int64
 	for _, tx := range txs {
-		if isNonSpendTransaction(tx, incomeCategoryID, hasIncomeCategory) || isUnpaidFixed(tx) {
+		if isNonSpendTransaction(tx, nonSpend) || isUnpaidFixed(tx) {
 			continue
 		}
 		amt := numericToNanos(tx.Amount)

@@ -128,8 +128,6 @@ type expenseSummaryData struct {
 	// category) — every downstream computation can assume every transaction
 	// here is real spending activity.
 	transactions       []db.Transaction
-	incomeCategoryID   int32
-	hasIncomeCategory  bool
 	savingsCategoryID  int32
 	hasSavingsCategory bool
 	// now anchors FixedExpenseNextDueDate for the not-due informational
@@ -141,7 +139,7 @@ type expenseSummaryData struct {
 func (s *ExpenseSummaryService) loadData(ctx context.Context, period db.BudgetPeriod) (*expenseSummaryData, error) {
 	profileID := period.BudgetProfileID
 
-	incomeCategoryID, hasIncomeCategory, savingsCategoryID, hasSavingsCategory, err := s.loadSystemCategoryIDs(ctx)
+	nonSpend, savingsCategoryID, hasSavingsCategory, err := s.loadSystemCategoryIDs(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +171,7 @@ func (s *ExpenseSummaryService) loadData(ctx context.Context, period db.BudgetPe
 	if err != nil {
 		return nil, err
 	}
-	transactions, err := s.loadTransactions(ctx, period.ID, incomeCategoryID, hasIncomeCategory)
+	transactions, err := s.loadTransactions(ctx, period.ID, nonSpend)
 	if err != nil {
 		return nil, err
 	}
@@ -188,8 +186,7 @@ func (s *ExpenseSummaryService) loadData(ctx context.Context, period db.BudgetPe
 		incomeEntries:       incomeEntries,
 		paymentMethods:      paymentMethods,
 		transactions:        transactions,
-		incomeCategoryID:    incomeCategoryID,
-		hasIncomeCategory:   hasIncomeCategory,
+
 		savingsCategoryID:   savingsCategoryID,
 		hasSavingsCategory:  hasSavingsCategory,
 		now:                 time.Now().UTC(),
@@ -274,28 +271,26 @@ func (s *ExpenseSummaryService) loadPaymentMethods(ctx context.Context, profileI
 	return methods, nil
 }
 
-// loadSystemCategoryIDs resolves the Income and Savings system category
-// IDs, needed respectively for transaction exclusion and the Savings
-// special-case. Either may legitimately not exist (not yet seeded in a
-// fresh environment) — that's reported via the hasX bool, not an error.
-func (s *ExpenseSummaryService) loadSystemCategoryIDs(ctx context.Context) (incomeCategoryID int32, hasIncome bool, savingsCategoryID int32, hasSavings bool, err error) {
+// loadSystemCategoryIDs resolves the category IDs this calculation needs: the
+// set that never counts as spend (see spend_filter.go) and Savings, which has
+// its own planned-amount special case. Any of them may legitimately not exist
+// yet in a fresh environment — that's reported via hasSavings / an absent map
+// entry, not an error.
+func (s *ExpenseSummaryService) loadSystemCategoryIDs(ctx context.Context) (nonSpend map[int32]bool, savingsCategoryID int32, hasSavings bool, err error) {
 	categories, err := s.transactions.ListSystemCategories(ctx)
 	if err != nil {
 		s.log.Error("expense_summary.loadSystemCategoryIDs: list system categories", zap.Error(err))
-		return 0, false, 0, false, err
+		return nil, 0, false, err
 	}
-	incomeCategoryID, hasIncome = categories[category.Income]
 	savingsCategoryID, hasSavings = categories[category.Savings]
-	return incomeCategoryID, hasIncome, savingsCategoryID, hasSavings, nil
+	return nonSpendCategoryIDs(categories), savingsCategoryID, hasSavings, nil
 }
 
-// loadTransactions fetches the period's transactions and applies the same
-// exclusion rule as web's isTransactionExcluded/iOS's
-// ExpenseOverviewCalculations.isTransactionExcluded: is_excluded, or the
-// Income system category (payroll deposits aren't spend). Every other
-// method in this file can assume the transactions it sees already passed
+// loadTransactions fetches the period's transactions and applies the shared
+// spend filter: is_excluded, or a category that never counts as spend. Every
+// other method in this file can assume the transactions it sees already passed
 // this filter.
-func (s *ExpenseSummaryService) loadTransactions(ctx context.Context, periodID uuid.UUID, incomeCategoryID int32, hasIncomeCategory bool) ([]db.Transaction, error) {
+func (s *ExpenseSummaryService) loadTransactions(ctx context.Context, periodID uuid.UUID, nonSpend map[int32]bool) ([]db.Transaction, error) {
 	raw, err := s.transactions.List(ctx, db.ListTransactionsParams{BudgetPeriodID: periodID})
 	if err != nil {
 		s.log.Error("expense_summary.loadTransactions: list transactions", zap.String("period_id", periodID.String()), zap.Error(err))
@@ -303,7 +298,7 @@ func (s *ExpenseSummaryService) loadTransactions(ctx context.Context, periodID u
 	}
 	filtered := make([]db.Transaction, 0, len(raw))
 	for _, tx := range raw {
-		if isNonSpendTransaction(tx, incomeCategoryID, hasIncomeCategory) {
+		if isNonSpendTransaction(tx, nonSpend) {
 			continue
 		}
 		filtered = append(filtered, tx)
