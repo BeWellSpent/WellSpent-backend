@@ -35,6 +35,8 @@ type mockTransactionRepo struct {
 	updatePaymentMethod                 func(context.Context, db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
 	getPaymentMethod                    func(context.Context, uuid.UUID) (db.PaymentMethod, error)
 	deletePaymentMethodAndReassign      func(context.Context, db.DeletePaymentMethodAndReassignParams) error
+	listPaymentMethodIDsByBudgetProfile func(context.Context, uuid.UUID) ([]uuid.UUID, error)
+	deletePaymentMethodsByIDs           func(context.Context, []uuid.UUID) error
 	deleteSavingsSourceTransactions     func(context.Context, db.DeleteSavingsSourceTransactionsParams) error
 	markAsPaid                          func(context.Context, db.MarkTransactionAsPaidParams) (db.Transaction, error)
 	unmarkAsPaid                        func(context.Context, db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
@@ -291,6 +293,18 @@ func (m *mockTransactionRepo) GetPaymentMethod(ctx context.Context, id uuid.UUID
 func (m *mockTransactionRepo) DeletePaymentMethodAndReassign(ctx context.Context, arg db.DeletePaymentMethodAndReassignParams) error {
 	if m.deletePaymentMethodAndReassign != nil {
 		return m.deletePaymentMethodAndReassign(ctx, arg)
+	}
+	return nil
+}
+func (m *mockTransactionRepo) ListPaymentMethodIDsByBudgetProfile(ctx context.Context, budgetProfileID uuid.UUID) ([]uuid.UUID, error) {
+	if m.listPaymentMethodIDsByBudgetProfile != nil {
+		return m.listPaymentMethodIDsByBudgetProfile(ctx, budgetProfileID)
+	}
+	return nil, nil
+}
+func (m *mockTransactionRepo) DeletePaymentMethodsByIDs(ctx context.Context, ids []uuid.UUID) error {
+	if m.deletePaymentMethodsByIDs != nil {
+		return m.deletePaymentMethodsByIDs(ctx, ids)
 	}
 	return nil
 }

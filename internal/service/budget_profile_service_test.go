@@ -626,6 +626,145 @@ func TestUpdateSavingsSource_Success(t *testing.T) {
 	assert.Equal(t, "Renamed Fund", src.Name)
 }
 
+// Deleting a budget used to fail outright once it had a payment method:
+// payment_methods.budget_person_id referenced a row the profile delete
+// cascades away, with no ON DELETE to soften it. Migration 000057 makes the
+// key SET NULL; this asserts the service then clears the rows itself, in the
+// order that is the whole point — read the ids while the budget link still
+// exists, delete them only after everything referencing them has gone.
+func TestDeleteBudgetProfile_RemovesItsPaymentMethods(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	methodA, methodB := uuid.New(), uuid.New()
+
+	var order []string
+	var deletedIDs []uuid.UUID
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			delete: func(_ context.Context, id uuid.UUID) error {
+				assert.Equal(t, profileID, id)
+				order = append(order, "profile")
+				return nil
+			},
+		},
+		&mockTransactionRepo{
+			listPaymentMethodIDsByBudgetProfile: func(_ context.Context, id uuid.UUID) ([]uuid.UUID, error) {
+				assert.Equal(t, profileID, id)
+				order = append(order, "list")
+				return []uuid.UUID{methodA, methodB}, nil
+			},
+			deletePaymentMethodsByIDs: func(_ context.Context, ids []uuid.UUID) error {
+				order = append(order, "methods")
+				deletedIDs = ids
+				return nil
+			},
+		},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{},
+	)
+
+	require.NoError(t, svc.Delete(context.Background(), profileID, userID))
+	assert.Equal(t, []string{"list", "profile", "methods"}, order)
+	assert.ElementsMatch(t, []uuid.UUID{methodA, methodB}, deletedIDs)
+}
+
+// A budget with no payment methods must not issue a pointless delete.
+func TestDeleteBudgetProfile_NoPaymentMethodsSkipsCleanup(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	cleanupCalled := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			delete: func(_ context.Context, _ uuid.UUID) error { return nil },
+		},
+		&mockTransactionRepo{
+			listPaymentMethodIDsByBudgetProfile: func(_ context.Context, _ uuid.UUID) ([]uuid.UUID, error) {
+				return nil, nil
+			},
+			deletePaymentMethodsByIDs: func(_ context.Context, _ []uuid.UUID) error {
+				cleanupCalled = true
+				return nil
+			},
+		},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{},
+	)
+
+	require.NoError(t, svc.Delete(context.Background(), profileID, userID))
+	assert.False(t, cleanupCalled)
+}
+
+// The cleanup is a tidy-up, not a precondition. If the profile itself will not
+// delete, nothing should have been removed on its behalf.
+func TestDeleteBudgetProfile_ProfileDeleteFailureSkipsCleanup(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	cleanupCalled := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			delete: func(_ context.Context, _ uuid.UUID) error { return errors.New("boom") },
+		},
+		&mockTransactionRepo{
+			listPaymentMethodIDsByBudgetProfile: func(_ context.Context, _ uuid.UUID) ([]uuid.UUID, error) {
+				return []uuid.UUID{uuid.New()}, nil
+			},
+			deletePaymentMethodsByIDs: func(_ context.Context, _ []uuid.UUID) error {
+				cleanupCalled = true
+				return nil
+			},
+		},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{},
+	)
+
+	require.Error(t, svc.Delete(context.Background(), profileID, userID))
+	assert.False(t, cleanupCalled)
+}
+
+// Only an admin can delete a budget, and a non-owner must not reach the
+// payment-method lookup at all.
+func TestDeleteBudgetProfile_Forbidden_WhenNotOwner(t *testing.T) {
+	ownerID := uuid.New()
+	otherID := uuid.New()
+	profileID := uuid.New()
+	listCalled := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			},
+			delete: func(_ context.Context, _ uuid.UUID) error {
+				t.Fatal("profile must not be deleted by a non-owner")
+				return nil
+			},
+		},
+		&mockTransactionRepo{
+			listPaymentMethodIDsByBudgetProfile: func(_ context.Context, _ uuid.UUID) ([]uuid.UUID, error) {
+				listCalled = true
+				return nil, nil
+			},
+		},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{},
+	)
+
+	require.Error(t, svc.Delete(context.Background(), profileID, otherID))
+	assert.False(t, listCalled)
+}
+
 func TestDeleteSavingsSource_Success(t *testing.T) {
 	userID := uuid.New()
 	profileID := uuid.New()

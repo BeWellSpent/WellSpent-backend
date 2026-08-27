@@ -40,6 +40,8 @@ type TransactionRepository interface {
 	CreatePaymentMethod(ctx context.Context, arg db.CreatePaymentMethodParams) (db.PaymentMethod, error)
 	UpdatePaymentMethod(ctx context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
 	DeletePaymentMethodAndReassign(ctx context.Context, arg db.DeletePaymentMethodAndReassignParams) error
+	ListPaymentMethodIDsByBudgetProfile(ctx context.Context, budgetProfileID uuid.UUID) ([]uuid.UUID, error)
+	DeletePaymentMethodsByIDs(ctx context.Context, ids []uuid.UUID) error
 	DeleteSavingsSourceTransactions(ctx context.Context, arg db.DeleteSavingsSourceTransactionsParams) error
 
 	ListSystemCategories(ctx context.Context) (map[category.Key]int32, error)
@@ -229,6 +231,17 @@ func (r *transactionRepository) GetPaymentMethod(ctx context.Context, id uuid.UU
 
 func (r *transactionRepository) DeletePaymentMethodAndReassign(ctx context.Context, arg db.DeletePaymentMethodAndReassignParams) error {
 	return r.q.DeletePaymentMethodAndReassign(ctx, arg)
+}
+
+func (r *transactionRepository) ListPaymentMethodIDsByBudgetProfile(ctx context.Context, budgetProfileID uuid.UUID) ([]uuid.UUID, error) {
+	return r.q.ListPaymentMethodIDsByBudgetProfile(ctx, budgetProfileID)
+}
+
+func (r *transactionRepository) DeletePaymentMethodsByIDs(ctx context.Context, ids []uuid.UUID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return r.q.DeletePaymentMethodsByIDs(ctx, ids)
 }
 
 func (r *transactionRepository) DeleteSavingsSourceTransactions(ctx context.Context, arg db.DeleteSavingsSourceTransactionsParams) error {

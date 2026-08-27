@@ -223,11 +223,37 @@ func (s *BudgetProfileService) SetAutoUpdatePlannedAmount(ctx context.Context, i
 	})
 }
 
+// Delete removes a budget profile and everything hanging off it.
+//
+// Two statements rather than one, in this order, because payment methods are
+// the one thing reachable from a budget that does not carry a
+// budget_profile_id: they are user-scoped and belong to the budget only
+// through budget_person_id. So they are read *before* the delete (that link is
+// the only way to find them, and it is about to be cut) and removed *after*
+// it (transaction.payment_method_id and savings_source.payment_method_id have
+// no ON DELETE, so those rows have to go with the profile first).
+//
+// Migration 000057 made the person foreign key ON DELETE SET NULL, which is
+// what stops the profile delete failing outright; this cleanup is what stops
+// it leaving rows behind that no query can ever reach again.
 func (s *BudgetProfileService) Delete(ctx context.Context, id, userID uuid.UUID) error {
 	if _, err := s.assertAdmin(ctx, id, userID); err != nil {
 		return err
 	}
-	return s.profiles.Delete(ctx, id)
+
+	// Best-effort: a failure here must not block the delete the user asked
+	// for. The worst case is an unreachable row, not a budget that refuses
+	// to go away.
+	paymentMethodIDs, listErr := s.transactions.ListPaymentMethodIDsByBudgetProfile(ctx, id)
+
+	if err := s.profiles.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	if listErr == nil && len(paymentMethodIDs) > 0 {
+		_ = s.transactions.DeletePaymentMethodsByIDs(ctx, paymentMethodIDs)
+	}
+	return nil
 }
 
 // ── Period ────────────────────────────────────────────────────────────────────
