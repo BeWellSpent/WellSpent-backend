@@ -342,6 +342,25 @@ UPDATE payment_methods
 SET is_active = FALSE
 WHERE payment_methods.id = $1;
 
+-- Every payment method belonging to a budget, soft-deleted ones included.
+--
+-- Deliberately not filtered on is_active, unlike ListPaymentMethods: this
+-- exists to clean up after a deleted budget profile, and an inactive method
+-- still holds a row and a foreign key. Ids only -- the caller does not need
+-- the rest, and reading them before the profile is deleted is the only
+-- moment the budget link still exists to read.
+-- name: ListPaymentMethodIDsByBudgetProfile :many
+SELECT id FROM payment_methods
+WHERE budget_person_id IN (
+    SELECT id FROM budget_to_profile_mapping WHERE budget_profile_id = $1::uuid
+);
+
+-- Run *after* the profile delete, never before: transaction.payment_method_id
+-- and savings_source.payment_method_id have no ON DELETE, so these rows cannot
+-- go until everything referencing them has already gone with the profile.
+-- name: DeletePaymentMethodsByIDs :exec
+DELETE FROM payment_methods WHERE id = ANY(sqlc.arg('ids')::uuid[]);
+
 -- name: ListTransactionTypes :many
 SELECT id, name FROM transaction_type ORDER BY id;
 

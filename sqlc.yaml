@@ -59,6 +59,7 @@ sql:
       - "internal/db/migrations/000054_category_system_key.sql"
       - "internal/db/migrations/000055_changelog.sql"
       - "internal/db/migrations/000056_plaid_source_fields.sql"
+      - "internal/db/migrations/000057_payment_method_person_fk.sql"
     gen:
       go:
         package: "db"

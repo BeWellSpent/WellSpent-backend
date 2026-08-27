@@ -463,6 +463,18 @@ func (q *Queries) DeletePaymentMethodAndReassign(ctx context.Context, arg Delete
 	return err
 }
 
+const deletePaymentMethodsByIDs = `-- name: DeletePaymentMethodsByIDs :exec
+DELETE FROM payment_methods WHERE id = ANY($1::uuid[])
+`
+
+// Run *after* the profile delete, never before: transaction.payment_method_id
+// and savings_source.payment_method_id have no ON DELETE, so these rows cannot
+// go until everything referencing them has already gone with the profile.
+func (q *Queries) DeletePaymentMethodsByIDs(ctx context.Context, ids []uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deletePaymentMethodsByIDs, ids)
+	return err
+}
+
 const deleteSavingsSourceTransactions = `-- name: DeleteSavingsSourceTransactions :exec
 DELETE FROM transaction
 WHERE budget_period_id IN (
@@ -876,6 +888,40 @@ func (q *Queries) ListCategoriesForBudget(ctx context.Context, arg ListCategorie
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPaymentMethodIDsByBudgetProfile = `-- name: ListPaymentMethodIDsByBudgetProfile :many
+SELECT id FROM payment_methods
+WHERE budget_person_id IN (
+    SELECT id FROM budget_to_profile_mapping WHERE budget_profile_id = $1::uuid
+)
+`
+
+// Every payment method belonging to a budget, soft-deleted ones included.
+//
+// Deliberately not filtered on is_active, unlike ListPaymentMethods: this
+// exists to clean up after a deleted budget profile, and an inactive method
+// still holds a row and a foreign key. Ids only -- the caller does not need
+// the rest, and reading them before the profile is deleted is the only
+// moment the budget link still exists to read.
+func (q *Queries) ListPaymentMethodIDsByBudgetProfile(ctx context.Context, dollar_1 uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listPaymentMethodIDsByBudgetProfile, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

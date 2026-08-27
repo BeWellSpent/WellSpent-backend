@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.1.2",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summaryEn": "Deleting a budget no longer fails when it has payment methods on it. Its payment methods are now removed with it instead of being left behind unreachable.",
+      "summaryEs": "Eliminar un presupuesto ya no falla cuando tiene métodos de pago. Ahora sus métodos de pago se eliminan con él en lugar de quedar inaccesibles."
+    }
+  ]
+}
