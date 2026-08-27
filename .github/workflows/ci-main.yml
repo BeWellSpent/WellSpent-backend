@@ -11,6 +11,10 @@ env:
 
 jobs:
   generate:
+    # This name is a required status check in the repo ruleset, not just a
+    # label — renaming it silently stops the gate reporting and leaves PRs
+    # waiting forever on a check that no longer exists. Change the ruleset
+    # first if it ever needs a new name.
     name: Generate
     runs-on: ubuntu-latest
     steps:

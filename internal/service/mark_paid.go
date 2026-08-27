@@ -7,7 +7,6 @@ import (
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Marking a fixed transaction paid, in one place.
@@ -87,15 +86,4 @@ func autoUpdatePlannedAmountFor(
 		return true
 	}
 	return profile.AutoUpdatePlannedAmount
-}
-
-// paidDateOrDefault picks the date a payment is recorded against, falling back
-// to the transaction's own due date — what the automated paths have always
-// used, since a bank feed knows when a bill was due but not when the user
-// considers it settled.
-func paidDateOrDefault(explicit pgtype.Date, fallback pgtype.Date) pgtype.Date {
-	if explicit.Valid {
-		return explicit
-	}
-	return fallback
 }

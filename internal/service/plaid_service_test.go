@@ -179,17 +179,6 @@ func freeUser() db.User {
 // testEncKey is a valid 64-char hex key used only in tests.
 const testEncKey = "0000000000000000000000000000000000000000000000000000000000000000"
 
-func newPlaidSvc(pc plaidclient.Client, plaidRepo *mockPlaidRepo, budgetRepo *mockBudgetProfileRepo) *PlaidService {
-	return NewPlaidService(pc, plaidRepo, budgetRepo, &mockUserRepo{
-		getByID: func(_ context.Context, id uuid.UUID) (db.User, error) {
-			if plaidRepo.getByID == nil {
-				return usUser(), nil
-			}
-			return usUser(), nil
-		},
-	}, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockTransactionReviewRepo{}, testEncKey)
-}
-
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 func TestPlaid_CreateLinkToken_Success(t *testing.T) {
