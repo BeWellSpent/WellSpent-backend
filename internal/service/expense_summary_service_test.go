@@ -804,3 +804,72 @@ func TestGetSummary_OverBudgetIDs_UnplannedCategoryFlagsFromFirstSpend(t *testin
 	assert.Equal(t, []string{first.String()}, resp.OverBudgetTransactionIds,
 		"spending in a category with no plan is over budget from its first transaction")
 }
+
+// TestGetSummary_NotDueTemplateSurvivesADueSiblingInTheSameCategory covers the
+// case the not-due logic used to swallow: one category holding both a bill due
+// this period and an upcoming one.
+//
+// The old guard skipped every template in any category that had a bill due,
+// which meant Subscription-with-monthly-Netflix-and-annual-Prime reported no
+// upcoming amount at all, while the same Prime template alone in its category
+// reported normally — whether an upcoming bill was announced depended on
+// whether an unrelated sibling happened to be due.
+func TestGetSummary_NotDueTemplateSurvivesADueSiblingInTheSameCategory(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+	userID := uuid.New()
+	catID := int32(3)
+	fixedType := int32(fixedTransactionTypeID)
+
+	dueTemplateID := uuid.New()
+	upcomingTemplateID := uuid.New()
+
+	svc := newTestExpenseSummarySvc(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				// Netflix: spawned into this period from dueTemplateID.
+				return []db.Transaction{{
+					TransactionTypeID: &fixedType,
+					CategoryID:        &catID,
+					PlannedAmount:     n(t, "15.00"),
+					Amount:            n(t, "15.00"),
+					FixedExpenseID:    &dueTemplateID,
+					IsPaid:            true,
+				}}, nil
+			},
+		},
+		nil,
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{
+					{ID: dueTemplateID, CategoryID: &catID, PlannedAmount: n(t, "15.00"), IsActive: true, DayOfMonth: 10},
+					{ID: upcomingTemplateID, CategoryID: &catID, PlannedAmount: n(t, "139.00"), IsActive: true, DayOfMonth: 20},
+				}, nil
+			},
+		},
+	)
+
+	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	require.NoError(t, err)
+
+	require.Len(t, resp.PlanCategories, 1)
+	row := resp.PlanCategories[0]
+
+	require.NotNil(t, row.NotDuePlannedTotal, "the upcoming template must still be reported")
+	assert.Equal(t, int64(139), row.NotDuePlannedTotal.Units,
+		"only the upcoming template counts — the due one is already in planned_total")
+
+	require.NotNil(t, row.PlannedTotal)
+	assert.Equal(t, int64(15), row.PlannedTotal.Units,
+		"the due bill alone is the plan; an upcoming one is never a planned tier")
+
+	require.NotNil(t, row.NextDueDate, "the caption needs a date to hang off")
+}

@@ -137,8 +137,20 @@ func (c *expenseSummaryCalculator) computePlannedTiers() {
 
 	c.fixedDueByCat = map[int32]int64{}
 	c.fixedDueByPersonCat = map[catPersonKey]int64{}
+	// Which templates already have a bill spawned into this period. Tracked
+	// per template rather than per category because a category routinely holds
+	// both a monthly bill and an annual one — see the not-due loop below.
+	dueFixedExpenseIDs := map[uuid.UUID]bool{}
 	for _, tx := range c.data.transactions {
-		if tx.TransactionTypeID == nil || *tx.TransactionTypeID != fixedTransactionTypeID || tx.CategoryID == nil {
+		if tx.TransactionTypeID == nil || *tx.TransactionTypeID != fixedTransactionTypeID {
+			continue
+		}
+		// Recorded before the category check: a spawned transaction proves its
+		// template is owed this period whether or not it carries a category.
+		if tx.FixedExpenseID != nil {
+			dueFixedExpenseIDs[*tx.FixedExpenseID] = true
+		}
+		if tx.CategoryID == nil {
 			continue
 		}
 		amt := numericToNanos(tx.PlannedAmount)
@@ -158,7 +170,17 @@ func (c *expenseSummaryCalculator) computePlannedTiers() {
 			continue
 		}
 		c.fixedExpenseCatIDs[*fe.CategoryID] = true
-		if _, ok := c.fixedDueByCat[*fe.CategoryID]; ok {
+		// Skip this template only if *its own* bill is due this period. This
+		// used to skip every template in any category that had a bill due,
+		// which silently swallowed the upcoming one whenever a category held
+		// both — Subscription with a monthly Netflix and an annual Prime
+		// reported no upcoming amount at all, while the same Prime template
+		// alone in its category reported normally. The map feeds two things:
+		// the category visibility union, where the old guard was harmless
+		// because such a category is already visible via fixedDueByCat, and
+		// the not_due_planned_total / next_due_date caption, where it lost
+		// real information.
+		if dueFixedExpenseIDs[fe.ID] {
 			continue
 		}
 		c.notDueFixedByCat[*fe.CategoryID] += numericToNanos(fe.PlannedAmount)

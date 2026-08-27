@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.1.1",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summaryEn": "An upcoming bill is now shown on the Plan tab even when the same category already has one due this period — an annual subscription no longer disappears behind a monthly one.",
+      "summaryEs": "Una factura próxima ahora aparece en la pestaña Plan aunque esa misma categoría ya tenga una que vence este período: una suscripción anual ya no desaparece detrás de una mensual."
+    }
+  ]
+}
