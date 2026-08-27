@@ -10,15 +10,27 @@ on:
 
 jobs:
   generate:
-    name: Generate proto
+    name: Generate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/buf-auth
         with:
           buf_token: ${{ secrets.BUF_TOKEN }}
-      - name: Generate
+      # Go is needed for the REST codegen below (`go tool oapi-codegen`), which
+      # is pinned by go.mod's tool directive.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Generate proto
         run: buf generate
+      # The OpenAPI contract lives in WellSpent-proto but does not go through
+      # BSR — there is no OpenAPI equivalent. That repo is public, so this
+      # fetches the raw file. Output lands in gen/rest/, so the existing
+      # artifact upload below carries it with no extra plumbing.
+      - name: Generate REST
+        run: make generate-rest
       - uses: actions/upload-artifact@v4
         with:
           name: gen

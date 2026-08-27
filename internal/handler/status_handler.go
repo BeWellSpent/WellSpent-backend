@@ -23,26 +23,9 @@ func NewStatusHandler(svc *service.StatusBannerService) *StatusHandler {
 	return &StatusHandler{svc: svc}
 }
 
-// GetActiveStatusBanner is the one public RPC here — it is in the auth bypass
-// map, so there is deliberately no currentUserID call.
-func (h *StatusHandler) GetActiveStatusBanner(
-	ctx context.Context,
-	_ *connect.Request[v1.GetActiveStatusBannerRequest],
-) (*connect.Response[v1.GetActiveStatusBannerResponse], error) {
-	banner, found, err := h.svc.GetActive(ctx)
-	if err != nil {
-		return nil, toConnectError(err)
-	}
-	// Nothing live is a successful empty response, not a 404. Every client
-	// calls this on every load, and the quiet case is the overwhelmingly
-	// common one.
-	if !found {
-		return connect.NewResponse(&v1.GetActiveStatusBannerResponse{}), nil
-	}
-	return connect.NewResponse(&v1.GetActiveStatusBannerResponse{
-		Banner: toProtoStatusBanner(banner),
-	}), nil
-}
+// Reading the active banner was retired from this service: it is now
+// GET /rest/v1/status/banner, served by internal/rest. Everything left here
+// is superuser-only, so this handler no longer has a public method.
 
 func (h *StatusHandler) CreateStatusBanner(
 	ctx context.Context,

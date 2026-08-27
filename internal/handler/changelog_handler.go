@@ -24,36 +24,8 @@ func NewChangelogHandler(svc *service.ChangelogService) *ChangelogHandler {
 	return &ChangelogHandler{svc: svc}
 }
 
-// ListChangelog is authenticated but not superuser-gated — it serves the
-// reader-facing "what's new" prompt and the Help browser.
-func (h *ChangelogHandler) ListChangelog(
-	ctx context.Context,
-	req *connect.Request[v1.ListChangelogRequest],
-) (*connect.Response[v1.ListChangelogResponse], error) {
-	components := make([]string, 0, len(req.Msg.Components))
-	for _, c := range req.Msg.Components {
-		// An UNSPECIFIED entry is dropped rather than rejected: a client
-		// sending one means "no preference", and the empty slice already means
-		// every component.
-		if s := componentFromProto(c); s != "" {
-			components = append(components, s)
-		}
-	}
-
-	releases, err := h.svc.ListReleases(ctx, components, req.Msg.LimitPerComponent)
-	if err != nil {
-		return nil, toConnectError(err)
-	}
-
-	out := make([]*v1.ChangelogRelease, 0, len(releases))
-	for _, r := range releases {
-		out = append(out, toProtoChangelogRelease(r))
-	}
-	return connect.NewResponse(&v1.ListChangelogResponse{
-		Releases:             out,
-		CurrentServerVersion: h.svc.ServerVersion(),
-	}), nil
-}
+// The reader-facing list was retired from this service: it is now
+// GET /rest/v1/changelog, served by internal/rest.
 
 func (h *ChangelogHandler) CreateChangelogRelease(
 	ctx context.Context,

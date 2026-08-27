@@ -66,21 +66,9 @@ func (h *UserHandler) UpdateMe(ctx context.Context, req *connect.Request[v1.Upda
 	return connect.NewResponse(&v1.UpdateMeResponse{User: toProtoUser(user)}), nil
 }
 
-func (h *UserHandler) ListCountries(ctx context.Context, _ *connect.Request[v1.ListCountriesRequest]) (*connect.Response[v1.ListCountriesResponse], error) {
-	countries, featuresByCode, svcErr := h.svc.ListCountries(ctx)
-	if svcErr != nil {
-		return nil, toConnectError(svcErr)
-	}
-	protos := make([]*v1.Country, len(countries))
-	for i, c := range countries {
-		pc := &v1.Country{Code: c.Code, Name: c.Name, IsEnabled: c.IsEnabled}
-		for _, f := range featuresByCode[c.Code] {
-			pc.Features = append(pc.Features, &v1.CountryFeature{Name: f.FeatureName, IsEnabled: f.IsEnabled})
-		}
-		protos[i] = pc
-	}
-	return connect.NewResponse(&v1.ListCountriesResponse{Countries: protos}), nil
-}
+// ListCountries was retired: it is now GET /rest/v1/countries, served by
+// internal/rest. The service method it called (UserService.ListCountries) is
+// unchanged and shared — only the transport-facing wrapper moved.
 
 func (h *UserHandler) ChangePassword(ctx context.Context, req *connect.Request[v1.ChangePasswordRequest]) (*connect.Response[v1.ChangePasswordResponse], error) {
 	userID, err := h.currentUserID(ctx)

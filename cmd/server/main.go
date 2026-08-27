@@ -19,8 +19,10 @@ import (
 	"github.com/BeWellSpent/wellspent-backend/internal/middleware"
 	plaidclient "github.com/BeWellSpent/wellspent-backend/internal/plaid"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
+	"github.com/BeWellSpent/wellspent-backend/internal/rest"
 	"github.com/BeWellSpent/wellspent-backend/internal/service"
 	sqlcdb "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/BeWellSpent/wellspent-backend/internal/version"
 	"go.uber.org/zap"
 )
 
@@ -102,12 +104,11 @@ func main() {
 		wellspentv1connect.AuthServiceSignInWithAppleProcedure:         true,
 		wellspentv1connect.AuthServiceVerifyEmailProcedure:             true,
 		wellspentv1connect.AuthServiceResendVerificationEmailProcedure: true,
-		wellspentv1connect.UserServiceListCountriesProcedure:           true,
 		wellspentv1connect.InviteServiceGetBudgetInviteProcedure:       true,
-		// Public on purpose: a signed-out visitor looking at a broken login
-		// screen is one of the people who most needs to read the banner. The
-		// other three StatusService RPCs stay authenticated and superuser-gated.
-		wellspentv1connect.StatusServiceGetActiveStatusBannerProcedure: true,
+		// The two other public reads — the country list and the active status
+		// banner — are no longer Connect RPCs at all. They moved to the REST
+		// transport (internal/rest), where being unauthenticated and identical
+		// for every caller finally buys something: real HTTP caching.
 	}
 
 	interceptors := connect.WithInterceptors(
@@ -127,10 +128,27 @@ func main() {
 		mux.Handle(wellspentv1connect.NewPlaidServiceHandler(handler.NewPlaidHandler(plaidSvc), interceptors))
 	}
 
+	// The REST transport, on the same mux: the endpoints that return the same
+	// response to every caller and are worth letting a browser and a CDN hold.
+	// Registering here rather than on a second server is what makes them
+	// inherit the CORS, rate-limiting and h2c wrapping applied below.
+	rest.Register(mux, rest.Deps{
+		Users:         userSvc,
+		StatusBanners: statusBannerSvc,
+		Changelog:     changelogSvc,
+		JWT:           jwtSvc,
+		Logger:        logger,
+		ServerVersion: version.Current,
+	})
+
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   cfg.CORSAllowedOrigins,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Authorization", "Content-Type", "Connect-Protocol-Version", "Connect-Timeout-Ms"},
+		AllowedOrigins: cfg.CORSAllowedOrigins,
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		// If-None-Match is what makes the REST endpoints' ETags usable from a
+		// browser; ETag has to be exposed because it is not a CORS-safelisted
+		// response header, so cross-origin JavaScript cannot read it otherwise.
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "Connect-Protocol-Version", "Connect-Timeout-Ms", "If-None-Match"},
+		ExposedHeaders:   []string{"ETag"},
 		AllowCredentials: true,
 	})
 
