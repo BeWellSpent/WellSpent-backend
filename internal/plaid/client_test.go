@@ -254,3 +254,39 @@ func TestNew_TrimsCredentialsBeforeSettingHeaders(t *testing.T) {
 		t.Errorf("Plaid-Secret header = %q, want trimmed %q", gotSecret, "secret-value")
 	}
 }
+
+// minimalSDKTransaction builds the smallest plaidSDK.Transaction toTransactions
+// can map without hitting its date-parse-failure skip path — only the fields
+// that function actually reads.
+func minimalSDKTransaction(transactionID string) plaidSDK.Transaction {
+	tx := plaidSDK.Transaction{}
+	tx.SetTransactionId(transactionID)
+	tx.SetAccountId("acc_1")
+	tx.SetName("Coffee Shop")
+	tx.SetAmount(17.50)
+	tx.SetDate("2026-08-30")
+	return tx
+}
+
+// PendingTransactionID is issue #67's whole mechanism: Plaid's own link from
+// a posted transaction back to the pending one it replaced. A settled
+// transaction with none set (the ordinary case) must map to an empty string,
+// not a zero-value panic on the SDK's NullableString.
+func TestToTransactions_MapsPendingTransactionID(t *testing.T) {
+	settled := minimalSDKTransaction("plaid-tx-settled")
+	settled.SetPendingTransactionId("plaid-tx-pending")
+
+	ordinary := minimalSDKTransaction("plaid-tx-ordinary")
+
+	out := toTransactions([]plaidSDK.Transaction{settled, ordinary})
+
+	if len(out) != 2 {
+		t.Fatalf("toTransactions returned %d transactions, want 2", len(out))
+	}
+	if out[0].PendingTransactionID != "plaid-tx-pending" {
+		t.Errorf("settled transaction PendingTransactionID = %q, want %q", out[0].PendingTransactionID, "plaid-tx-pending")
+	}
+	if out[1].PendingTransactionID != "" {
+		t.Errorf("ordinary transaction PendingTransactionID = %q, want empty", out[1].PendingTransactionID)
+	}
+}

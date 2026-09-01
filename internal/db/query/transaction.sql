@@ -404,3 +404,28 @@ WHERE plaid_transaction_id = $1;
 -- name: DeleteTransactionByPlaidID :exec
 DELETE FROM transaction
 WHERE plaid_transaction_id = $1;
+
+-- Repoints a pending Plaid transaction onto the posted transaction that
+-- replaced it, in place. Some institutions represent settlement by moving
+-- the pending id into `removed` while the posted transaction arrives in
+-- `added` under a brand-new id, linked back only by pending_transaction_id
+-- (see plaidclient.Transaction.PendingTransactionID) — treating that as a
+-- delete-and-reinsert would cascade-delete any transaction_review pointing
+-- at this row (transaction_review.transaction_id is ON DELETE CASCADE) and
+-- silently drop the confirmed link to a fixed expense already marked paid.
+-- Updating in place instead means the row's id — and therefore the review's
+-- foreign key — never changes; only the Plaid-sourced fields are refreshed
+-- to the settled transaction's values. Runs before the removed-ids pass in
+-- the same sync, so DeleteTransactionByPlaidID finds nothing left to delete
+-- for the old id.
+-- name: RepointTransactionPlaidID :one
+UPDATE transaction
+SET plaid_transaction_id = sqlc.arg('new_plaid_transaction_id'),
+    name = sqlc.arg('name'),
+    amount = sqlc.arg('amount'),
+    date = sqlc.arg('date')
+WHERE plaid_transaction_id = sqlc.arg('old_plaid_transaction_id')
+RETURNING id, name, amount, planned_amount, date, renewal_date,
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+          plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id;

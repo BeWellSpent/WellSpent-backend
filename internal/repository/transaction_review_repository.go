@@ -18,6 +18,7 @@ type TransactionReviewRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (db.TransactionReview, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	GetConfirmedByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error)
+	GetByTransactionID(ctx context.Context, transactionID uuid.UUID) (db.TransactionReview, error)
 	ResetByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) error
 	CreateAlias(ctx context.Context, fixedExpenseID uuid.UUID, alias string) error
 	DeleteAlias(ctx context.Context, fixedExpenseID uuid.UUID, alias string) error
@@ -130,6 +131,25 @@ func (r *transactionReviewRepository) GetConfirmedByMatchedTransaction(ctx conte
 	row, err := r.q.GetConfirmedReviewByMatchedTransaction(ctx, matchedTransactionID)
 	if err == pgx.ErrNoRows {
 		return db.TransactionReview{}, apperr.NotFound("transaction_review", matchedTransactionID.String())
+	}
+	if err != nil {
+		return db.TransactionReview{}, err
+	}
+	return db.TransactionReview{
+		ID:                   row.ID,
+		BudgetPeriodID:       row.BudgetPeriodID,
+		TransactionID:        row.TransactionID,
+		MatchedTransactionID: row.MatchedTransactionID,
+		MatchScore:           row.MatchScore,
+		Status:               row.Status,
+		CreatedAt:            row.CreatedAt,
+	}, nil
+}
+
+func (r *transactionReviewRepository) GetByTransactionID(ctx context.Context, transactionID uuid.UUID) (db.TransactionReview, error) {
+	row, err := r.q.GetTransactionReviewByTransactionID(ctx, transactionID)
+	if err == pgx.ErrNoRows {
+		return db.TransactionReview{}, apperr.NotFound("transaction_review", transactionID.String())
 	}
 	if err != nil {
 		return db.TransactionReview{}, err

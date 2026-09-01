@@ -24,6 +24,15 @@ func numericFromString(t *testing.T, s string) pgtype.Numeric {
 	return n
 }
 
+func numericToString(t *testing.T, n pgtype.Numeric) string {
+	t.Helper()
+	v, err := n.Value()
+	require.NoError(t, err)
+	s, ok := v.(string)
+	require.True(t, ok, "pgtype.Numeric.Value() is documented to return a string")
+	return s
+}
+
 func makeFixedExpense(t *testing.T, id uuid.UUID, name, amount string) db.FixedExpense {
 	t.Helper()
 	return db.FixedExpense{
@@ -283,6 +292,487 @@ func TestSyncItem_AutoConfirmedMatch_ExcludesInsteadOfDeleting(t *testing.T) {
 	assert.True(t, excludedFlag)
 	assert.Equal(t, unpaidTxID, markedPaidID, "should mark the matched fixed transaction paid")
 	assert.Equal(t, "confirmed", confirmedStatus, "should record the auto-match as a confirmed review so unmarking paid can find and undo it")
+}
+
+// TestSyncItem_PendingTransactionSettles_ConfirmedReview_RepointsAndUpdatesPaidAmount
+// covers issue #67: a pending transaction that was already matched and
+// confirmed against a fixed expense — the bill is already marked paid, off
+// the pending amount — later settles under a brand-new Plaid id, linked back
+// only via PendingTransactionID. The existing local row must be updated in
+// place (never deleted-and-reimported, which would cascade-delete the
+// confirmed review), and the settled amount must propagate to the already-
+// paid transaction rather than leaving it stuck at the pending figure.
+func TestSyncItem_PendingTransactionSettles_ConfirmedReview_RepointsAndUpdatesPaidAmount(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	existingTxID := uuid.New()
+	matchedTxID := uuid.New()
+	const pendingPlaidID = "plaid-tx-pending"
+	const settledPlaidID = "plaid-tx-settled"
+
+	var repointArg db.RepointTransactionPlaidIDParams
+	var repointCalled bool
+	var markPaidArg db.MarkTransactionAsPaidParams
+	var markPaidCalled bool
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: settledPlaidID, PendingTransactionID: pendingPlaidID, Name: "Coffee Shop", Amount: 17.50, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) {
+				return db.User{Plan: "pro"}, nil
+			},
+		},
+		&mockTransactionRepo{
+			getTransactionByPlaidID: func(_ context.Context, plaidID *string) (db.Transaction, error) {
+				assert.Equal(t, pendingPlaidID, *plaidID, "should look up the row by the pending id carried on the settled transaction")
+				return db.Transaction{ID: existingTxID, Amount: numericFromString(t, "15.00")}, nil
+			},
+			repointTransactionPlaidID: func(_ context.Context, arg db.RepointTransactionPlaidIDParams) (db.Transaction, error) {
+				repointCalled = true
+				repointArg = arg
+				return db.Transaction{ID: existingTxID, Amount: numericFromString(t, "17.50")}, nil
+			},
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				assert.Equal(t, matchedTxID, id)
+				return db.Transaction{
+					ID:             matchedTxID,
+					BudgetPeriodID: &periodID,
+					PaidDate:       pgtype.Date{Time: time.Now(), Valid: true},
+				}, nil
+			},
+			markAsPaid: func(_ context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				markPaidCalled = true
+				markPaidArg = arg
+				return db.Transaction{ID: arg.ID}, nil
+			},
+			existsTransactionByPlaidID: func(_ context.Context, _ *string) (bool, error) {
+				t.Fatal("a settled transaction with a matching pending id must never fall through to the ordinary dedupe/insert path")
+				return false, nil
+			},
+			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+				t.Fatal("must repoint the existing row, not insert a second, unlinked transaction")
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) { return nil, nil },
+		},
+		&mockTransactionReviewRepo{
+			getByTransactionID: func(_ context.Context, transactionID uuid.UUID) (db.TransactionReview, error) {
+				assert.Equal(t, existingTxID, transactionID, "should check the review on the repointed row's own (unchanged) id")
+				return db.TransactionReview{Status: "confirmed", TransactionID: existingTxID, MatchedTransactionID: matchedTxID}, nil
+			},
+		},
+		testEncKey,
+	)
+
+	encrypted, encErr := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, encErr)
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item))
+
+	require.True(t, repointCalled)
+	assert.Equal(t, pendingPlaidID, *repointArg.OldPlaidTransactionID)
+	assert.Equal(t, settledPlaidID, *repointArg.NewPlaidTransactionID)
+
+	require.True(t, markPaidCalled, "the settled amount differs from what the bill was paid at, so it must propagate")
+	assert.Equal(t, matchedTxID, markPaidArg.ID)
+	assert.Equal(t, "17.50", numericToString(t, markPaidArg.Amount))
+}
+
+// A settled transaction that was never matched to anything just gets its
+// local row refreshed in place — no review to consult, nothing to mark paid.
+func TestSyncItem_PendingTransactionSettles_NoReview_JustRepoints(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	existingTxID := uuid.New()
+	const pendingPlaidID = "plaid-tx-pending"
+	const settledPlaidID = "plaid-tx-settled"
+
+	var repointCalled, markPaidCalled bool
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: settledPlaidID, PendingTransactionID: pendingPlaidID, Name: "Grocery Run", Amount: 42.10, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return db.User{Plan: "pro"}, nil },
+		},
+		&mockTransactionRepo{
+			getTransactionByPlaidID: func(_ context.Context, _ *string) (db.Transaction, error) {
+				return db.Transaction{ID: existingTxID, Amount: numericFromString(t, "42.10")}, nil
+			},
+			repointTransactionPlaidID: func(_ context.Context, arg db.RepointTransactionPlaidIDParams) (db.Transaction, error) {
+				repointCalled = true
+				return db.Transaction{ID: existingTxID, Amount: arg.Amount}, nil
+			},
+			markAsPaid: func(_ context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				markPaidCalled = true
+				return db.Transaction{}, nil
+			},
+			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+				t.Fatal("must not insert a second transaction for a settled row that already exists locally")
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) { return nil, nil },
+		},
+		&mockTransactionReviewRepo{
+			// No review configured — GetByTransactionID's default (NotFound)
+			// applies, matching an unreviewed plain import.
+		},
+		testEncKey,
+	)
+
+	encrypted, encErr := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, encErr)
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item))
+
+	assert.True(t, repointCalled)
+	assert.False(t, markPaidCalled, "nothing was ever marked paid off this transaction, so nothing should be re-marked")
+}
+
+// A review still awaiting user confirmation needs no special handling at
+// all: its transaction_id never changes across a repoint, so it already
+// points at the refreshed row. Only a *confirmed* review's paid amount is
+// ever touched.
+func TestSyncItem_PendingTransactionSettles_PendingReview_DoesNotMarkPaid(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	existingTxID := uuid.New()
+	matchedTxID := uuid.New()
+	const pendingPlaidID = "plaid-tx-pending"
+	const settledPlaidID = "plaid-tx-settled"
+
+	var markPaidCalled bool
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: settledPlaidID, PendingTransactionID: pendingPlaidID, Name: "Hardware Store", Amount: 88.00, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return db.User{Plan: "pro"}, nil },
+		},
+		&mockTransactionRepo{
+			getTransactionByPlaidID: func(_ context.Context, _ *string) (db.Transaction, error) {
+				return db.Transaction{ID: existingTxID, Amount: numericFromString(t, "80.00")}, nil
+			},
+			repointTransactionPlaidID: func(_ context.Context, arg db.RepointTransactionPlaidIDParams) (db.Transaction, error) {
+				return db.Transaction{ID: existingTxID, Amount: arg.Amount}, nil
+			},
+			// A real, resolvable matched transaction with a different amount —
+			// so that if the pending/confirmed status guard were ever removed,
+			// this test would actually reach and catch the MarkAsPaid call
+			// rather than passing by accident because there was nothing to
+			// propagate to.
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				assert.Equal(t, matchedTxID, id)
+				return db.Transaction{ID: matchedTxID, BudgetPeriodID: &periodID}, nil
+			},
+			markAsPaid: func(_ context.Context, _ db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				markPaidCalled = true
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) { return nil, nil },
+		},
+		&mockTransactionReviewRepo{
+			getByTransactionID: func(_ context.Context, _ uuid.UUID) (db.TransactionReview, error) {
+				return db.TransactionReview{Status: "pending", MatchedTransactionID: matchedTxID}, nil
+			},
+		},
+		testEncKey,
+	)
+
+	encrypted, encErr := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, encErr)
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item))
+
+	assert.False(t, markPaidCalled, "a not-yet-confirmed review must not have anything marked paid on its behalf")
+}
+
+// A confirmed review whose settled amount happens to match the pending
+// amount exactly must not re-run MarkAsPaid at all — nothing changed, so
+// there is nothing to propagate.
+func TestSyncItem_PendingTransactionSettles_ConfirmedReview_SameAmount_SkipsMarkPaid(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	existingTxID := uuid.New()
+	matchedTxID := uuid.New()
+	const pendingPlaidID = "plaid-tx-pending"
+	const settledPlaidID = "plaid-tx-settled"
+
+	var markPaidCalled bool
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: settledPlaidID, PendingTransactionID: pendingPlaidID, Name: "Coffee Shop", Amount: 15.00, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return db.User{Plan: "pro"}, nil },
+		},
+		&mockTransactionRepo{
+			getTransactionByPlaidID: func(_ context.Context, _ *string) (db.Transaction, error) {
+				return db.Transaction{ID: existingTxID, Amount: numericFromString(t, "15.00")}, nil
+			},
+			repointTransactionPlaidID: func(_ context.Context, arg db.RepointTransactionPlaidIDParams) (db.Transaction, error) {
+				return db.Transaction{ID: existingTxID, Amount: numericFromString(t, "15.00")}, nil
+			},
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: matchedTxID, BudgetPeriodID: &periodID}, nil
+			},
+			markAsPaid: func(_ context.Context, _ db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				markPaidCalled = true
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) { return nil, nil },
+		},
+		&mockTransactionReviewRepo{
+			getByTransactionID: func(_ context.Context, _ uuid.UUID) (db.TransactionReview, error) {
+				return db.TransactionReview{Status: "confirmed", MatchedTransactionID: matchedTxID}, nil
+			},
+		},
+		testEncKey,
+	)
+
+	encrypted, encErr := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, encErr)
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item))
+
+	assert.False(t, markPaidCalled, "amount is unchanged, so nothing needs to be re-marked paid")
+}
+
+// A repoint that fails at the database level must not fall back to inserting
+// a fresh transaction — that would recreate the exact duplicate this whole
+// mechanism exists to prevent. It is logged and dropped, the same posture
+// every other per-transaction error already takes in this file (the sync
+// cursor still advances; a permanently-failing repoint is not retried, no
+// different from a permanently-failing insert today).
+func TestSyncItem_PendingTransactionSettles_RepointFails_DoesNotFallBackToInsert(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	existingTxID := uuid.New()
+	const pendingPlaidID = "plaid-tx-pending"
+	const settledPlaidID = "plaid-tx-settled"
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: settledPlaidID, PendingTransactionID: pendingPlaidID, Name: "Coffee Shop", Amount: 17.50, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return db.User{Plan: "pro"}, nil },
+		},
+		&mockTransactionRepo{
+			getTransactionByPlaidID: func(_ context.Context, _ *string) (db.Transaction, error) {
+				return db.Transaction{ID: existingTxID, Amount: numericFromString(t, "15.00")}, nil
+			},
+			repointTransactionPlaidID: func(_ context.Context, _ db.RepointTransactionPlaidIDParams) (db.Transaction, error) {
+				return db.Transaction{}, errors.New("connection reset")
+			},
+			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+				t.Fatal("a failed repoint must not fall back to inserting a duplicate")
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) { return nil, nil },
+		},
+		&mockTransactionReviewRepo{},
+		testEncKey,
+	)
+
+	encrypted, encErr := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, encErr)
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item), "a per-transaction repoint failure must not fail the whole sync run")
+}
+
+// If the matched (fixed-expense) transaction a confirmed review points at
+// can no longer be read, the settle still succeeds — the repointed row and
+// its review are intact either way — it just can't propagate the new amount.
+func TestSyncItem_PendingTransactionSettles_MatchedTransactionUnreadable_SkipsMarkPaid(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	existingTxID := uuid.New()
+	matchedTxID := uuid.New()
+	const pendingPlaidID = "plaid-tx-pending"
+	const settledPlaidID = "plaid-tx-settled"
+
+	var markPaidCalled bool
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: settledPlaidID, PendingTransactionID: pendingPlaidID, Name: "Coffee Shop", Amount: 17.50, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return db.User{Plan: "pro"}, nil },
+		},
+		&mockTransactionRepo{
+			getTransactionByPlaidID: func(_ context.Context, _ *string) (db.Transaction, error) {
+				return db.Transaction{ID: existingTxID, Amount: numericFromString(t, "15.00")}, nil
+			},
+			repointTransactionPlaidID: func(_ context.Context, arg db.RepointTransactionPlaidIDParams) (db.Transaction, error) {
+				return db.Transaction{ID: existingTxID, Amount: arg.Amount}, nil
+			},
+			// GetByID's default (no field configured) is apperr.NotFound — the
+			// matched transaction has, somehow, already been deleted.
+			markAsPaid: func(_ context.Context, _ db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				markPaidCalled = true
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) { return nil, nil },
+		},
+		&mockTransactionReviewRepo{
+			getByTransactionID: func(_ context.Context, _ uuid.UUID) (db.TransactionReview, error) {
+				return db.TransactionReview{Status: "confirmed", MatchedTransactionID: matchedTxID}, nil
+			},
+		},
+		testEncKey,
+	)
+
+	encrypted, encErr := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, encErr)
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item))
+
+	assert.False(t, markPaidCalled, "nothing to mark paid without a readable matched transaction")
+}
+
+// A MarkAsPaid failure while propagating the settled amount must not be
+// mistaken for the repoint itself failing — the row and its review are
+// already safely updated by this point; only the amount propagation failed.
+func TestSyncItem_PendingTransactionSettles_MarkPaidFails_RepointStillSucceeds(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	existingTxID := uuid.New()
+	matchedTxID := uuid.New()
+	const pendingPlaidID = "plaid-tx-pending"
+	const settledPlaidID = "plaid-tx-settled"
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: settledPlaidID, PendingTransactionID: pendingPlaidID, Name: "Coffee Shop", Amount: 17.50, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		&mockUserRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return db.User{Plan: "pro"}, nil },
+		},
+		&mockTransactionRepo{
+			getTransactionByPlaidID: func(_ context.Context, _ *string) (db.Transaction, error) {
+				return db.Transaction{ID: existingTxID, Amount: numericFromString(t, "15.00")}, nil
+			},
+			repointTransactionPlaidID: func(_ context.Context, arg db.RepointTransactionPlaidIDParams) (db.Transaction, error) {
+				return db.Transaction{ID: existingTxID, Amount: arg.Amount}, nil
+			},
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: matchedTxID, BudgetPeriodID: &periodID}, nil
+			},
+			markAsPaid: func(_ context.Context, _ db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				return db.Transaction{}, errors.New("connection reset")
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) { return nil, nil },
+		},
+		&mockTransactionReviewRepo{
+			getByTransactionID: func(_ context.Context, _ uuid.UUID) (db.TransactionReview, error) {
+				return db.TransactionReview{Status: "confirmed", MatchedTransactionID: matchedTxID}, nil
+			},
+		},
+		testEncKey,
+	)
+
+	encrypted, encErr := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, encErr)
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	require.NoError(t, svc.SyncItem(context.Background(), item), "a downstream amount-propagation failure must not fail the whole sync run")
 }
 
 // TestSyncItem_NotifiesOnceForPlainImports_NotOncePerTransaction covers the
