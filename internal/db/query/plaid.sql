@@ -100,6 +100,23 @@ WHERE pi.status IN ('active', 'error')
   )
 ORDER BY pi.budget_profile_id, pi.last_synced_at ASC NULLS FIRST;
 
+-- Same as above, but for one profile and without the cooldown — cycle-budgets
+-- forces a sync before archiving a closing period (#68).
+-- name: ListActivePlaidItemsForProfileSync :many
+SELECT pi.id, pi.user_id, pi.budget_profile_id, pi.access_token, pi.item_id,
+       pi.institution_id, pi.institution_name, pi.status, pi.cursor,
+       pi.last_synced_at, pi.created_at, pi.last_manual_resync_at
+FROM plaid_item pi
+WHERE pi.budget_profile_id = $1
+  AND pi.status IN ('active', 'error')
+  AND EXISTS (
+    SELECT 1
+    FROM budget_period bp
+    WHERE bp.budget_profile_id = pi.budget_profile_id
+      AND bp.is_archived = FALSE
+  )
+ORDER BY pi.last_synced_at ASC NULLS FIRST;
+
 -- Connections on budgets the caller owns or belongs to whose owner is on the
 -- free plan, and which the sync job therefore skips on every run. Grouped by
 -- budget and member so the clients can warn without exposing which

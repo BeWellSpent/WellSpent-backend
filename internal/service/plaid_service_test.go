@@ -71,18 +71,19 @@ func (m *mockPlaidClient) SyncTransactions(ctx context.Context, accessToken, cur
 // ── Mock repos (reuse mockUserRepo from auth_service_test.go) ─────────────────
 
 type mockPlaidRepo struct {
-	create         func(context.Context, db.CreatePlaidItemParams) (db.PlaidItem, error)
-	getByID        func(context.Context, uuid.UUID) (db.PlaidItem, error)
-	getByItemID    func(context.Context, string) (db.PlaidItem, error)
-	listByUser     func(context.Context, uuid.UUID) ([]db.PlaidItem, error)
-	listByProfile  func(context.Context, uuid.UUID) ([]db.PlaidItem, error)
-	listWithOwner  func(context.Context, uuid.UUID) ([]db.ListActivePlaidItemsWithOwnerByBudgetProfileRow, error)
-	listForSync    func(context.Context) ([]db.PlaidItem, error)
-	listUnsyncable func(context.Context, uuid.UUID) ([]db.ListUnsyncableConnectionsForUserRow, error)
-	updateStatus   func(context.Context, db.UpdatePlaidItemStatusParams) (db.PlaidItem, error)
-	updateSync     func(context.Context, db.UpdatePlaidItemSyncParams) (db.PlaidItem, error)
-	resetCursor    func(context.Context, uuid.UUID) (db.PlaidItem, error)
-	delete         func(context.Context, uuid.UUID) error
+	create             func(context.Context, db.CreatePlaidItemParams) (db.PlaidItem, error)
+	getByID            func(context.Context, uuid.UUID) (db.PlaidItem, error)
+	getByItemID        func(context.Context, string) (db.PlaidItem, error)
+	listByUser         func(context.Context, uuid.UUID) ([]db.PlaidItem, error)
+	listByProfile      func(context.Context, uuid.UUID) ([]db.PlaidItem, error)
+	listWithOwner      func(context.Context, uuid.UUID) ([]db.ListActivePlaidItemsWithOwnerByBudgetProfileRow, error)
+	listForSync        func(context.Context) ([]db.PlaidItem, error)
+	listForProfileSync func(context.Context, uuid.UUID) ([]db.PlaidItem, error)
+	listUnsyncable     func(context.Context, uuid.UUID) ([]db.ListUnsyncableConnectionsForUserRow, error)
+	updateStatus       func(context.Context, db.UpdatePlaidItemStatusParams) (db.PlaidItem, error)
+	updateSync         func(context.Context, db.UpdatePlaidItemSyncParams) (db.PlaidItem, error)
+	resetCursor        func(context.Context, uuid.UUID) (db.PlaidItem, error)
+	delete             func(context.Context, uuid.UUID) error
 }
 
 func (m *mockPlaidRepo) ListUnsyncableForUser(ctx context.Context, userID uuid.UUID) ([]db.ListUnsyncableConnectionsForUserRow, error) {
@@ -137,6 +138,12 @@ func (m *mockPlaidRepo) ResetCursor(ctx context.Context, id uuid.UUID) (db.Plaid
 func (m *mockPlaidRepo) ListActiveForSync(ctx context.Context) ([]db.PlaidItem, error) {
 	if m.listForSync != nil {
 		return m.listForSync(ctx)
+	}
+	return nil, nil
+}
+func (m *mockPlaidRepo) ListActiveForProfileSync(ctx context.Context, profileID uuid.UUID) ([]db.PlaidItem, error) {
+	if m.listForProfileSync != nil {
+		return m.listForProfileSync(ctx, profileID)
 	}
 	return nil, nil
 }

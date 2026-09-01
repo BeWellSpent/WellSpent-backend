@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.1.4",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summaryEn": "Closing a budget period now forces a fresh Plaid sync of its bank connections first, so its final totals aren't computed against data that's a few days stale.",
+      "summaryEs": "Al cerrar un período de presupuesto ahora se fuerza primero una sincronización de Plaid de sus conexiones bancarias, para que los totales finales no se calculen con datos desactualizados por varios días."
+    }
+  ]
+}

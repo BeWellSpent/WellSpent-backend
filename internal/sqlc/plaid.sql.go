@@ -120,6 +120,57 @@ func (q *Queries) GetPlaidItemByItemID(ctx context.Context, itemID string) (Plai
 	return i, err
 }
 
+const listActivePlaidItemsForProfileSync = `-- name: ListActivePlaidItemsForProfileSync :many
+SELECT pi.id, pi.user_id, pi.budget_profile_id, pi.access_token, pi.item_id,
+       pi.institution_id, pi.institution_name, pi.status, pi.cursor,
+       pi.last_synced_at, pi.created_at, pi.last_manual_resync_at
+FROM plaid_item pi
+WHERE pi.budget_profile_id = $1
+  AND pi.status IN ('active', 'error')
+  AND EXISTS (
+    SELECT 1
+    FROM budget_period bp
+    WHERE bp.budget_profile_id = pi.budget_profile_id
+      AND bp.is_archived = FALSE
+  )
+ORDER BY pi.last_synced_at ASC NULLS FIRST
+`
+
+// Same as above, but for one profile and without the cooldown — cycle-budgets
+// forces a sync before archiving a closing period (#68).
+func (q *Queries) ListActivePlaidItemsForProfileSync(ctx context.Context, budgetProfileID uuid.UUID) ([]PlaidItem, error) {
+	rows, err := q.db.Query(ctx, listActivePlaidItemsForProfileSync, budgetProfileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlaidItem
+	for rows.Next() {
+		var i PlaidItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.BudgetProfileID,
+			&i.AccessToken,
+			&i.ItemID,
+			&i.InstitutionID,
+			&i.InstitutionName,
+			&i.Status,
+			&i.Cursor,
+			&i.LastSyncedAt,
+			&i.CreatedAt,
+			&i.LastManualResyncAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActivePlaidItemsForSync = `-- name: ListActivePlaidItemsForSync :many
 SELECT pi.id, pi.user_id, pi.budget_profile_id, pi.access_token, pi.item_id,
        pi.institution_id, pi.institution_name, pi.status, pi.cursor,

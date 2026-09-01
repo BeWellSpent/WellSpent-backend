@@ -7,13 +7,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/joho/godotenv"
 	"github.com/BeWellSpent/wellspent-backend/internal/config"
 	"github.com/BeWellSpent/wellspent-backend/internal/db"
+	plaidclient "github.com/BeWellSpent/wellspent-backend/internal/plaid"
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	"github.com/BeWellSpent/wellspent-backend/internal/service"
 	sqlcdb "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 )
 
@@ -67,15 +68,16 @@ func main() {
 	defer pool.Close()
 
 	queries := sqlcdb.New(pool)
-	profileRepo      := repository.NewBudgetProfileRepository(queries)
-	txRepo           := repository.NewTransactionRepository(queries)
+	profileRepo := repository.NewBudgetProfileRepository(queries)
+	txRepo := repository.NewTransactionRepository(queries)
 	fixedExpenseRepo := repository.NewFixedExpenseRepository(queries)
-	userRepo         := repository.NewUserRepository(queries)
-	allocationRepo   := repository.NewExpenseAllocationRepository(queries)
-	notifRepo        := repository.NewNotificationRepository(queries)
+	userRepo := repository.NewUserRepository(queries)
+	allocationRepo := repository.NewExpenseAllocationRepository(queries)
+	notifRepo := repository.NewNotificationRepository(queries)
 
 	notifSvc := service.NewNotificationService(notifRepo, txRepo, profileRepo, allocationRepo, userRepo, notifCfg, logger)
 	svc := service.NewBudgetProfileService(profileRepo, txRepo, fixedExpenseRepo, userRepo).WithNotifications(notifSvc)
+	plaidSvc := newPreCyclePlaidService(logger, queries, profileRepo, userRepo, txRepo, fixedExpenseRepo, notifSvc)
 
 	today := time.Now().UTC()
 	yesterday := today.AddDate(0, 0, -1)
@@ -98,6 +100,16 @@ func main() {
 		}
 
 		log.Printf("[PICK]  %s — %q (%s cycle): starting cycle", id, profile.Name, profile.Cycle)
+
+		// Force a Plaid sync of this profile's connections before archiving its
+		// closing period, so the totals (including carryover) computed off it
+		// reflect Plaid's latest data rather than the last independently
+		// scheduled plaid-sync run, which can be several days stale (#68).
+		// Never blocks the cycle — a Plaid outage must not wedge a budget.
+		if plaidSvc != nil {
+			result, syncErr := plaidSvc.SyncProfile(ctx, id)
+			log.Printf("[PLAID] %s — %q: %s", id, profile.Name, describePreSyncResult(result, syncErr))
+		}
 
 		period, err := svc.CreateBudgetPeriod(ctx, id, profile.UserID)
 		if err != nil {
@@ -125,4 +137,60 @@ func envStringDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// newPreCyclePlaidService wires a PlaidService for the pre-cycle sync, or
+// returns nil if Plaid isn't configured — dev/test environments shouldn't
+// have to set it up just to cycle budgets.
+func newPreCyclePlaidService(
+	logger *zap.Logger,
+	queries *sqlcdb.Queries,
+	profileRepo repository.BudgetProfileRepository,
+	userRepo repository.UserRepository,
+	txRepo repository.TransactionRepository,
+	fixedExpenseRepo repository.FixedExpenseRepository,
+	notifSvc *service.NotificationService,
+) *service.PlaidService {
+	clientID := os.Getenv("PLAID_CLIENT_ID")
+	secret := os.Getenv("PLAID_SECRET")
+	encryptionKey := os.Getenv("ENCRYPTION_KEY")
+	if clientID == "" || secret == "" || encryptionKey == "" {
+		log.Printf("[WARN] Plaid not configured — skipping pre-cycle sync")
+		return nil
+	}
+
+	pc, err := plaidclient.New(clientID, secret, envStringDefault("PLAID_ENV", "sandbox"), plaidclient.Options{
+		Logger:          logger,
+		RedactSensitive: true,
+	})
+	if err != nil {
+		log.Printf("[WARN] plaid: init client: %v — skipping pre-cycle sync", err)
+		return nil
+	}
+
+	plaidRepo := repository.NewPlaidRepository(queries)
+	reviewRepo := repository.NewTransactionReviewRepository(queries)
+	return service.NewPlaidService(pc, plaidRepo, profileRepo, userRepo, txRepo, fixedExpenseRepo, reviewRepo, encryptionKey).WithNotifications(notifSvc)
+}
+
+// describePreSyncResult summarizes a pre-cycle Plaid sync for the log line.
+func describePreSyncResult(result service.ProfileSyncResult, err error) string {
+	if err != nil {
+		return fmt.Sprintf("sync failed: %v — cycling anyway", err)
+	}
+	if len(result.Items) == 0 {
+		return "no Plaid connections"
+	}
+	imported, repointed, failed := 0, 0, 0
+	for _, item := range result.Items {
+		imported += item.Imported
+		repointed += item.Repointed
+		if item.Err != nil {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return fmt.Sprintf("synced %d connection(s), %d imported, %d repointed, %d failed — cycling anyway", len(result.Items), imported, repointed, failed)
+	}
+	return fmt.Sprintf("synced %d connection(s), %d imported, %d repointed", len(result.Items), imported, repointed)
 }
