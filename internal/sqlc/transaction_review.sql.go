@@ -197,6 +197,43 @@ func (q *Queries) GetTransactionReview(ctx context.Context, id uuid.UUID) (GetTr
 	return i, err
 }
 
+const getTransactionReviewByTransactionID = `-- name: GetTransactionReviewByTransactionID :one
+SELECT id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at
+FROM transaction_review
+WHERE transaction_id = $1
+LIMIT 1
+`
+
+type GetTransactionReviewByTransactionIDRow struct {
+	ID                   uuid.UUID          `json:"id"`
+	BudgetPeriodID       uuid.UUID          `json:"budget_period_id"`
+	TransactionID        uuid.UUID          `json:"transaction_id"`
+	MatchedTransactionID uuid.UUID          `json:"matched_transaction_id"`
+	MatchScore           pgtype.Numeric     `json:"match_score"`
+	Status               string             `json:"status"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+}
+
+// transaction_id is UNIQUE on this table, so this is the reverse of
+// GetConfirmedReviewByMatchedTransaction: given the imported/excluded side of
+// a match (the row a Plaid sync just repointed onto a settled transaction),
+// find its review regardless of status, to decide whether a settled-amount
+// change needs to propagate to the matched fixed expense.
+func (q *Queries) GetTransactionReviewByTransactionID(ctx context.Context, transactionID uuid.UUID) (GetTransactionReviewByTransactionIDRow, error) {
+	row := q.db.QueryRow(ctx, getTransactionReviewByTransactionID, transactionID)
+	var i GetTransactionReviewByTransactionIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetPeriodID,
+		&i.TransactionID,
+		&i.MatchedTransactionID,
+		&i.MatchScore,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listFixedExpenseAliases = `-- name: ListFixedExpenseAliases :many
 SELECT alias FROM fixed_expense_alias WHERE fixed_expense_id = $1
 `

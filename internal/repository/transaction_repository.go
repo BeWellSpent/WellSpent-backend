@@ -49,7 +49,9 @@ type TransactionRepository interface {
 	// Plaid
 	CreateTransactionFromPlaid(ctx context.Context, arg db.CreateTransactionFromPlaidParams) (db.Transaction, error)
 	ExistsTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (bool, error)
+	GetTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (db.Transaction, error)
 	UpdateTransactionFromPlaid(ctx context.Context, arg db.UpdateTransactionFromPlaidParams) error
+	RepointTransactionPlaidID(ctx context.Context, arg db.RepointTransactionPlaidIDParams) (db.Transaction, error)
 	DeleteTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) error
 	CreatePaymentMethodFromPlaid(ctx context.Context, arg db.CreatePaymentMethodFromPlaidParams) (db.PaymentMethod, error)
 	GetPaymentMethodByPlaidAccountID(ctx context.Context, plaidAccountID string) (db.PaymentMethod, error)
@@ -279,8 +281,24 @@ func (r *transactionRepository) ExistsTransactionByPlaidID(ctx context.Context, 
 	return r.q.ExistsTransactionByPlaidID(ctx, plaidTransactionID)
 }
 
+func (r *transactionRepository) GetTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (db.Transaction, error) {
+	tx, err := r.q.GetTransactionByPlaidID(ctx, plaidTransactionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		id := ""
+		if plaidTransactionID != nil {
+			id = *plaidTransactionID
+		}
+		return db.Transaction{}, apperr.NotFound("transaction", id)
+	}
+	return tx, err
+}
+
 func (r *transactionRepository) UpdateTransactionFromPlaid(ctx context.Context, arg db.UpdateTransactionFromPlaidParams) error {
 	return r.q.UpdateTransactionFromPlaid(ctx, arg)
+}
+
+func (r *transactionRepository) RepointTransactionPlaidID(ctx context.Context, arg db.RepointTransactionPlaidIDParams) (db.Transaction, error) {
+	return r.q.RepointTransactionPlaidID(ctx, arg)
 }
 
 func (r *transactionRepository) DeleteTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) error {

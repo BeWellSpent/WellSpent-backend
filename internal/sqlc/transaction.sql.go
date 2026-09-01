@@ -1235,6 +1235,76 @@ func (q *Queries) MarkTransactionAsPaid(ctx context.Context, arg MarkTransaction
 	return i, err
 }
 
+const repointTransactionPlaidID = `-- name: RepointTransactionPlaidID :one
+UPDATE transaction
+SET plaid_transaction_id = $1,
+    name = $2,
+    amount = $3,
+    date = $4
+WHERE plaid_transaction_id = $5
+RETURNING id, name, amount, planned_amount, date, renewal_date,
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
+          plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
+`
+
+type RepointTransactionPlaidIDParams struct {
+	NewPlaidTransactionID *string        `json:"new_plaid_transaction_id"`
+	Name                  *string        `json:"name"`
+	Amount                pgtype.Numeric `json:"amount"`
+	Date                  pgtype.Date    `json:"date"`
+	OldPlaidTransactionID *string        `json:"old_plaid_transaction_id"`
+}
+
+// Repoints a pending Plaid transaction onto the posted transaction that
+// replaced it, in place. Some institutions represent settlement by moving
+// the pending id into `removed` while the posted transaction arrives in
+// `added` under a brand-new id, linked back only by pending_transaction_id
+// (see plaidclient.Transaction.PendingTransactionID) — treating that as a
+// delete-and-reinsert would cascade-delete any transaction_review pointing
+// at this row (transaction_review.transaction_id is ON DELETE CASCADE) and
+// silently drop the confirmed link to a fixed expense already marked paid.
+// Updating in place instead means the row's id — and therefore the review's
+// foreign key — never changes; only the Plaid-sourced fields are refreshed
+// to the settled transaction's values. Runs before the removed-ids pass in
+// the same sync, so DeleteTransactionByPlaidID finds nothing left to delete
+// for the old id.
+func (q *Queries) RepointTransactionPlaidID(ctx context.Context, arg RepointTransactionPlaidIDParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, repointTransactionPlaidID,
+		arg.NewPlaidTransactionID,
+		arg.Name,
+		arg.Amount,
+		arg.Date,
+		arg.OldPlaidTransactionID,
+	)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Amount,
+		&i.PlannedAmount,
+		&i.Date,
+		&i.RenewalDate,
+		&i.BudgetPeriodID,
+		&i.CategoryID,
+		&i.PaymentMethodID,
+		&i.TransactionFrequencyID,
+		&i.TransactionTypeID,
+		&i.IsPaid,
+		&i.PaidDate,
+		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
+		&i.IsExcluded,
+		&i.InstallmentFixedExpenseID,
+		&i.CarriedFromBudgetPeriodID,
+		&i.PlaidPfcPrimary,
+		&i.PlaidPfcDetailed,
+		&i.PlaidReferenceNumber,
+		&i.PlaidPpdID,
+	)
+	return i, err
+}
+
 const setTransactionExcluded = `-- name: SetTransactionExcluded :one
 UPDATE transaction
 SET is_excluded = $1::bool

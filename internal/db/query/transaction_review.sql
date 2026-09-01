@@ -47,6 +47,17 @@ FROM transaction_review
 WHERE id = $1
 LIMIT 1;
 
+-- transaction_id is UNIQUE on this table, so this is the reverse of
+-- GetConfirmedReviewByMatchedTransaction: given the imported/excluded side of
+-- a match (the row a Plaid sync just repointed onto a settled transaction),
+-- find its review regardless of status, to decide whether a settled-amount
+-- change needs to propagate to the matched fixed expense.
+-- name: GetTransactionReviewByTransactionID :one
+SELECT id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at
+FROM transaction_review
+WHERE transaction_id = $1
+LIMIT 1;
+
 -- name: UpdateTransactionReviewStatus :exec
 UPDATE transaction_review SET status = $2 WHERE id = $1;
 

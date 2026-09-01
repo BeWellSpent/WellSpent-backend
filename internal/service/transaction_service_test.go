@@ -54,6 +54,8 @@ type mockTransactionRepo struct {
 	deactivatePaymentMethod             func(context.Context, uuid.UUID) error
 	createTransactionFromPlaid          func(context.Context, db.CreateTransactionFromPlaidParams) (db.Transaction, error)
 	existsTransactionByPlaidID          func(context.Context, *string) (bool, error)
+	getTransactionByPlaidID             func(context.Context, *string) (db.Transaction, error)
+	repointTransactionPlaidID           func(context.Context, db.RepointTransactionPlaidIDParams) (db.Transaction, error)
 	listSystemCategories                func(context.Context) (map[category.Key]int32, error)
 }
 
@@ -388,6 +390,24 @@ func (m *mockTransactionRepo) UpdateTransactionFromPlaid(ctx context.Context, ar
 	return nil
 }
 
+func (m *mockTransactionRepo) GetTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (db.Transaction, error) {
+	if m.getTransactionByPlaidID != nil {
+		return m.getTransactionByPlaidID(ctx, plaidTransactionID)
+	}
+	id := ""
+	if plaidTransactionID != nil {
+		id = *plaidTransactionID
+	}
+	return db.Transaction{}, apperr.NotFound("transaction", id)
+}
+
+func (m *mockTransactionRepo) RepointTransactionPlaidID(ctx context.Context, arg db.RepointTransactionPlaidIDParams) (db.Transaction, error) {
+	if m.repointTransactionPlaidID != nil {
+		return m.repointTransactionPlaidID(ctx, arg)
+	}
+	return db.Transaction{}, nil
+}
+
 func (m *mockTransactionRepo) DeleteTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) error {
 	return nil
 }
@@ -450,6 +470,7 @@ type mockTransactionReviewRepo struct {
 	getByID                 func(context.Context, uuid.UUID) (db.TransactionReview, error)
 	updateStatus            func(context.Context, uuid.UUID, string) error
 	getConfirmedByMatchedTx func(context.Context, uuid.UUID) (db.TransactionReview, error)
+	getByTransactionID      func(context.Context, uuid.UUID) (db.TransactionReview, error)
 	resetByMatchedTx        func(context.Context, uuid.UUID) error
 	createAlias             func(context.Context, uuid.UUID, string) error
 	deleteAlias             func(context.Context, uuid.UUID, string) error
@@ -484,6 +505,12 @@ func (m *mockTransactionReviewRepo) UpdateStatus(ctx context.Context, id uuid.UU
 func (m *mockTransactionReviewRepo) GetConfirmedByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error) {
 	if m.getConfirmedByMatchedTx != nil {
 		return m.getConfirmedByMatchedTx(ctx, matchedTransactionID)
+	}
+	return db.TransactionReview{}, apperr.NotFound("transaction_review", "")
+}
+func (m *mockTransactionReviewRepo) GetByTransactionID(ctx context.Context, transactionID uuid.UUID) (db.TransactionReview, error) {
+	if m.getByTransactionID != nil {
+		return m.getByTransactionID(ctx, transactionID)
 	}
 	return db.TransactionReview{}, apperr.NotFound("transaction_review", "")
 }

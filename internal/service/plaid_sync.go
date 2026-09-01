@@ -36,6 +36,10 @@ type ItemSyncResult struct {
 	SkippedDuplicate int
 	Modified         int
 	Removed          int
+	// Repointed counts a pending transaction Plaid settled under a new id,
+	// repointed onto the existing local row instead of being deleted and
+	// reimported as a fresh, unlinked duplicate — see settlePendingTransaction.
+	Repointed int
 	// ByAccount counts only transactions that ended up newly available to the
 	// user — auto-confirmed and queued-for-review ones are reported through
 	// their own channels, so counting them here would double-notify.
@@ -221,6 +225,7 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 	queued := 0
 	skippedNoPeriod := 0
 	skippedDuplicate := 0
+	repointed := 0
 
 	// Read once per item rather than per transaction: it cannot change mid-run,
 	// and a sync can import hundreds of rows.
@@ -235,6 +240,28 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 			log.Printf("plaid item %s: skipped %q  %s  $%.2f — no budget period covers this date (plaid_id=%s)",
 				item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount, tx.PlaidID)
 			continue
+		}
+
+		// A pending transaction Plaid has now settled arrives here under a
+		// brand-new PlaidID, linked back to the pending one only through
+		// PendingTransactionID — some institutions represent settlement this
+		// way instead of a same-id `modified` entry (see that field's doc
+		// comment in internal/plaid/client.go). Repointing the existing local
+		// row onto it, in place, is what stops the pending id's later
+		// appearance in `removedIds` from being treated as an ordinary
+		// delete below: transaction_review.transaction_id is ON DELETE
+		// CASCADE, so deleting that row would silently drop a confirmed
+		// review — and the paid fixed-expense link it recorded — with
+		// nothing to explain why (issue #67). By the time the removed-ids
+		// pass runs later in this same sync, this row's plaid_transaction_id
+		// no longer matches the pending id, so that delete finds nothing.
+		if tx.PendingTransactionID != "" {
+			if existing, lookupErr := s.transactions.GetTransactionByPlaidID(ctx, &tx.PendingTransactionID); lookupErr == nil {
+				if s.settlePendingTransaction(ctx, item.ID, tx, existing, autoUpdatePlanned) {
+					repointed++
+				}
+				continue
+			}
 		}
 
 		exists, err := s.transactions.ExistsTransactionByPlaidID(ctx, &tx.PlaidID)
@@ -411,6 +438,10 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 		log.Printf("plaid item %s: updated %q  %s  $%.2f", item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount)
 	}
 
+	// A pending id that settled this run was already repointed onto its
+	// replacement above, before this loop runs — its plaid_transaction_id no
+	// longer matches, so the delete below is a correct no-op for it rather
+	// than something this loop needs to special-case.
 	for _, pid := range removedIDs {
 		if err := s.transactions.DeleteTransactionByPlaidID(ctx, &pid); err != nil {
 			log.Printf("plaid item %s: delete tx %s: %v", item.ID, pid, err)
@@ -434,10 +465,11 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 	result.SkippedDuplicate = skippedDuplicate
 	result.Modified = len(modified)
 	result.Removed = len(removedIDs)
+	result.Repointed = repointed
 	result.ByAccount = sortedAccountImports(byAccount)
 
-	log.Printf("plaid item %s: done — +%d imported, %d auto-confirmed, %d queued for review, %d modified, %d removed, %d skipped (no period), %d skipped (duplicate)",
-		item.ID, importedAdded, autoConfirmed, queued, len(modified), len(removedIDs), skippedNoPeriod, skippedDuplicate)
+	log.Printf("plaid item %s: done — +%d imported, %d auto-confirmed, %d queued for review, %d modified, %d removed, %d repointed, %d skipped (no period), %d skipped (duplicate)",
+		item.ID, importedAdded, autoConfirmed, queued, len(modified), len(removedIDs), repointed, skippedNoPeriod, skippedDuplicate)
 
 	// A failure here means the transactions above were imported/updated/removed
 	// successfully but the item's cursor wasn't advanced to reflect it — the
@@ -448,6 +480,68 @@ func (s *PlaidService) syncItemCore(ctx context.Context, item db.PlaidItem) (Ite
 		return result, fmt.Errorf("plaid item %s: persist cursor: %w", item.ID, err)
 	}
 	return result, nil
+}
+
+// settlePendingTransaction repoints existing — a transaction previously
+// imported as pending — onto tx, the posted transaction that replaced it,
+// instead of leaving it to the caller's normal insert-as-new path. See the
+// call site in syncItemCore for why: deleting and reimporting would
+// cascade-delete any transaction_review pointing at the pending row.
+//
+// If the repointed row is the subject of a *confirmed* review — the bill it
+// paid is already marked paid, off the pending amount — and the settled
+// amount differs, the paid transaction's amount is updated to match, through
+// the same markFixedTransactionPaid path every other confirm route already
+// shares. A merely pending (not yet confirmed) review needs nothing extra:
+// its transaction_id never changes, so it already points at the refreshed
+// row with no further action.
+//
+// Returns whether the repoint itself succeeded, for the caller's counter.
+func (s *PlaidService) settlePendingTransaction(ctx context.Context, itemID uuid.UUID, tx plaidclient.Transaction, existing db.Transaction, autoUpdatePlanned bool) bool {
+	repointed, err := s.transactions.RepointTransactionPlaidID(ctx, db.RepointTransactionPlaidIDParams{
+		OldPlaidTransactionID: &tx.PendingTransactionID,
+		NewPlaidTransactionID: &tx.PlaidID,
+		Name:                  &tx.Name,
+		Amount:                syncAmountToNumeric(tx.Amount),
+		Date:                  pgtype.Date{Time: tx.Date, Valid: true},
+	})
+	if err != nil {
+		log.Printf("plaid item %s: settle %q: repoint %s → %s: %v", itemID, tx.Name, tx.PendingTransactionID, tx.PlaidID, err)
+		return false
+	}
+	log.Printf("plaid item %s: settled %q  %s  $%.2f — repointed pending transaction %s → %s",
+		itemID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount, tx.PendingTransactionID, tx.PlaidID)
+
+	review, reviewErr := s.reviews.GetByTransactionID(ctx, existing.ID)
+	if reviewErr != nil || review.Status != "confirmed" {
+		return true
+	}
+	if numericToNanos(repointed.Amount) == numericToNanos(existing.Amount) {
+		return true
+	}
+
+	matchedTx, mtErr := s.transactions.GetByID(ctx, review.MatchedTransactionID)
+	if mtErr != nil || matchedTx.BudgetPeriodID == nil {
+		log.Printf("plaid item %s: settle %q: read matched transaction %s: %v", itemID, tx.Name, review.MatchedTransactionID, mtErr)
+		return true
+	}
+	if _, paidErr := markFixedTransactionPaid(ctx, s.transactions, s.fixedExpenses,
+		db.MarkTransactionAsPaidParams{
+			ID:             matchedTx.ID,
+			BudgetPeriodID: *matchedTx.BudgetPeriodID,
+			Amount:         repointed.Amount,
+			PaidDate:       matchedTx.PaidDate,
+		},
+		autoUpdatePlanned,
+		"plaid.settle_pending",
+	); paidErr != nil {
+		log.Printf("plaid item %s: settle %q: update paid amount on matched transaction %s: %v",
+			itemID, tx.Name, review.MatchedTransactionID, paidErr)
+		return true
+	}
+	log.Printf("plaid item %s: settle %q: matched transaction %s's paid amount updated to $%.2f",
+		itemID, tx.Name, review.MatchedTransactionID, tx.Amount)
+	return true
 }
 
 const syncAmountTolerance = 3.0

@@ -39,6 +39,16 @@ type Transaction struct {
 	// PPDID.
 	ReferenceNumber string
 	PPDID           string
+
+	// PendingTransactionID is Plaid's own link between a pending transaction
+	// and the posted transaction that later replaces it — populated only on
+	// the *new* (posted) entry, pointing back at the pending one's PlaidID.
+	// Some institutions represent settlement as a `modified` entry with the
+	// same transaction_id; others represent it as the pending ID appearing in
+	// `removed` while a brand-new ID appears in `added`, with this field as
+	// the only thread connecting the two. Empty for an ordinary transaction
+	// with no pending predecessor.
+	PendingTransactionID string
 }
 
 // Client is a thin, mockable wrapper around the Plaid API.
@@ -337,6 +347,14 @@ func toTransactions(ts []plaidSDK.Transaction) []Transaction {
 			ppdID = pm.GetPpdId()
 		}
 
+		// A nullable string field on Plaid's model — absent entirely for a
+		// transaction with no pending predecessor, so read it defensively
+		// rather than via the panicking GetPendingTransactionId().
+		pendingID := ""
+		if pt, ok := t.GetPendingTransactionIdOk(); ok && pt != nil {
+			pendingID = *pt
+		}
+
 		out = append(out, Transaction{
 			PlaidID:     t.GetTransactionId(),
 			AccountID:   t.GetAccountId(),
@@ -346,8 +364,9 @@ func toTransactions(ts []plaidSDK.Transaction) []Transaction {
 			PFCPrimary:  primary,
 			PFCDetailed: detailed,
 
-			ReferenceNumber: reference,
-			PPDID:           ppdID,
+			ReferenceNumber:      reference,
+			PPDID:                ppdID,
+			PendingTransactionID: pendingID,
 		})
 	}
 	return out
