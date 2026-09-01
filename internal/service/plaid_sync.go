@@ -94,6 +94,25 @@ func (s *PlaidService) SyncAll(ctx context.Context) ([]ProfileSyncResult, error)
 	return profiles, nil
 }
 
+// SyncProfile forces an immediate sync of one budget profile's connections,
+// bypassing SyncAll's daily cooldown. Used by cycle-budgets right before a
+// profile's period closes, so its totals reflect Plaid's latest data (#68).
+func (s *PlaidService) SyncProfile(ctx context.Context, profileID uuid.UUID) (ProfileSyncResult, error) {
+	items, err := s.items.ListActiveForProfileSync(ctx, profileID)
+	if err != nil {
+		return ProfileSyncResult{ProfileID: profileID}, err
+	}
+
+	result := ProfileSyncResult{ProfileID: profileID}
+	for _, item := range items {
+		res, syncErr := s.syncItemCore(ctx, item)
+		res.Err = syncErr
+		result.Items = append(result.Items, res)
+	}
+	s.notifyProfile(ctx, result)
+	return result, nil
+}
+
 // SyncItem syncs a single connection and notifies for it directly.
 //
 // Kept for the immediate sync fired after a connection is created, where

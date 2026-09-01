@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/BeWellSpent/wellspent-backend/internal/apperr"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type PlaidRepository interface {
@@ -18,6 +18,7 @@ type PlaidRepository interface {
 	ListByBudgetProfile(ctx context.Context, profileID uuid.UUID) ([]db.PlaidItem, error)
 	ListActiveWithOwnerByBudgetProfile(ctx context.Context, profileID uuid.UUID) ([]db.ListActivePlaidItemsWithOwnerByBudgetProfileRow, error)
 	ListActiveForSync(ctx context.Context) ([]db.PlaidItem, error)
+	ListActiveForProfileSync(ctx context.Context, profileID uuid.UUID) ([]db.PlaidItem, error)
 	ListUnsyncableForUser(ctx context.Context, userID uuid.UUID) ([]db.ListUnsyncableConnectionsForUserRow, error)
 	UpdateStatus(ctx context.Context, arg db.UpdatePlaidItemStatusParams) (db.PlaidItem, error)
 	UpdateSync(ctx context.Context, arg db.UpdatePlaidItemSyncParams) (db.PlaidItem, error)
@@ -70,6 +71,10 @@ func (r *plaidRepository) ListActiveWithOwnerByBudgetProfile(ctx context.Context
 
 func (r *plaidRepository) ListActiveForSync(ctx context.Context) ([]db.PlaidItem, error) {
 	return r.q.ListActivePlaidItemsForSync(ctx)
+}
+
+func (r *plaidRepository) ListActiveForProfileSync(ctx context.Context, profileID uuid.UUID) ([]db.PlaidItem, error) {
+	return r.q.ListActivePlaidItemsForProfileSync(ctx, profileID)
 }
 
 func (r *plaidRepository) ListUnsyncableForUser(ctx context.Context, userID uuid.UUID) ([]db.ListUnsyncableConnectionsForUserRow, error) {

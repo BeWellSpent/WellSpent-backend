@@ -1050,6 +1050,85 @@ func TestSyncAll_AttributesImportsToTheAccountTheyCameFrom(t *testing.T) {
 	}, profiles[0].Items[0].ByAccount, "busiest account first, so the summary leads with where the activity was")
 }
 
+func TestSyncProfile_QueriesOnlyThatProfilesConnections(t *testing.T) {
+	profileID := uuid.New()
+	var gotProfileID uuid.UUID
+	items := []db.PlaidItem{{ID: uuid.New(), BudgetProfileID: profileID, AccessToken: encryptedToken(t)}}
+
+	svc := syncAllSvc(t, "pro", nil, nil)
+	svc.items = &mockPlaidRepo{
+		listForProfileSync: func(_ context.Context, id uuid.UUID) ([]db.PlaidItem, error) {
+			gotProfileID = id
+			return items, nil
+		},
+	}
+
+	result, err := svc.SyncProfile(context.Background(), profileID)
+
+	require.NoError(t, err)
+	assert.Equal(t, profileID, gotProfileID, "must query by the profile passed in, not sync every connection")
+	assert.Equal(t, profileID, result.ProfileID)
+	require.Len(t, result.Items, 1)
+}
+
+func TestSyncProfile_ItemErrorDoesNotBlockOthers(t *testing.T) {
+	profileID := uuid.New()
+	okToken := encryptedToken(t)
+	badToken, err := crypto.Encrypt("bad-token", testEncKey)
+	require.NoError(t, err)
+	items := []db.PlaidItem{
+		{ID: uuid.New(), BudgetProfileID: profileID, AccessToken: badToken},
+		{ID: uuid.New(), BudgetProfileID: profileID, AccessToken: okToken},
+	}
+
+	svc := syncAllSvc(t, "pro", items, nil)
+	svc.items = &mockPlaidRepo{
+		listForProfileSync: func(_ context.Context, _ uuid.UUID) ([]db.PlaidItem, error) { return items, nil },
+	}
+	svc.plaid = &mockPlaidClient{
+		syncTransactions: func(_ context.Context, accessToken, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+			if accessToken == "bad-token" {
+				return nil, nil, nil, "", errors.New("plaid: rate limited")
+			}
+			return nil, nil, nil, "next-cursor", nil
+		},
+	}
+
+	result, err := svc.SyncProfile(context.Background(), profileID)
+
+	require.NoError(t, err, "one connection failing must not fail the whole profile sync")
+	require.Len(t, result.Items, 2)
+	assert.Error(t, result.Items[0].Err)
+	assert.NoError(t, result.Items[1].Err, "the second connection must still be attempted and succeed")
+}
+
+func TestSyncProfile_NoConnections_ReturnsEmptyResult(t *testing.T) {
+	profileID := uuid.New()
+	svc := syncAllSvc(t, "pro", nil, nil)
+	svc.items = &mockPlaidRepo{
+		listForProfileSync: func(_ context.Context, _ uuid.UUID) ([]db.PlaidItem, error) { return nil, nil },
+	}
+
+	result, err := svc.SyncProfile(context.Background(), profileID)
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Items)
+}
+
+func TestSyncProfile_RepoErrorPropagates(t *testing.T) {
+	profileID := uuid.New()
+	svc := syncAllSvc(t, "pro", nil, nil)
+	svc.items = &mockPlaidRepo{
+		listForProfileSync: func(_ context.Context, _ uuid.UUID) ([]db.PlaidItem, error) {
+			return nil, errors.New("db unavailable")
+		},
+	}
+
+	_, err := svc.SyncProfile(context.Background(), profileID)
+
+	assert.Error(t, err)
+}
+
 func TestSortedAccountImports_IsDeterministicOnTies(t *testing.T) {
 	// Map iteration order is random; a run's notification body and its tests
 	// must not be.
