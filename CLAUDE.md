@@ -157,7 +157,17 @@ bypass := map[string]bool{
 
 ## Secrets
 
-`.env.dev` is gitignored. `.env.dev.enc` is the SOPS-encrypted version (committed). Age private key lives at `%APPDATA%\sops\age\keys.txt` (Windows) or `~/.config/sops/age/keys.txt`.
+`.env.dev` is gitignored. `.env.dev.enc` is the SOPS-encrypted version (committed). Age private key
+location is OS-specific, not one path for "Linux/macOS" — `sops` follows Go's native
+`os.UserConfigDir()`, which differs between the two:
+- **Windows:** `%APPDATA%\sops\age\keys.txt`
+- **macOS:** `~/Library/Application Support/sops/age/keys.txt`
+- **Linux:** `~/.config/sops/age/keys.txt`
+
+Confirmed against `sops` 3.13.3's own error output on macOS, which lists every path it checked —
+`~/.config/...` isn't among them, contrary to what this file used to claim. If `sops` can't find
+a key that's definitely on disk, check it's at the path for the OS actually running it, not the
+other one.
 
 ## Version bump (required for every feature)
 

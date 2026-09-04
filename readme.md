@@ -42,10 +42,16 @@ go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 
 ### 1. Get your age private key
 
-Secret files (`.env.dev`, `.env.prod`, etc.) are encrypted with SOPS + age. To decrypt them you need the private key. Place it at the SOPS default location:
+Secret files (`.env.dev`, `.env.prod`, etc.) are encrypted with SOPS + age. To decrypt them you need the private key. Place it at the SOPS default location — **this is OS-specific, not one path
+for "Linux/macOS"**, since `sops` follows Go's native `os.UserConfigDir()`:
 
 - **Windows:** `%APPDATA%\sops\age\keys.txt`
-- **Linux/macOS:** `~/.config/sops/age/keys.txt`
+- **macOS:** `~/Library/Application Support/sops/age/keys.txt`
+- **Linux:** `~/.config/sops/age/keys.txt`
+
+If `sops` fails with "failed to load age identities" even though the key file exists, it's
+almost always this — the key is sitting at the *other* platform's default path. `sops`'s own
+error output lists every location it actually checked, which is the fastest way to confirm.
 
 Ask a team member for the key, or if setting up a new environment, generate one:
 
