@@ -1,0 +1,45 @@
+# Standalone local dev database — replaces the Neon dev branch (removed
+# 2026-09-04; prod stays on Neon, see CLAUDE.md's Database section).
+#
+# Deliberately separate from ../docker-compose.dev.yml: that stack's
+# lifecycle is "up while someone's actively coding" on whichever machine
+# runs it. This one is meant to be started once, on whichever machine you
+# designate as the DB host, and left running — every other machine on the
+# LAN points its own .env.dev DATABASE_URL at that host's address.
+#
+# Usage (run on the host machine):
+#   cp .env.db.example .env.db   # fill in a real password, once
+#   docker compose -f docker-compose.db.yml --env-file .env.db up -d
+#
+# --env-file is required: Compose only auto-loads a file literally named
+# .env, and .env.db is named to match the .env.dev/.env.prod convention
+# instead.
+#
+# Then from any machine on the LAN (including the host itself — don't use
+# `localhost` even there, since the backend running inside
+# docker-compose.dev.yml would resolve that to its own container):
+#   DATABASE_URL=postgresql://wellspent:<password>@<host-lan-address>:5432/wellspent_dev?sslmode=disable
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wellspent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.db}
+      POSTGRES_DB: ${POSTGRES_DB:-wellspent_dev}
+    # Binds to all host interfaces (Docker's default for "host:container"
+    # mappings), which is what makes it reachable from other machines on the
+    # LAN. Restrict further at the router/firewall, not here.
+    ports:
+      - "5432:5432"
+    volumes:
+      - wellspent-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wellspent} -d ${POSTGRES_DB:-wellspent_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  wellspent-db-data:
