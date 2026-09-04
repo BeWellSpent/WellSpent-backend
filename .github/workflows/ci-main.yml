@@ -178,7 +178,7 @@ jobs:
             --image=${{ env.IMAGE }}:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --command=./cycle-budgets \
-            --set-env-vars="FRONTEND_URL=${{ env.FRONTEND_URL }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }},PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }}" \
+            --set-env-vars="ENV=prod,FRONTEND_URL=${{ env.FRONTEND_URL }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }},PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }}" \
             --set-secrets=DATABASE_URL=DATABASE_URL:latest,RESEND_API_KEY=RESEND_API_KEY:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest \
             --max-retries=1 \
             --project=${{ secrets.GCP_PROJECT_ID }}
@@ -189,7 +189,7 @@ jobs:
             --image=${{ env.IMAGE }}:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --command=./plaid-sync \
-            --set-env-vars="PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},PLAID_SYNC_ALERT_EMAIL=${{ env.PLAID_SYNC_ALERT_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }}" \
+            --set-env-vars="ENV=prod,PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},PLAID_SYNC_ALERT_EMAIL=${{ env.PLAID_SYNC_ALERT_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }}" \
             --set-secrets=DATABASE_URL=DATABASE_URL:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest \
             --max-retries=1 \
             --project=${{ secrets.GCP_PROJECT_ID }}
