@@ -13,6 +13,11 @@ tmp/
 !.env.dev.enc
 !.env.prod.enc
 
+# Local dev DB (docker-compose.db.yml) — a bare password for a LAN-only
+# Postgres, not worth the SOPS dance; only needs to exist on the host machine
+.env.db
+!.env.db.example
+
 # Generated code (regenerate with `make generate`)
 gen/
 

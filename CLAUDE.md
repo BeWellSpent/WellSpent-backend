@@ -10,7 +10,7 @@ make generate-rest       # REST types only, from WellSpent-proto's OpenAPI contr
 make run                 # start dev server (ENV=dev by default)
 make test                # go test ./...
 make build               # compile to bin/server
-make migrate ENV=dev     # apply pending goose migrations to Neon dev
+make migrate ENV=dev     # apply pending goose migrations to the local dev DB
 make migrate-down ENV=dev
 make secrets-decrypt ENV=dev   # decrypt .env.dev.enc → .env.dev (gitignored)
 make secrets-encrypt ENV=dev   # encrypt .env.dev → .env.dev.enc (commit this)
@@ -20,6 +20,39 @@ Run a single test:
 ```bash
 go test ./internal/service/... -run TestRegister_Success
 ```
+
+## Local dev database
+
+Dev runs on a standalone local Postgres in Docker (`docker-compose.db.yml`), not Neon — the
+Neon dev branch was removed 2026-09-04 after it turned out to be accumulating CU from a stray
+polling bug (see `docs/features/configurable-alerts.md`'s 2026-08-29 change log entry) and,
+separately, being usable across multiple developer machines was never really its purpose. **Prod
+is still Neon** — only dev moved.
+
+It's deliberately its own compose file, decoupled from `../docker-compose.dev.yml` below:
+started once on whichever machine you designate as the DB host, left running (`restart:
+unless-stopped`), and reachable from every other machine on the LAN — instead of each
+developer's machine spinning up its own throwaway instance.
+
+```bash
+# On the host machine, once:
+cp .env.db.example .env.db          # fill in a real POSTGRES_PASSWORD
+docker compose -f docker-compose.db.yml --env-file .env.db up -d
+```
+
+Every machine's own `.env.dev` (including the host's) points `DATABASE_URL` at the host's LAN
+address — never `localhost`, since the backend running inside `docker-compose.dev.yml` would
+resolve that to its own container, not the DB host:
+
+```
+DATABASE_URL=postgresql://wellspent:<password>@<host-lan-address>:5432/wellspent_dev?sslmode=disable
+```
+
+`<host-lan-address>` needs to actually resolve from other machines — a DHCP reservation (static
+LAN IP) for the host is the reliable option; an mDNS `.local` hostname works between Macs
+out of the box but needs a Bonjour/mDNS responder installed on Windows to be reachable *from* a
+Mac. The host's firewall needs an inbound allow rule for TCP 5432, or nothing outside that
+machine can reach it regardless of the address used.
 
 ## Local dev via Docker
 
@@ -105,10 +138,20 @@ bypass := map[string]bool{
 
 ## Database
 
-- **Neon serverless PostgreSQL** — both dev and prod, no local DB
-- Use the **direct** connection URL (no `-pooler` hostname) — pgx prepared statements are incompatible with Neon's PgBouncer pooler
-- `MinConns = 0` in pgxpool (`internal/db/conn.go`) to allow Neon scale-to-zero
-- Migrations: goose v3 as a library via `cmd/migrate/main.go` (not the goose CLI — Neon's connection string requires pgx/v5, which the CLI doesn't use)
+- **Dev**: a standalone local Postgres in Docker, shared across your LAN — see "Local dev
+  database" above. **Prod**: Neon serverless PostgreSQL.
+- Prod only: use the **direct** connection URL (no `-pooler` hostname) — pgx prepared statements
+  are incompatible with Neon's PgBouncer pooler. Not a concern for the local dev DB, which has no
+  pooler in front of it.
+- `MinConns = 0` in pgxpool (`internal/db/conn.go`) was originally to allow Neon scale-to-zero;
+  harmless (just means no pre-warmed idle connections) against the local dev DB too, so it's
+  left as one setting for both rather than branching on environment.
+- Every connection sends a distinct `application_name` (`wellspent-server-dev`,
+  `wellspent-plaid-sync-prod`, …) — see `NewPool` in `internal/db/conn.go`. Useful for telling
+  connections apart in `pg_stat_activity`, which is how the Neon CU investigation above started.
+- Migrations: goose v3 as a library via `cmd/migrate/main.go` (not the goose CLI — Neon's prod
+  connection string requires pgx/v5, which the CLI doesn't use; kept as the one path for both
+  environments rather than a second migration runner for local dev)
 - Schema source of truth: `internal/db/migrations/000001_init_schema.sql`
 - Adding a migration: create `000002_*.sql`, add it to `schema:` in `sqlc.yaml`
 
