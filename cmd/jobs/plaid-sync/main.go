@@ -72,8 +72,13 @@ func main() {
 	}
 	defer logger.Sync() //nolint:errcheck
 
+	// ENV isn't set by the Cloud Run Job deploy step (only PLAID_ENV is), so
+	// an unset ENV here means "the real prod job" — a local test run against
+	// dev is the only case that would set it explicitly.
+	env := envStringDefault("ENV", "prod")
+
 	ctx := context.Background()
-	pool, err := db.NewPool(ctx, dbURL)
+	pool, err := db.NewPool(ctx, dbURL, fmt.Sprintf("wellspent-plaid-sync-%s", env))
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}

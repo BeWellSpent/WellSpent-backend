@@ -61,7 +61,7 @@ func main() {
 	defer logger.Sync() //nolint:errcheck
 
 	ctx := context.Background()
-	pool, err := db.NewPool(ctx, dbURL)
+	pool, err := db.NewPool(ctx, dbURL, fmt.Sprintf("wellspent-cycle-budgets-%s", env))
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}

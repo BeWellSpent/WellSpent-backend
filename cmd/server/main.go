@@ -41,7 +41,7 @@ func main() {
 	defer logger.Sync() //nolint:errcheck
 
 	ctx := context.Background()
-	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
+	pool, err := db.NewPool(ctx, cfg.DatabaseURL, fmt.Sprintf("wellspent-server-%s", cfg.Env))
 	if err != nil {
 		log.Fatal(err)
 	}
