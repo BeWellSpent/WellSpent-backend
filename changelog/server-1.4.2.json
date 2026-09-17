@@ -1,0 +1,16 @@
+{
+  "component": "server",
+  "version": "1.4.2",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summaryEn": "Fixed a transaction match review scoring below 100% for a short name that was actually an exact match.",
+      "summaryEs": "Se corrigió una revisión de coincidencia de transacción que puntuaba por debajo del 100% para un nombre corto que en realidad coincidía exactamente."
+    },
+    {
+      "changeType": "fixed",
+      "summaryEn": "A pending transaction match review now stays in sync when you edit either transaction, and is removed automatically if the edit means it no longer matches.",
+      "summaryEs": "Una revisión de coincidencia de transacción pendiente ahora se mantiene sincronizada al editar cualquiera de las dos transacciones, y se elimina automáticamente si la edición hace que ya no coincida."
+    }
+  ]
+}
