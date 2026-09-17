@@ -290,6 +290,22 @@ func (h *BudgetHandler) UpdateMyBudgetPreferences(ctx context.Context, req *conn
 	return connect.NewResponse(&v1.UpdateMyBudgetPreferencesResponse{Person: toProtoBudgetPerson(m)}), nil
 }
 
+func (h *BudgetHandler) UpdateMyManualMatchReviewPreference(ctx context.Context, req *connect.Request[v1.UpdateMyManualMatchReviewPreferenceRequest]) (*connect.Response[v1.UpdateMyManualMatchReviewPreferenceResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	m, svcErr := h.profiles.UpdateMyManualMatchReviewPreference(ctx, profileID, req.Msg.Enabled, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.UpdateMyManualMatchReviewPreferenceResponse{Person: toProtoBudgetPerson(m)}), nil
+}
+
 func (h *BudgetHandler) RemoveBudgetPerson(ctx context.Context, req *connect.Request[v1.RemoveBudgetPersonRequest]) (*connect.Response[v1.RemoveBudgetPersonResponse], error) {
 	userID, err := h.currentUserID(ctx)
 	if err != nil {
@@ -568,14 +584,15 @@ func toProtoBudgetPeriod(p db.BudgetPeriod) *v1.BudgetPeriod {
 
 func toProtoBudgetPerson(m db.BudgetToProfileMapping) *v1.BudgetPerson {
 	return &v1.BudgetPerson{
-		Id:                int64(m.ID),
-		BudgetProfileId:   m.BudgetProfileID.String(),
-		UserName:          nullStr(m.UserName),
-		UserId:            nullUUID(m.UserID),
-		Color:             m.Color,
-		Role:              stringToBudgetRole(m.Role),
-		PlanChartType:     stringToChartType(m.PlanChartType),
-		OverviewChartType: stringToChartType(m.OverviewChartType),
+		Id:                       int64(m.ID),
+		BudgetProfileId:          m.BudgetProfileID.String(),
+		UserName:                 nullStr(m.UserName),
+		UserId:                   nullUUID(m.UserID),
+		Color:                    m.Color,
+		Role:                     stringToBudgetRole(m.Role),
+		PlanChartType:            stringToChartType(m.PlanChartType),
+		OverviewChartType:        stringToChartType(m.OverviewChartType),
+		ManualMatchReviewEnabled: m.ManualMatchReviewEnabled,
 	}
 }
 

@@ -1918,6 +1918,231 @@ func TestCreateTransaction_NoReview_ForFixedType(t *testing.T) {
 	assert.False(t, upsertCalled, "expected Upsert NOT to be called for fixed transactions")
 }
 
+// Issue #70: matching is per-person, gated on the acting user's own
+// preference + plan, not the budget owner's.
+
+func TestCreateTransaction_NoReview_WhenActorDisabledThePreference(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	variableType := int32(2)
+	txName := "Netflix"
+	catID := int32(3)
+	pmID := uuid.New()
+
+	var upsertCalled bool
+	feAmount := pgtype.Numeric{}
+	_ = feAmount.Scan("15.99")
+	txAmount := pgtype.Numeric{}
+	_ = txAmount.Scan("15.99")
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New(), Name: &txName, Amount: txAmount, CategoryID: &catID, PaymentMethodID: &pmID, BudgetPeriodID: &periodID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getPersonByUserID: func(_ context.Context, _, uid uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{UserID: &uid, ManualMatchReviewEnabled: false}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{{ID: uuid.New(), Name: "Netflix", PlannedAmount: feAmount, CategoryID: &catID, PaymentMethodID: &pmID}}, nil
+			},
+		},
+		&mockTransactionReviewRepo{
+			upsert: func(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+				upsertCalled = true
+				return db.TransactionReview{}, nil
+			},
+		},
+	)
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{BudgetPeriodID: &periodID, TransactionTypeID: &variableType}, userID)
+	require.NoError(t, err)
+	assert.False(t, upsertCalled, "a disabled preference must skip matching even at a high score")
+}
+
+func TestCreateTransaction_NoReview_WhenActorIsFreeTier(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	variableType := int32(2)
+	txName := "Netflix"
+	catID := int32(3)
+	pmID := uuid.New()
+
+	var upsertCalled bool
+	feAmount := pgtype.Numeric{}
+	_ = feAmount.Scan("15.99")
+	txAmount := pgtype.Numeric{}
+	_ = txAmount.Scan("15.99")
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New(), Name: &txName, Amount: txAmount, CategoryID: &catID, PaymentMethodID: &pmID, BudgetPeriodID: &periodID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{{ID: uuid.New(), Name: "Netflix", PlannedAmount: feAmount, CategoryID: &catID, PaymentMethodID: &pmID}}, nil
+			},
+		},
+		&mockTransactionReviewRepo{
+			upsert: func(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+				upsertCalled = true
+				return db.TransactionReview{}, nil
+			},
+		},
+	).WithUsers(&mockUserRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.User, error) {
+			return db.User{ID: id, Plan: "free"}, nil
+		},
+	})
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{BudgetPeriodID: &periodID, TransactionTypeID: &variableType}, userID)
+	require.NoError(t, err)
+	assert.False(t, upsertCalled, "a free-tier actor must not get matching even at a high score")
+}
+
+func TestCreateTransaction_QueuesReview_WhenActorIsProTier(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	unpaidTxID := uuid.New()
+	variableType := int32(2)
+	txName := "Netflix"
+	catID := int32(3)
+	pmID := uuid.New()
+
+	var upsertCalled bool
+	feAmount := pgtype.Numeric{}
+	_ = feAmount.Scan("15.99")
+	txAmount := pgtype.Numeric{}
+	_ = txAmount.Scan("15.99")
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New(), Name: &txName, Amount: txAmount, CategoryID: &catID, PaymentMethodID: &pmID, BudgetPeriodID: &periodID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getPersonByUserID: func(_ context.Context, _, uid uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{UserID: &uid, ManualMatchReviewEnabled: true}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{{ID: uuid.New(), Name: "Netflix", PlannedAmount: feAmount, CategoryID: &catID, PaymentMethodID: &pmID}}, nil
+			},
+			getUnpaidTransactionInPer: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error) {
+				return db.Transaction{ID: unpaidTxID, BudgetPeriodID: &periodID}, nil
+			},
+		},
+		&mockTransactionReviewRepo{
+			upsert: func(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+				upsertCalled = true
+				return db.TransactionReview{}, nil
+			},
+		},
+	).WithUsers(&mockUserRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.User, error) {
+			return db.User{ID: id, Plan: "pro"}, nil
+		},
+	})
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{BudgetPeriodID: &periodID, TransactionTypeID: &variableType}, userID)
+	require.NoError(t, err)
+	assert.True(t, upsertCalled, "an enabled Pro actor must still get matching")
+}
+
+// The actual issue #70 gap: editing never re-ran the match at all.
+func TestUpdateTransaction_QueuesReview_WhenScoreOver80(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	unpaidTxID := uuid.New()
+	variableType := int32(2)
+	txName := "Netflix"
+	catID := int32(3)
+	pmID := uuid.New()
+
+	var upsertCalled bool
+	feAmount := pgtype.Numeric{}
+	_ = feAmount.Scan("15.99")
+	txAmount := pgtype.Numeric{}
+	_ = txAmount.Scan("15.99")
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: id, BudgetPeriodID: &periodID, TransactionTypeID: &variableType}, nil
+			},
+			update: func(_ context.Context, arg db.UpdateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: arg.ID, Name: &txName, Amount: txAmount, CategoryID: &catID, PaymentMethodID: &pmID, BudgetPeriodID: &periodID, TransactionTypeID: &variableType}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getPersonByUserID: func(_ context.Context, _, uid uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{UserID: &uid, Role: "admin", ManualMatchReviewEnabled: true}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{{ID: uuid.New(), Name: "Netflix", PlannedAmount: feAmount, CategoryID: &catID, PaymentMethodID: &pmID}}, nil
+			},
+			getUnpaidTransactionInPer: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseInPeriodParams) (db.Transaction, error) {
+				return db.Transaction{ID: unpaidTxID, BudgetPeriodID: &periodID}, nil
+			},
+		},
+		&mockTransactionReviewRepo{
+			upsert: func(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+				upsertCalled = true
+				return db.TransactionReview{}, nil
+			},
+		},
+	)
+
+	_, err := svc.Update(context.Background(), db.UpdateTransactionParams{ID: txID, TransactionTypeID: &variableType}, userID)
+	require.NoError(t, err)
+	assert.True(t, upsertCalled, "editing a transaction must re-run matching, same as Create already does")
+}
+
 // ── MarkTransactionForReview tests ────────────────────────────────────────────
 
 func TestMarkTransactionForReview_Success(t *testing.T) {
@@ -2247,7 +2472,7 @@ func TestConfirmTransactionReview_UsesImportedDateAndSyncsObservedCategoryAndPay
 			getByID: func(_ context.Context, id uuid.UUID) (db.TransactionReview, error) {
 				return db.TransactionReview{ID: id, BudgetPeriodID: periodID, TransactionID: importedTxID, MatchedTransactionID: matchedTxID}, nil
 			},
-			createAlias: func(_ context.Context, _ uuid.UUID, _ string) error { return nil },
+			createAlias:  func(_ context.Context, _ uuid.UUID, _ string) error { return nil },
 			updateStatus: func(_ context.Context, _ uuid.UUID, _ string) error { return nil },
 		},
 	)

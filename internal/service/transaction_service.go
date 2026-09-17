@@ -18,6 +18,7 @@ type TransactionService struct {
 	fixedExpenses repository.FixedExpenseRepository
 	reviews       repository.TransactionReviewRepository
 	notifs        *NotificationService
+	users         repository.UserRepository
 }
 
 func NewTransactionService(transactions repository.TransactionRepository, profiles repository.BudgetProfileRepository, allocations repository.ExpenseAllocationRepository, fixedExpenses repository.FixedExpenseRepository, reviews repository.TransactionReviewRepository) *TransactionService {
@@ -41,6 +42,13 @@ func NewTransactionService(transactions repository.TransactionRepository, profil
 
 func (s *TransactionService) WithNotifications(ns *NotificationService) *TransactionService {
 	s.notifs = ns
+	return s
+}
+
+// WithUsers wires the plan check maybeQueueReview needs. Optional: avoids
+// touching 49 test call sites for a path most tests don't exercise.
+func (s *TransactionService) WithUsers(users repository.UserRepository) *TransactionService {
+	s.users = users
 	return s
 }
 
@@ -235,7 +243,7 @@ func (s *TransactionService) Create(ctx context.Context, arg db.CreateTransactio
 	}
 	isVariable := arg.TransactionTypeID != nil && *arg.TransactionTypeID == 2
 	if isVariable && arg.BudgetPeriodID != nil {
-		s.maybeQueueReview(ctx, tx, *arg.BudgetPeriodID)
+		s.maybeQueueReview(ctx, tx, *arg.BudgetPeriodID, userID)
 		if s.notifs != nil {
 			s.notifs.HandleNewTransaction(ctx, tx, *arg.BudgetPeriodID, userID)
 		}
@@ -243,19 +251,25 @@ func (s *TransactionService) Create(ctx context.Context, arg db.CreateTransactio
 	return tx, nil
 }
 
-// maybeQueueReview scores a newly-created variable transaction against all
-// active fixed expenses in the budget. If the best match scores ≥ 80 and
-// there is an unpaid fixed transaction for that expense in the period, a
-// review entry is upserted so the user can confirm or dismiss it from the
-// To Review tab. All failures are silently ignored — the transaction has
-// already been saved successfully and review queueing is best-effort.
-func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transaction, periodID uuid.UUID) {
+// maybeQueueReview scores a created-or-edited variable transaction against
+// active fixed expenses; ≥80 queues a review. Best-effort, all failures
+// ignored. Gated per-person (userID), not per-budget: needs their own
+// manual_match_review_enabled + a paid plan. Fails open on lookup errors.
+func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transaction, periodID, userID uuid.UUID) {
 	if tx.Name == nil {
 		return
 	}
 	period, err := s.profiles.GetPeriodByID(ctx, periodID)
 	if err != nil {
 		return
+	}
+	if person, personErr := s.profiles.GetPersonByUserID(ctx, period.BudgetProfileID, userID); personErr == nil && !person.ManualMatchReviewEnabled {
+		return
+	}
+	if s.users != nil {
+		if user, userErr := s.users.GetByID(ctx, userID); userErr == nil && user.Plan == "free" {
+			return
+		}
 	}
 	fixedExpenses, err := s.fixedExpenses.List(ctx, period.BudgetProfileID)
 	if err != nil || len(fixedExpenses) == 0 {
@@ -325,7 +339,15 @@ func (s *TransactionService) Update(ctx context.Context, arg db.UpdateTransactio
 			return db.Transaction{}, err
 		}
 	}
-	return s.transactions.Update(ctx, arg)
+	updated, err := s.transactions.Update(ctx, arg)
+	if err != nil {
+		return db.Transaction{}, err
+	}
+	isVariable := updated.TransactionTypeID != nil && *updated.TransactionTypeID == 2
+	if isVariable && updated.BudgetPeriodID != nil {
+		s.maybeQueueReview(ctx, updated, *updated.BudgetPeriodID, userID)
+	}
+	return updated, nil
 }
 
 func (s *TransactionService) Delete(ctx context.Context, id, userID uuid.UUID) error {

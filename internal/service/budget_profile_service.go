@@ -895,6 +895,18 @@ func (s *BudgetProfileService) UpdateMyPreferences(ctx context.Context, profileI
 	})
 }
 
+// Personal setting — assertMember, not assertAdmin.
+func (s *BudgetProfileService) UpdateMyManualMatchReviewPreference(ctx context.Context, profileID uuid.UUID, enabled bool, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
+	if _, err := s.assertMember(ctx, profileID, userID); err != nil {
+		return db.BudgetToProfileMapping{}, err
+	}
+	return s.profiles.UpdatePersonManualMatchReviewPreference(ctx, db.UpdateBudgetPersonManualMatchReviewPreferenceParams{
+		BudgetProfileID:          profileID,
+		UserID:                   userID,
+		ManualMatchReviewEnabled: enabled,
+	})
+}
+
 func (s *BudgetProfileService) UpdatePersonRole(ctx context.Context, profileID uuid.UUID, personID int32, role string, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
 	if _, err := s.assertAdmin(ctx, profileID, userID); err != nil {
 		return db.BudgetToProfileMapping{}, err
