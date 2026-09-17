@@ -78,7 +78,7 @@ func main() {
 	statusBannerSvc := service.NewStatusBannerService(statusBannerRepo, userRepo)
 	changelogSvc := service.NewChangelogService(changelogRepo, userRepo)
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo).WithNotifications(notifSvc)
-	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo).WithNotifications(notifSvc)
+	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo, reviewRepo).WithNotifications(notifSvc).WithUsers(userRepo)
 	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
 	expenseSummarySvc := service.NewExpenseSummaryService(budgetProfileRepo, transactionRepo, allocationRepo, fixedExpenseRepo, logger)
 	inviteSvc := service.NewInviteService(inviteRepo, budgetProfileRepo, userRepo, cfg, logger)

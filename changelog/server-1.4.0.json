@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.4.0",
+  "items": [
+    {
+      "changeType": "added",
+      "summaryEn": "Pro and Lifetime members can now have their own manually-added or edited transactions automatically checked for a match against a fixed expense, the same way bank-synced transactions already are — and can turn this off per budget if they'd rather not.",
+      "summaryEs": "Los miembros Pro y Lifetime ahora pueden tener sus transacciones agregadas o editadas manualmente verificadas automáticamente en busca de una coincidencia con un gasto fijo, igual que ya ocurre con las transacciones sincronizadas del banco, y pueden desactivar esto por presupuesto si lo prefieren."
+    }
+  ]
+}

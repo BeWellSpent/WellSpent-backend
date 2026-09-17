@@ -16,7 +16,7 @@ const addBudgetPersonToProfile = `-- name: AddBudgetPersonToProfile :one
 
 INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id, color, role)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type, manual_match_review_enabled
 `
 
 type AddBudgetPersonToProfileParams struct {
@@ -47,6 +47,7 @@ func (q *Queries) AddBudgetPersonToProfile(ctx context.Context, arg AddBudgetPer
 		&i.Role,
 		&i.PlanChartType,
 		&i.OverviewChartType,
+		&i.ManualMatchReviewEnabled,
 	)
 	return i, err
 }
@@ -408,7 +409,7 @@ func (q *Queries) GetBudgetPeriodByID(ctx context.Context, id uuid.UUID) (Budget
 }
 
 const getBudgetPersonByID = `-- name: GetBudgetPersonByID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type, manual_match_review_enabled
 FROM budget_to_profile_mapping
 WHERE id = $1
 LIMIT 1
@@ -427,12 +428,13 @@ func (q *Queries) GetBudgetPersonByID(ctx context.Context, id int32) (BudgetToPr
 		&i.Role,
 		&i.PlanChartType,
 		&i.OverviewChartType,
+		&i.ManualMatchReviewEnabled,
 	)
 	return i, err
 }
 
 const getBudgetPersonByProfileID = `-- name: GetBudgetPersonByProfileID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type, manual_match_review_enabled
 FROM budget_to_profile_mapping
 WHERE id = $1 AND budget_profile_id = $2
 LIMIT 1
@@ -456,12 +458,13 @@ func (q *Queries) GetBudgetPersonByProfileID(ctx context.Context, arg GetBudgetP
 		&i.Role,
 		&i.PlanChartType,
 		&i.OverviewChartType,
+		&i.ManualMatchReviewEnabled,
 	)
 	return i, err
 }
 
 const getBudgetPersonByUserID = `-- name: GetBudgetPersonByUserID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type, manual_match_review_enabled
 FROM budget_to_profile_mapping
 WHERE budget_profile_id = $1 AND user_id = $2 AND is_active = TRUE
 LIMIT 1
@@ -485,6 +488,7 @@ func (q *Queries) GetBudgetPersonByUserID(ctx context.Context, arg GetBudgetPers
 		&i.Role,
 		&i.PlanChartType,
 		&i.OverviewChartType,
+		&i.ManualMatchReviewEnabled,
 	)
 	return i, err
 }
@@ -570,7 +574,7 @@ const linkBudgetPersonToUser = `-- name: LinkBudgetPersonToUser :one
 UPDATE budget_to_profile_mapping
 SET user_id = $1::uuid, role = $2
 WHERE id = $3 AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type, manual_match_review_enabled
 `
 
 type LinkBudgetPersonToUserParams struct {
@@ -592,12 +596,13 @@ func (q *Queries) LinkBudgetPersonToUser(ctx context.Context, arg LinkBudgetPers
 		&i.Role,
 		&i.PlanChartType,
 		&i.OverviewChartType,
+		&i.ManualMatchReviewEnabled,
 	)
 	return i, err
 }
 
 const listBudgetPeopleByProfile = `-- name: ListBudgetPeopleByProfile :many
-SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type, manual_match_review_enabled
 FROM budget_to_profile_mapping
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY id
@@ -622,6 +627,7 @@ func (q *Queries) ListBudgetPeopleByProfile(ctx context.Context, budgetProfileID
 			&i.Role,
 			&i.PlanChartType,
 			&i.OverviewChartType,
+			&i.ManualMatchReviewEnabled,
 		); err != nil {
 			return nil, err
 		}
@@ -1022,7 +1028,7 @@ const updateBudgetPerson = `-- name: UpdateBudgetPerson :one
 UPDATE budget_to_profile_mapping
 SET color = $1
 WHERE id = $2 AND budget_profile_id = $3::uuid AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type, manual_match_review_enabled
 `
 
 type UpdateBudgetPersonParams struct {
@@ -1044,6 +1050,45 @@ func (q *Queries) UpdateBudgetPerson(ctx context.Context, arg UpdateBudgetPerson
 		&i.Role,
 		&i.PlanChartType,
 		&i.OverviewChartType,
+		&i.ManualMatchReviewEnabled,
+	)
+	return i, err
+}
+
+const updateBudgetPersonManualMatchReviewPreference = `-- name: UpdateBudgetPersonManualMatchReviewPreference :one
+UPDATE budget_to_profile_mapping
+SET manual_match_review_enabled = $1
+WHERE budget_profile_id = $2::uuid
+  AND user_id = $3::uuid
+  AND is_active = TRUE
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type, manual_match_review_enabled
+`
+
+type UpdateBudgetPersonManualMatchReviewPreferenceParams struct {
+	ManualMatchReviewEnabled bool      `json:"manual_match_review_enabled"`
+	BudgetProfileID          uuid.UUID `json:"budget_profile_id"`
+	UserID                   uuid.UUID `json:"user_id"`
+}
+
+// Writes the caller's own manual-match-review preference. Same shape as
+// UpdateBudgetPersonPreferences above: matched on user_id, not a person id,
+// so this cannot touch another member. No role check: any member may set
+// their own preference, even though only a Collaborator/Admin can ever
+// actually create/edit a transaction it applies to.
+func (q *Queries) UpdateBudgetPersonManualMatchReviewPreference(ctx context.Context, arg UpdateBudgetPersonManualMatchReviewPreferenceParams) (BudgetToProfileMapping, error) {
+	row := q.db.QueryRow(ctx, updateBudgetPersonManualMatchReviewPreference, arg.ManualMatchReviewEnabled, arg.BudgetProfileID, arg.UserID)
+	var i BudgetToProfileMapping
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetProfileID,
+		&i.UserName,
+		&i.UserID,
+		&i.IsActive,
+		&i.Color,
+		&i.Role,
+		&i.PlanChartType,
+		&i.OverviewChartType,
+		&i.ManualMatchReviewEnabled,
 	)
 	return i, err
 }
@@ -1055,7 +1100,7 @@ SET plan_chart_type = $1,
 WHERE budget_profile_id = $3::uuid
   AND user_id = $4::uuid
   AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type, manual_match_review_enabled
 `
 
 type UpdateBudgetPersonPreferencesParams struct {
@@ -1086,6 +1131,7 @@ func (q *Queries) UpdateBudgetPersonPreferences(ctx context.Context, arg UpdateB
 		&i.Role,
 		&i.PlanChartType,
 		&i.OverviewChartType,
+		&i.ManualMatchReviewEnabled,
 	)
 	return i, err
 }
@@ -1094,7 +1140,7 @@ const updateBudgetPersonRole = `-- name: UpdateBudgetPersonRole :one
 UPDATE budget_to_profile_mapping
 SET role = $1
 WHERE id = $2 AND budget_profile_id = $3::uuid AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role, plan_chart_type, overview_chart_type, manual_match_review_enabled
 `
 
 type UpdateBudgetPersonRoleParams struct {
@@ -1116,6 +1162,7 @@ func (q *Queries) UpdateBudgetPersonRole(ctx context.Context, arg UpdateBudgetPe
 		&i.Role,
 		&i.PlanChartType,
 		&i.OverviewChartType,
+		&i.ManualMatchReviewEnabled,
 	)
 	return i, err
 }

@@ -60,6 +60,7 @@ sql:
       - "internal/db/migrations/000055_changelog.sql"
       - "internal/db/migrations/000056_plaid_source_fields.sql"
       - "internal/db/migrations/000057_payment_method_person_fk.sql"
+      - "internal/db/migrations/000058_manual_match_review_preference.sql"
     gen:
       go:
         package: "db"

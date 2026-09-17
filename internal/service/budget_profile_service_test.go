@@ -22,48 +22,49 @@ func bigInt(n int64) *big.Int { return big.NewInt(n) }
 // ── Mock BudgetProfileRepository ─────────────────────────────────────────────
 
 type mockBudgetProfileRepo struct {
-	listByUserID                  func(context.Context, uuid.UUID) ([]db.BudgetProfile, error)
-	listByUserOrMember            func(context.Context, uuid.UUID) ([]db.BudgetProfile, error)
-	getByID                       func(context.Context, uuid.UUID) (db.BudgetProfile, error)
-	existsByNameAndUser           func(context.Context, string, uuid.UUID) (bool, error)
-	create                        func(context.Context, db.CreateBudgetProfileParams) (db.BudgetProfile, error)
-	update                        func(context.Context, db.UpdateBudgetProfileParams) (db.BudgetProfile, error)
-	delete                        func(context.Context, uuid.UUID) error
-	setCarryoverEnabled           func(context.Context, db.SetBudgetProfileCarryoverEnabledParams) (db.BudgetProfile, error)
-	setAutoUpdatePlannedAmount    func(context.Context, db.SetBudgetProfileAutoUpdatePlannedAmountParams) (db.BudgetProfile, error)
-	createPeriod                  func(context.Context, db.CreateBudgetPeriodParams) (db.BudgetPeriod, error)
-	getPeriodByID                 func(context.Context, uuid.UUID) (db.BudgetPeriod, error)
-	listPeriods                   func(context.Context, uuid.UUID) ([]db.BudgetPeriod, error)
-	getLatestPeriod               func(context.Context, uuid.UUID) (db.BudgetPeriod, error)
-	listProfileIDsWithExpired     func(context.Context, pgtype.Date) ([]uuid.UUID, error)
-	listPeople                    func(context.Context, uuid.UUID) ([]db.BudgetToProfileMapping, error)
-	getPerson                     func(context.Context, int32, uuid.UUID) (db.BudgetToProfileMapping, error)
-	getPersonByID                 func(context.Context, int32) (db.BudgetToProfileMapping, error)
-	getPersonByUserID             func(context.Context, uuid.UUID, uuid.UUID) (db.BudgetToProfileMapping, error)
-	existsPerson                  func(context.Context, uuid.UUID, string) (bool, error)
-	existsPersonForUser           func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
-	addPerson                     func(context.Context, db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error)
-	updatePerson                  func(context.Context, db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error)
-	updatePersonRole              func(context.Context, db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error)
-	updatePersonPreferences       func(context.Context, db.UpdateBudgetPersonPreferencesParams) (db.BudgetToProfileMapping, error)
-	linkPersonToUser              func(context.Context, db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error)
-	softRemovePerson              func(context.Context, db.SoftRemovePersonFromProfileParams) error
-	softRemovePersonAndReassign   func(context.Context, db.SoftRemovePersonAndReassignFromProfileParams) error
-	listIncomeSources             func(context.Context, uuid.UUID) ([]db.IncomeSource, error)
-	addIncomeSource               func(context.Context, db.AddIncomeSourceParams) (db.IncomeSource, error)
-	updateIncomeSource            func(context.Context, db.UpdateIncomeSourceParams) (db.IncomeSource, error)
-	deleteIncomeSource            func(context.Context, db.DeleteIncomeSourceParams) error
-	listIncomeEntries             func(context.Context, uuid.UUID) ([]db.IncomeEntry, error)
-	createIncomeEntry             func(context.Context, db.CreateIncomeEntryParams) (db.IncomeEntry, error)
-	updateIncomeEntry             func(context.Context, db.UpdateIncomeEntryParams) (db.IncomeEntry, error)
-	getSavingsSource              func(context.Context, db.GetSavingsSourceParams) (db.SavingsSource, error)
-	addSavingsSource              func(context.Context, db.AddSavingsSourceParams) (db.SavingsSource, error)
-	listSavingsSources            func(context.Context, uuid.UUID) ([]db.SavingsSource, error)
-	updateSavingsSource           func(context.Context, db.UpdateSavingsSourceParams) (db.SavingsSource, error)
-	deleteSavingsSource           func(context.Context, db.DeleteSavingsSourceParams) error
-	upsertTaxReserveSavingsSource func(context.Context, db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error)
-	deleteTaxReserveSavingsSource func(context.Context, uuid.UUID) error
-	getPeriodByDate               func(context.Context, uuid.UUID, pgtype.Date) (db.BudgetPeriod, error)
+	listByUserID                            func(context.Context, uuid.UUID) ([]db.BudgetProfile, error)
+	listByUserOrMember                      func(context.Context, uuid.UUID) ([]db.BudgetProfile, error)
+	getByID                                 func(context.Context, uuid.UUID) (db.BudgetProfile, error)
+	existsByNameAndUser                     func(context.Context, string, uuid.UUID) (bool, error)
+	create                                  func(context.Context, db.CreateBudgetProfileParams) (db.BudgetProfile, error)
+	update                                  func(context.Context, db.UpdateBudgetProfileParams) (db.BudgetProfile, error)
+	delete                                  func(context.Context, uuid.UUID) error
+	setCarryoverEnabled                     func(context.Context, db.SetBudgetProfileCarryoverEnabledParams) (db.BudgetProfile, error)
+	setAutoUpdatePlannedAmount              func(context.Context, db.SetBudgetProfileAutoUpdatePlannedAmountParams) (db.BudgetProfile, error)
+	createPeriod                            func(context.Context, db.CreateBudgetPeriodParams) (db.BudgetPeriod, error)
+	getPeriodByID                           func(context.Context, uuid.UUID) (db.BudgetPeriod, error)
+	listPeriods                             func(context.Context, uuid.UUID) ([]db.BudgetPeriod, error)
+	getLatestPeriod                         func(context.Context, uuid.UUID) (db.BudgetPeriod, error)
+	listProfileIDsWithExpired               func(context.Context, pgtype.Date) ([]uuid.UUID, error)
+	listPeople                              func(context.Context, uuid.UUID) ([]db.BudgetToProfileMapping, error)
+	getPerson                               func(context.Context, int32, uuid.UUID) (db.BudgetToProfileMapping, error)
+	getPersonByID                           func(context.Context, int32) (db.BudgetToProfileMapping, error)
+	getPersonByUserID                       func(context.Context, uuid.UUID, uuid.UUID) (db.BudgetToProfileMapping, error)
+	existsPerson                            func(context.Context, uuid.UUID, string) (bool, error)
+	existsPersonForUser                     func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
+	addPerson                               func(context.Context, db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error)
+	updatePerson                            func(context.Context, db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error)
+	updatePersonRole                        func(context.Context, db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error)
+	updatePersonPreferences                 func(context.Context, db.UpdateBudgetPersonPreferencesParams) (db.BudgetToProfileMapping, error)
+	updatePersonManualMatchReviewPreference func(context.Context, db.UpdateBudgetPersonManualMatchReviewPreferenceParams) (db.BudgetToProfileMapping, error)
+	linkPersonToUser                        func(context.Context, db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error)
+	softRemovePerson                        func(context.Context, db.SoftRemovePersonFromProfileParams) error
+	softRemovePersonAndReassign             func(context.Context, db.SoftRemovePersonAndReassignFromProfileParams) error
+	listIncomeSources                       func(context.Context, uuid.UUID) ([]db.IncomeSource, error)
+	addIncomeSource                         func(context.Context, db.AddIncomeSourceParams) (db.IncomeSource, error)
+	updateIncomeSource                      func(context.Context, db.UpdateIncomeSourceParams) (db.IncomeSource, error)
+	deleteIncomeSource                      func(context.Context, db.DeleteIncomeSourceParams) error
+	listIncomeEntries                       func(context.Context, uuid.UUID) ([]db.IncomeEntry, error)
+	createIncomeEntry                       func(context.Context, db.CreateIncomeEntryParams) (db.IncomeEntry, error)
+	updateIncomeEntry                       func(context.Context, db.UpdateIncomeEntryParams) (db.IncomeEntry, error)
+	getSavingsSource                        func(context.Context, db.GetSavingsSourceParams) (db.SavingsSource, error)
+	addSavingsSource                        func(context.Context, db.AddSavingsSourceParams) (db.SavingsSource, error)
+	listSavingsSources                      func(context.Context, uuid.UUID) ([]db.SavingsSource, error)
+	updateSavingsSource                     func(context.Context, db.UpdateSavingsSourceParams) (db.SavingsSource, error)
+	deleteSavingsSource                     func(context.Context, db.DeleteSavingsSourceParams) error
+	upsertTaxReserveSavingsSource           func(context.Context, db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error)
+	deleteTaxReserveSavingsSource           func(context.Context, uuid.UUID) error
+	getPeriodByDate                         func(context.Context, uuid.UUID, pgtype.Date) (db.BudgetPeriod, error)
 }
 
 func (m *mockBudgetProfileRepo) ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
@@ -214,6 +215,12 @@ func (m *mockBudgetProfileRepo) UpdatePersonPreferences(ctx context.Context, arg
 		return m.updatePersonPreferences(ctx, arg)
 	}
 	return db.BudgetToProfileMapping{PlanChartType: arg.PlanChartType, OverviewChartType: arg.OverviewChartType}, nil
+}
+func (m *mockBudgetProfileRepo) UpdatePersonManualMatchReviewPreference(ctx context.Context, arg db.UpdateBudgetPersonManualMatchReviewPreferenceParams) (db.BudgetToProfileMapping, error) {
+	if m.updatePersonManualMatchReviewPreference != nil {
+		return m.updatePersonManualMatchReviewPreference(ctx, arg)
+	}
+	return db.BudgetToProfileMapping{ManualMatchReviewEnabled: arg.ManualMatchReviewEnabled}, nil
 }
 func (m *mockBudgetProfileRepo) LinkPersonToUser(ctx context.Context, arg db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error) {
 	if m.linkPersonToUser != nil {
@@ -2149,6 +2156,60 @@ func TestUpdateMyPreferences_ForbiddenForNonMember(t *testing.T) {
 
 	pie := "pie"
 	_, err := svc.UpdateMyPreferences(context.Background(), profileID, &pie, nil, uuid.New())
+
+	require.Error(t, err)
+	assert.False(t, wrote, "must not attempt a write for a non-member")
+}
+
+func TestUpdateMyManualMatchReviewPreference_ScopesToCallerNotAPersonID(t *testing.T) {
+	profileID := uuid.New()
+	ownerID := uuid.New()
+	callerID := uuid.New()
+
+	var gotParams db.UpdateBudgetPersonManualMatchReviewPreferenceParams
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+		},
+		getPersonByUserID: func(_ context.Context, _ uuid.UUID, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
+			return db.BudgetToProfileMapping{UserID: &userID, Role: "viewer"}, nil
+		},
+		updatePersonManualMatchReviewPreference: func(_ context.Context, arg db.UpdateBudgetPersonManualMatchReviewPreferenceParams) (db.BudgetToProfileMapping, error) {
+			gotParams = arg
+			return db.BudgetToProfileMapping{ManualMatchReviewEnabled: arg.ManualMatchReviewEnabled}, nil
+		},
+	}
+
+	svc := NewBudgetProfileService(profileRepo, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockUserRepo{})
+
+	m, err := svc.UpdateMyManualMatchReviewPreference(context.Background(), profileID, false, callerID)
+
+	require.NoError(t, err, "a Viewer must be able to set their own preference, even though only a Collaborator/Admin can ever trigger the behavior it gates")
+	assert.Equal(t, callerID, gotParams.UserID, "must scope the write to the caller, not any person_id")
+	assert.Equal(t, profileID, gotParams.BudgetProfileID)
+	assert.False(t, m.ManualMatchReviewEnabled)
+}
+
+func TestUpdateMyManualMatchReviewPreference_ForbiddenForNonMember(t *testing.T) {
+	profileID := uuid.New()
+	var wrote bool
+
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil
+		},
+		getPersonByUserID: func(_ context.Context, _, _ uuid.UUID) (db.BudgetToProfileMapping, error) {
+			return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", "")
+		},
+		updatePersonManualMatchReviewPreference: func(_ context.Context, _ db.UpdateBudgetPersonManualMatchReviewPreferenceParams) (db.BudgetToProfileMapping, error) {
+			wrote = true
+			return db.BudgetToProfileMapping{}, nil
+		},
+	}
+
+	svc := NewBudgetProfileService(profileRepo, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockUserRepo{})
+
+	_, err := svc.UpdateMyManualMatchReviewPreference(context.Background(), profileID, true, uuid.New())
 
 	require.Error(t, err)
 	assert.False(t, wrote, "must not attempt a write for a non-member")
