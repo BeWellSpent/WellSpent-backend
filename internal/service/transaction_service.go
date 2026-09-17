@@ -261,18 +261,31 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 	}
 	period, err := s.profiles.GetPeriodByID(ctx, periodID)
 	if err != nil {
+		log.Printf("transaction.match: tx %s: get period %s: %v", tx.ID, periodID, err)
 		return
 	}
-	if person, personErr := s.profiles.GetPersonByUserID(ctx, period.BudgetProfileID, userID); personErr == nil && !person.ManualMatchReviewEnabled {
+	person, personErr := s.profiles.GetPersonByUserID(ctx, period.BudgetProfileID, userID)
+	if personErr != nil {
+		log.Printf("transaction.match: tx %s: get person for user %s: %v (failing open)", tx.ID, userID, personErr)
+	} else if !person.ManualMatchReviewEnabled {
+		log.Printf("transaction.match: tx %s: skipped — user %s has manual match review disabled", tx.ID, userID)
 		return
 	}
-	if s.users != nil {
-		if user, userErr := s.users.GetByID(ctx, userID); userErr == nil && user.Plan == "free" {
-			return
-		}
+	if s.users == nil {
+		log.Printf("transaction.match: tx %s: no user repository wired, cannot check plan (failing open)", tx.ID)
+	} else if user, userErr := s.users.GetByID(ctx, userID); userErr != nil {
+		log.Printf("transaction.match: tx %s: get plan for user %s: %v (failing open)", tx.ID, userID, userErr)
+	} else if user.Plan == "free" {
+		log.Printf("transaction.match: tx %s: skipped — user %s is on the free plan", tx.ID, userID)
+		return
 	}
 	fixedExpenses, err := s.fixedExpenses.List(ctx, period.BudgetProfileID)
-	if err != nil || len(fixedExpenses) == 0 {
+	if err != nil {
+		log.Printf("transaction.match: tx %s: list fixed expenses for profile %s: %v", tx.ID, period.BudgetProfileID, err)
+		return
+	}
+	if len(fixedExpenses) == 0 {
+		log.Printf("transaction.match: tx %s: skipped — profile %s has no active fixed expenses", tx.ID, period.BudgetProfileID)
 		return
 	}
 	aliasesByFE := make(map[uuid.UUID][]string, len(fixedExpenses))
@@ -286,6 +299,7 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 	}
 	bestScore, bestFE := scoreBestMatch(*tx.Name, amountF64, tx.CategoryID, tx.PaymentMethodID, fixedExpenses, aliasesByFE)
 	if bestScore < 80 || bestFE == nil {
+		log.Printf("transaction.match: tx %s %q $%.2f: best score %.0f against %d fixed expenses — below threshold", tx.ID, *tx.Name, amountF64, bestScore, len(fixedExpenses))
 		return
 	}
 	// Same-period only, matching MarkTransactionForReview's guard — a review
@@ -295,14 +309,17 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 		BudgetPeriodID: periodID,
 	})
 	if upErr != nil || unpaid.BudgetPeriodID == nil {
+		log.Printf("transaction.match: tx %s: matched fixed expense %s (score=%.0f) but no unpaid transaction in period %s: %v", tx.ID, bestFE.ID, bestScore, periodID, upErr)
 		return
 	}
 	if _, reviewErr := s.reviews.Upsert(ctx, periodID, tx.ID, unpaid.ID, bestScore); reviewErr != nil {
 		// Not fatal: the transaction is created and correct, it just won't be
 		// offered for review. Logged because silence here is what made a missing
 		// review look like the matcher simply not firing.
-		log.Printf("transaction.create: queue review for transaction %s against %s: %v", tx.ID, unpaid.ID, reviewErr)
+		log.Printf("transaction.match: tx %s: queue review against %s: %v", tx.ID, unpaid.ID, reviewErr)
+		return
 	}
+	log.Printf("transaction.match: tx %s %q: queued review against fixed expense %q (score=%.0f)", tx.ID, *tx.Name, bestFE.Name, bestScore)
 	if s.notifs != nil && tx.Name != nil {
 		s.notifs.HandleReviewPending(ctx, period.BudgetProfileID, *tx.Name)
 	}
