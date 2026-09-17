@@ -133,6 +133,39 @@ func TestSyncScoreBestMatch_NoCandidatesReturnsNil(t *testing.T) {
 	assert.False(t, amountOK)
 }
 
+// A short name ("F1") has no word ≥4 chars, so word-overlap alone scores the
+// name component 0 even against an identical name — an exact match must
+// still count, or a perfectly matching short-named bill never reaches 100.
+func TestSyncScoreBestMatch_ExactShortNameMatchesEvenWithoutFourCharWords(t *testing.T) {
+	feID := uuid.New()
+	fe := makeFixedExpense(t, feID, "F1", "15.00")
+	pmID := uuid.New()
+	fe.PaymentMethodID = &pmID
+	catID := int32(3)
+	fe.CategoryID = &catID
+
+	tx := plaidclient.Transaction{Name: "F1", Amount: 15.00}
+	score, bestFE, _, amountOK := syncScoreBestMatch(tx, &catID, &pmID, []db.FixedExpense{fe}, nil)
+
+	require.NotNil(t, bestFE)
+	assert.True(t, amountOK)
+	assert.Equal(t, 100.0, score)
+}
+
+func TestScoreBestMatch_ExactShortNameMatchesEvenWithoutFourCharWords(t *testing.T) {
+	feID := uuid.New()
+	fe := makeFixedExpense(t, feID, "F1", "15.00")
+	pmID := uuid.New()
+	fe.PaymentMethodID = &pmID
+	catID := int32(3)
+	fe.CategoryID = &catID
+
+	score, bestFE := scoreBestMatch("F1", 15.00, &catID, &pmID, []db.FixedExpense{fe}, nil)
+
+	require.NotNil(t, bestFE)
+	assert.Equal(t, 100.0, score)
+}
+
 func TestSyncAmountWithinTolerance(t *testing.T) {
 	feID := uuid.New()
 	fe := makeFixedExpense(t, feID, "Rent", "1000.00")

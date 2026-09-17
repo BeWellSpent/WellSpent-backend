@@ -1297,6 +1297,211 @@ func TestUpdateFixedExpense_StillDue_PropagatesToUnpaidTransaction(t *testing.T)
 	assert.False(t, deleted)
 }
 
+// Editing the template while a review is still pending must refresh the
+// review's score to match the newly-synced transaction, not leave a stale
+// snapshot from when the review was first queued.
+func TestUpdateFixedExpense_RefreshesPendingReviewScore_WhenStillDueAndStillMatches(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	txID := uuid.New()
+	reviewID := uuid.New()
+	catID := int32(3)
+	pmID := uuid.New()
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	txAmount := pgtype.Numeric{}
+	_ = txAmount.Scan("15.99")
+	txName := "Netflix"
+
+	var scoredID uuid.UUID
+	var scoredValue float64
+	var scoreUpdated, deleted bool
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: uuid.New(), StartDate: pgtype.Date{Time: currentMonthStart, Valid: true}}, nil
+			},
+		},
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: id, Name: &txName, Amount: txAmount, CategoryID: &catID, PaymentMethodID: &pmID}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			update: func(_ context.Context, arg db.UpdateFixedExpenseParams) (db.FixedExpense, error) {
+				return db.FixedExpense{ID: feID, Name: "Netflix", PlannedAmount: txAmount, DayOfMonth: arg.DayOfMonth, IntervalMonths: arg.IntervalMonths, CategoryID: &catID, PaymentMethodID: &pmID}, nil
+			},
+			getTransaction: func(_ context.Context, _ db.GetTransactionByFixedExpenseParams) (db.Transaction, error) {
+				return db.Transaction{ID: txID, IsPaid: false}, nil
+			},
+			updateTransactionFromFixed: func(_ context.Context, _ db.UpdateTransactionFromFixedExpenseParams) error {
+				return nil
+			},
+		},
+		&mockUserRepo{},
+	).WithReviews(&mockTransactionReviewRepo{
+		getByMatchedTx: func(_ context.Context, matchedTxID uuid.UUID) (db.TransactionReview, error) {
+			return db.TransactionReview{ID: reviewID, TransactionID: uuid.New(), MatchedTransactionID: matchedTxID, Status: "pending"}, nil
+		},
+		updateScoreIfPending: func(_ context.Context, id uuid.UUID, score float64) error {
+			scoreUpdated = true
+			scoredID = id
+			scoredValue = score
+			return nil
+		},
+		deleteIfPending: func(_ context.Context, _ uuid.UUID) error {
+			deleted = true
+			return nil
+		},
+	})
+
+	_, err := svc.UpdateFixedExpense(context.Background(), feID, profileID, userID, FixedExpenseInput{
+		Name:            "Netflix",
+		DayOfMonth:      5,
+		CategoryID:      &catID,
+		PaymentMethodID: &pmID,
+	})
+	require.NoError(t, err)
+	assert.True(t, scoreUpdated, "a still-matching pending review must have its score refreshed")
+	assert.Equal(t, reviewID, scoredID)
+	assert.Equal(t, 100.0, scoredValue)
+	assert.False(t, deleted)
+}
+
+// If the template edit makes the pairing no longer a real match, the stale
+// review is removed — but only the review row, never either transaction.
+func TestUpdateFixedExpense_RemovesStalePendingReview_WhenNoLongerMatches(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	txID := uuid.New()
+	reviewID := uuid.New()
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	txAmount := pgtype.Numeric{}
+	_ = txAmount.Scan("999.00")
+	txName := "Something Else Entirely"
+
+	var deletedID uuid.UUID
+	var deleted, scoreUpdated bool
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: uuid.New(), StartDate: pgtype.Date{Time: currentMonthStart, Valid: true}}, nil
+			},
+		},
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: id, Name: &txName, Amount: txAmount}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			update: func(_ context.Context, arg db.UpdateFixedExpenseParams) (db.FixedExpense, error) {
+				return db.FixedExpense{ID: feID, Name: "Rent", DayOfMonth: arg.DayOfMonth, IntervalMonths: arg.IntervalMonths}, nil
+			},
+			getTransaction: func(_ context.Context, _ db.GetTransactionByFixedExpenseParams) (db.Transaction, error) {
+				return db.Transaction{ID: txID, IsPaid: false}, nil
+			},
+			updateTransactionFromFixed: func(_ context.Context, _ db.UpdateTransactionFromFixedExpenseParams) error {
+				return nil
+			},
+		},
+		&mockUserRepo{},
+	).WithReviews(&mockTransactionReviewRepo{
+		getByMatchedTx: func(_ context.Context, matchedTxID uuid.UUID) (db.TransactionReview, error) {
+			return db.TransactionReview{ID: reviewID, TransactionID: uuid.New(), MatchedTransactionID: matchedTxID, Status: "pending"}, nil
+		},
+		deleteIfPending: func(_ context.Context, id uuid.UUID) error {
+			deleted = true
+			deletedID = id
+			return nil
+		},
+		updateScoreIfPending: func(_ context.Context, _ uuid.UUID, _ float64) error {
+			scoreUpdated = true
+			return nil
+		},
+	})
+
+	_, err := svc.UpdateFixedExpense(context.Background(), feID, profileID, userID, FixedExpenseInput{
+		Name:       "Rent",
+		DayOfMonth: 5,
+	})
+	require.NoError(t, err)
+	assert.True(t, deleted, "a review that no longer matches after a template edit must be removed")
+	assert.Equal(t, reviewID, deletedID, "must delete the review row, never a transaction")
+	assert.False(t, scoreUpdated)
+}
+
+// A confirmed or dismissed review is a decision the user already made — a
+// template edit must never touch it.
+func TestUpdateFixedExpense_DoesNotTouchConfirmedOrDismissedReview(t *testing.T) {
+	for _, status := range []string{"confirmed", "dismissed"} {
+		t.Run(status, func(t *testing.T) {
+			userID := uuid.New()
+			profileID := uuid.New()
+			feID := uuid.New()
+			txID := uuid.New()
+			now := time.Now().UTC()
+			currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+			var deleted, scoreUpdated bool
+
+			svc := NewBudgetProfileService(
+				&mockBudgetProfileRepo{
+					getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+						return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+					},
+					getLatestPeriod: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+						return db.BudgetPeriod{ID: uuid.New(), StartDate: pgtype.Date{Time: currentMonthStart, Valid: true}}, nil
+					},
+				},
+				&mockTransactionRepo{},
+				&mockFixedExpenseRepo{
+					update: func(_ context.Context, arg db.UpdateFixedExpenseParams) (db.FixedExpense, error) {
+						return db.FixedExpense{ID: feID, Name: "Rent", DayOfMonth: arg.DayOfMonth, IntervalMonths: arg.IntervalMonths}, nil
+					},
+					getTransaction: func(_ context.Context, _ db.GetTransactionByFixedExpenseParams) (db.Transaction, error) {
+						return db.Transaction{ID: txID, IsPaid: false}, nil
+					},
+					updateTransactionFromFixed: func(_ context.Context, _ db.UpdateTransactionFromFixedExpenseParams) error {
+						return nil
+					},
+				},
+				&mockUserRepo{},
+			).WithReviews(&mockTransactionReviewRepo{
+				getByMatchedTx: func(_ context.Context, matchedTxID uuid.UUID) (db.TransactionReview, error) {
+					return db.TransactionReview{ID: uuid.New(), TransactionID: uuid.New(), MatchedTransactionID: matchedTxID, Status: status}, nil
+				},
+				deleteIfPending: func(_ context.Context, _ uuid.UUID) error {
+					deleted = true
+					return nil
+				},
+				updateScoreIfPending: func(_ context.Context, _ uuid.UUID, _ float64) error {
+					scoreUpdated = true
+					return nil
+				},
+			})
+
+			_, err := svc.UpdateFixedExpense(context.Background(), feID, profileID, userID, FixedExpenseInput{
+				Name:       "Rent",
+				DayOfMonth: 5,
+			})
+			require.NoError(t, err)
+			assert.False(t, deleted, "must not touch a %s review", status)
+			assert.False(t, scoreUpdated, "must not touch a %s review", status)
+		})
+	}
+}
+
 // Editing a bill that has already been marked paid used to spawn a SECOND
 // transaction for the same fixed expense in the same period: the reconciliation
 // asked for the *unpaid* transaction, got nothing back, and read that as "this

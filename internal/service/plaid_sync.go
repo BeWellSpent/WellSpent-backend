@@ -674,7 +674,9 @@ func scoreBestMatch(name string, amount float64, categoryID *int32, pmID *uuid.U
 				break
 			}
 		}
-		if aliasHit || syncNameWordsOverlap(nameLower, strings.ToLower(fe.Name)) {
+		// Exact match first: a short name ("F1") has no words ≥4 chars, so
+		// word-overlap alone would score it 0 even against an identical name.
+		if aliasHit || strings.EqualFold(name, fe.Name) || syncNameWordsOverlap(nameLower, strings.ToLower(fe.Name)) {
 			score += 20
 		}
 		if pmID != nil && fe.PaymentMethodID != nil && *pmID == *fe.PaymentMethodID {
@@ -720,7 +722,9 @@ func syncScoreBestMatch(tx plaidclient.Transaction, categoryID *int32, pmID *uui
 			}
 		}
 		feLower := strings.ToLower(fe.Name)
-		if aliasHit || syncNameWordsOverlap(txNameLower, feLower) {
+		// Exact match first: a short name ("F1") has no words ≥4 chars, so
+		// word-overlap alone would score it 0 even against an identical name.
+		if aliasHit || strings.EqualFold(tx.Name, fe.Name) || syncNameWordsOverlap(txNameLower, feLower) {
 			score += 20
 		}
 

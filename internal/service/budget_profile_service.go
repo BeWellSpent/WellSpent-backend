@@ -24,6 +24,7 @@ type BudgetProfileService struct {
 	fixedExpenses repository.FixedExpenseRepository
 	users         repository.UserRepository
 	notifs        *NotificationService
+	reviews       repository.TransactionReviewRepository
 }
 
 func NewBudgetProfileService(
@@ -49,6 +50,11 @@ func NewBudgetProfileService(
 
 func (s *BudgetProfileService) WithNotifications(ns *NotificationService) *BudgetProfileService {
 	s.notifs = ns
+	return s
+}
+
+func (s *BudgetProfileService) WithReviews(reviews repository.TransactionReviewRepository) *BudgetProfileService {
+	s.reviews = reviews
 	return s
 }
 
@@ -1869,6 +1875,8 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 			// The paid row keeps the old category/payment method while the
 			// template shows the new one.
 			log.Printf("fixed_expense: sync paid current period transaction: %v", syncErr)
+		} else {
+			s.refreshReviewForMatchedTransaction(ctx, existing.ID, fe)
 		}
 	default:
 		if syncErr := s.fixedExpenses.UpdateTransactionFromFixedExpense(ctx, db.UpdateTransactionFromFixedExpenseParams{
@@ -1882,10 +1890,52 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 		}); syncErr != nil {
 			// The current period keeps the old amount while the template shows the new one.
 			log.Printf("fixed_expense: sync current period transaction: %v", syncErr)
+		} else {
+			s.refreshReviewForMatchedTransaction(ctx, existing.ID, fe)
 		}
 	}
 
 	return fe, nil
+}
+
+// refreshReviewForMatchedTransaction re-scores a still-pending review after a
+// template edit synced its fields onto matchedTransactionID, so the review
+// reflects what the transaction actually looks like now rather than a stale
+// snapshot from when it was first queued. Below 80 removes the review row —
+// never either transaction it links. A confirmed or dismissed review is a
+// decision the user already made and is left untouched.
+func (s *BudgetProfileService) refreshReviewForMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID, fe db.FixedExpense) {
+	if s.reviews == nil {
+		return
+	}
+	review, err := s.reviews.GetByMatchedTransactionID(ctx, matchedTransactionID)
+	if err != nil || review.Status != "pending" {
+		return
+	}
+	variableTx, txErr := s.transactions.GetByID(ctx, review.TransactionID)
+	if txErr != nil || variableTx.Name == nil {
+		log.Printf("fixed_expense: refresh review %s: get transaction %s: %v", review.ID, review.TransactionID, txErr)
+		return
+	}
+	amountF64 := 0.0
+	if v, vErr := variableTx.Amount.Float64Value(); vErr == nil && v.Valid {
+		amountF64 = v.Float64
+	}
+	aliases, _ := s.reviews.ListAliases(ctx, fe.ID)
+	score, bestFE := scoreBestMatch(*variableTx.Name, amountF64, variableTx.CategoryID, variableTx.PaymentMethodID, []db.FixedExpense{fe}, map[uuid.UUID][]string{fe.ID: aliases})
+	if score < 80 || bestFE == nil {
+		if delErr := s.reviews.DeleteIfPending(ctx, review.ID); delErr != nil {
+			log.Printf("fixed_expense: remove stale review %s after template edit: %v", review.ID, delErr)
+			return
+		}
+		log.Printf("fixed_expense: removed stale review %s — fixed expense %s no longer matches (score=%.0f)", review.ID, fe.ID, score)
+		return
+	}
+	if updErr := s.reviews.UpdateScoreIfPending(ctx, review.ID, score); updErr != nil {
+		log.Printf("fixed_expense: refresh review %s score: %v", review.ID, updErr)
+		return
+	}
+	log.Printf("fixed_expense: refreshed review %s score to %.0f after template edit", review.ID, score)
 }
 
 func (s *BudgetProfileService) DeleteFixedExpense(ctx context.Context, id uuid.UUID, profileID, userID uuid.UUID) error {

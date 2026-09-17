@@ -87,6 +87,18 @@ func (q *Queries) DeleteFixedExpenseAlias(ctx context.Context, arg DeleteFixedEx
 	return err
 }
 
+const deleteTransactionReviewIfPending = `-- name: DeleteTransactionReviewIfPending :exec
+DELETE FROM transaction_review WHERE id = $1 AND status = 'pending'
+`
+
+// Deletes only the review row — never the transactions it links. Scoped to
+// 'pending' so an edit can never silently discard a confirmed or dismissed
+// decision the user already made.
+func (q *Queries) DeleteTransactionReviewIfPending(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteTransactionReviewIfPending, id)
+	return err
+}
+
 const getConfirmedReviewByMatchedTransaction = `-- name: GetConfirmedReviewByMatchedTransaction :one
 SELECT id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at
 FROM transaction_review
@@ -185,6 +197,41 @@ type GetTransactionReviewRow struct {
 func (q *Queries) GetTransactionReview(ctx context.Context, id uuid.UUID) (GetTransactionReviewRow, error) {
 	row := q.db.QueryRow(ctx, getTransactionReview, id)
 	var i GetTransactionReviewRow
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetPeriodID,
+		&i.TransactionID,
+		&i.MatchedTransactionID,
+		&i.MatchScore,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getTransactionReviewByMatchedTransactionID = `-- name: GetTransactionReviewByMatchedTransactionID :one
+SELECT id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at
+FROM transaction_review
+WHERE matched_transaction_id = $1
+LIMIT 1
+`
+
+type GetTransactionReviewByMatchedTransactionIDRow struct {
+	ID                   uuid.UUID          `json:"id"`
+	BudgetPeriodID       uuid.UUID          `json:"budget_period_id"`
+	TransactionID        uuid.UUID          `json:"transaction_id"`
+	MatchedTransactionID uuid.UUID          `json:"matched_transaction_id"`
+	MatchScore           pgtype.Numeric     `json:"match_score"`
+	Status               string             `json:"status"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+}
+
+// The reverse of GetTransactionReviewByTransactionID: given the Fixed-type
+// side of a match, find its review regardless of status, so an edit to the
+// Fixed expense template can refresh a still-pending review's score.
+func (q *Queries) GetTransactionReviewByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) (GetTransactionReviewByMatchedTransactionIDRow, error) {
+	row := q.db.QueryRow(ctx, getTransactionReviewByMatchedTransactionID, matchedTransactionID)
+	var i GetTransactionReviewByMatchedTransactionIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.BudgetPeriodID,
@@ -340,6 +387,21 @@ WHERE matched_transaction_id = $1
 
 func (q *Queries) ResetConfirmedReviewByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, resetConfirmedReviewByMatchedTransaction, matchedTransactionID)
+	return err
+}
+
+const updateTransactionReviewScoreIfPending = `-- name: UpdateTransactionReviewScoreIfPending :exec
+UPDATE transaction_review SET match_score = $2 WHERE id = $1 AND status = 'pending'
+`
+
+type UpdateTransactionReviewScoreIfPendingParams struct {
+	ID         uuid.UUID      `json:"id"`
+	MatchScore pgtype.Numeric `json:"match_score"`
+}
+
+// Same 'pending' scope as the delete above, for the same reason.
+func (q *Queries) UpdateTransactionReviewScoreIfPending(ctx context.Context, arg UpdateTransactionReviewScoreIfPendingParams) error {
+	_, err := q.db.Exec(ctx, updateTransactionReviewScoreIfPending, arg.ID, arg.MatchScore)
 	return err
 }
 
