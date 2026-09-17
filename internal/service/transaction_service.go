@@ -252,9 +252,11 @@ func (s *TransactionService) Create(ctx context.Context, arg db.CreateTransactio
 }
 
 // maybeQueueReview scores a created-or-edited variable transaction against
-// active fixed expenses; ≥80 queues a review. Best-effort, all failures
-// ignored. Gated per-person (userID), not per-budget: needs their own
-// manual_match_review_enabled + a paid plan. Fails open on lookup errors.
+// active fixed expenses; ≥80 queues a review, and a still-pending review that
+// no longer matches after an edit is removed (never the transactions it
+// linked). Best-effort, all failures ignored. Gated per-person (userID), not
+// per-budget: needs their own manual_match_review_enabled + a paid plan.
+// Fails open on lookup errors.
 func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transaction, periodID, userID uuid.UUID) {
 	if tx.Name == nil {
 		return
@@ -279,6 +281,29 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 		log.Printf("transaction.match: tx %s: skipped — user %s is on the free plan", tx.ID, userID)
 		return
 	}
+	// An edit re-runs this same scoring against a transaction that may
+	// already carry a review from a previous add/edit. Confirmed and
+	// dismissed are decisions the user already made — an edit must never
+	// silently reopen either, only a still-pending review is ours to update
+	// or remove. Removal only ever touches this review row, never either
+	// transaction it links.
+	existing, existingErr := s.reviews.GetByTransactionID(ctx, tx.ID)
+	if existingErr == nil && existing.Status != "pending" {
+		log.Printf("transaction.match: tx %s: skipped — existing review %s is %s, not reopening", tx.ID, existing.ID, existing.Status)
+		return
+	}
+	hasPending := existingErr == nil && existing.Status == "pending"
+	removeStale := func(score float64) {
+		if !hasPending {
+			return
+		}
+		if delErr := s.reviews.DeleteIfPending(ctx, existing.ID); delErr != nil {
+			log.Printf("transaction.match: tx %s: remove stale review %s: %v", tx.ID, existing.ID, delErr)
+			return
+		}
+		log.Printf("transaction.match: tx %s: removed stale review %s — no longer matches (score=%.0f)", tx.ID, existing.ID, score)
+	}
+
 	fixedExpenses, err := s.fixedExpenses.List(ctx, period.BudgetProfileID)
 	if err != nil {
 		log.Printf("transaction.match: tx %s: list fixed expenses for profile %s: %v", tx.ID, period.BudgetProfileID, err)
@@ -286,6 +311,7 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 	}
 	if len(fixedExpenses) == 0 {
 		log.Printf("transaction.match: tx %s: skipped — profile %s has no active fixed expenses", tx.ID, period.BudgetProfileID)
+		removeStale(0)
 		return
 	}
 	aliasesByFE := make(map[uuid.UUID][]string, len(fixedExpenses))
@@ -300,6 +326,7 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 	bestScore, bestFE := scoreBestMatch(*tx.Name, amountF64, tx.CategoryID, tx.PaymentMethodID, fixedExpenses, aliasesByFE)
 	if bestScore < 80 || bestFE == nil {
 		log.Printf("transaction.match: tx %s %q $%.2f: best score %.0f against %d fixed expenses — below threshold", tx.ID, *tx.Name, amountF64, bestScore, len(fixedExpenses))
+		removeStale(bestScore)
 		return
 	}
 	// Same-period only, matching MarkTransactionForReview's guard — a review
@@ -310,6 +337,7 @@ func (s *TransactionService) maybeQueueReview(ctx context.Context, tx db.Transac
 	})
 	if upErr != nil || unpaid.BudgetPeriodID == nil {
 		log.Printf("transaction.match: tx %s: matched fixed expense %s (score=%.0f) but no unpaid transaction in period %s: %v", tx.ID, bestFE.ID, bestScore, periodID, upErr)
+		removeStale(bestScore)
 		return
 	}
 	if _, reviewErr := s.reviews.Upsert(ctx, periodID, tx.ID, unpaid.ID, bestScore); reviewErr != nil {

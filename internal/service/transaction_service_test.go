@@ -471,6 +471,9 @@ type mockTransactionReviewRepo struct {
 	updateStatus            func(context.Context, uuid.UUID, string) error
 	getConfirmedByMatchedTx func(context.Context, uuid.UUID) (db.TransactionReview, error)
 	getByTransactionID      func(context.Context, uuid.UUID) (db.TransactionReview, error)
+	getByMatchedTx          func(context.Context, uuid.UUID) (db.TransactionReview, error)
+	deleteIfPending         func(context.Context, uuid.UUID) error
+	updateScoreIfPending    func(context.Context, uuid.UUID, float64) error
 	resetByMatchedTx        func(context.Context, uuid.UUID) error
 	createAlias             func(context.Context, uuid.UUID, string) error
 	deleteAlias             func(context.Context, uuid.UUID, string) error
@@ -513,6 +516,24 @@ func (m *mockTransactionReviewRepo) GetByTransactionID(ctx context.Context, tran
 		return m.getByTransactionID(ctx, transactionID)
 	}
 	return db.TransactionReview{}, apperr.NotFound("transaction_review", "")
+}
+func (m *mockTransactionReviewRepo) GetByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error) {
+	if m.getByMatchedTx != nil {
+		return m.getByMatchedTx(ctx, matchedTransactionID)
+	}
+	return db.TransactionReview{}, apperr.NotFound("transaction_review", "")
+}
+func (m *mockTransactionReviewRepo) DeleteIfPending(ctx context.Context, id uuid.UUID) error {
+	if m.deleteIfPending != nil {
+		return m.deleteIfPending(ctx, id)
+	}
+	return nil
+}
+func (m *mockTransactionReviewRepo) UpdateScoreIfPending(ctx context.Context, id uuid.UUID, score float64) error {
+	if m.updateScoreIfPending != nil {
+		return m.updateScoreIfPending(ctx, id, score)
+	}
+	return nil
 }
 func (m *mockTransactionReviewRepo) ResetByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) error {
 	if m.resetByMatchedTx != nil {
@@ -2141,6 +2162,134 @@ func TestUpdateTransaction_QueuesReview_WhenScoreOver80(t *testing.T) {
 	_, err := svc.Update(context.Background(), db.UpdateTransactionParams{ID: txID, TransactionTypeID: &variableType}, userID)
 	require.NoError(t, err)
 	assert.True(t, upsertCalled, "editing a transaction must re-run matching, same as Create already does")
+}
+
+// An edit that no longer matches must remove the stale pending review — but
+// only the review row, never either transaction it linked.
+func TestUpdateTransaction_RemovesStalePendingReview_WhenNoLongerMatches(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	existingReviewID := uuid.New()
+	variableType := int32(2)
+	txName := "Something Else"
+	txAmount := pgtype.Numeric{}
+	_ = txAmount.Scan("999.00")
+
+	var deletedID uuid.UUID
+	var deleteCalled, upsertCalled bool
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: id, BudgetPeriodID: &periodID, TransactionTypeID: &variableType}, nil
+			},
+			update: func(_ context.Context, arg db.UpdateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: arg.ID, Name: &txName, Amount: txAmount, BudgetPeriodID: &periodID, TransactionTypeID: &variableType}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			getPersonByUserID: func(_ context.Context, _, uid uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{UserID: &uid, Role: "admin", ManualMatchReviewEnabled: true}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return nil, nil // no active fixed expenses left to match against
+			},
+		},
+		&mockTransactionReviewRepo{
+			getByTransactionID: func(_ context.Context, id uuid.UUID) (db.TransactionReview, error) {
+				return db.TransactionReview{ID: existingReviewID, TransactionID: id, Status: "pending"}, nil
+			},
+			deleteIfPending: func(_ context.Context, id uuid.UUID) error {
+				deleteCalled = true
+				deletedID = id
+				return nil
+			},
+			upsert: func(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+				upsertCalled = true
+				return db.TransactionReview{}, nil
+			},
+		},
+	)
+
+	_, err := svc.Update(context.Background(), db.UpdateTransactionParams{ID: txID, TransactionTypeID: &variableType}, userID)
+	require.NoError(t, err)
+	assert.True(t, deleteCalled, "a review that no longer matches after an edit must be removed")
+	assert.Equal(t, existingReviewID, deletedID, "must delete the review row, never a transaction")
+	assert.False(t, upsertCalled)
+}
+
+// A confirmed or dismissed review is a decision the user already made — an
+// edit must never silently reopen it.
+func TestUpdateTransaction_DoesNotReopenConfirmedOrDismissedReview(t *testing.T) {
+	for _, status := range []string{"confirmed", "dismissed"} {
+		t.Run(status, func(t *testing.T) {
+			userID := uuid.New()
+			profileID := uuid.New()
+			periodID := uuid.New()
+			txID := uuid.New()
+			variableType := int32(2)
+			txName := "Netflix"
+			catID := int32(3)
+			pmID := uuid.New()
+			txAmount := pgtype.Numeric{}
+			_ = txAmount.Scan("15.99")
+
+			var deleteCalled, upsertCalled bool
+
+			svc := NewTransactionService(
+				&mockTransactionRepo{
+					getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+						return db.Transaction{ID: id, BudgetPeriodID: &periodID, TransactionTypeID: &variableType}, nil
+					},
+					update: func(_ context.Context, arg db.UpdateTransactionParams) (db.Transaction, error) {
+						return db.Transaction{ID: arg.ID, Name: &txName, Amount: txAmount, CategoryID: &catID, PaymentMethodID: &pmID, BudgetPeriodID: &periodID, TransactionTypeID: &variableType}, nil
+					},
+				},
+				&mockBudgetProfileRepo{
+					getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+						return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+					},
+					getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+						return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+					},
+					getPersonByUserID: func(_ context.Context, _, uid uuid.UUID) (db.BudgetToProfileMapping, error) {
+						return db.BudgetToProfileMapping{UserID: &uid, Role: "admin", ManualMatchReviewEnabled: true}, nil
+					},
+				},
+				&mockExpenseAllocationRepo{},
+				&mockFixedExpenseRepo{},
+				&mockTransactionReviewRepo{
+					getByTransactionID: func(_ context.Context, id uuid.UUID) (db.TransactionReview, error) {
+						return db.TransactionReview{ID: uuid.New(), TransactionID: id, Status: status}, nil
+					},
+					deleteIfPending: func(_ context.Context, _ uuid.UUID) error {
+						deleteCalled = true
+						return nil
+					},
+					upsert: func(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+						upsertCalled = true
+						return db.TransactionReview{}, nil
+					},
+				},
+			)
+
+			_, err := svc.Update(context.Background(), db.UpdateTransactionParams{ID: txID, TransactionTypeID: &variableType}, userID)
+			require.NoError(t, err)
+			assert.False(t, deleteCalled, "must not touch a %s review", status)
+			assert.False(t, upsertCalled, "must not touch a %s review", status)
+		})
+	}
 }
 
 // ── MarkTransactionForReview tests ────────────────────────────────────────────

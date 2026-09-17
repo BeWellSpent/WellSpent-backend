@@ -1070,11 +1070,7 @@ type UpdateBudgetPersonManualMatchReviewPreferenceParams struct {
 	UserID                   uuid.UUID `json:"user_id"`
 }
 
-// Writes the caller's own manual-match-review preference. Same shape as
-// UpdateBudgetPersonPreferences above: matched on user_id, not a person id,
-// so this cannot touch another member. No role check: any member may set
-// their own preference, even though only a Collaborator/Admin can ever
-// actually create/edit a transaction it applies to.
+// Writes the caller's own manual-match-review preference. Matched on user_id, not a person id.
 func (q *Queries) UpdateBudgetPersonManualMatchReviewPreference(ctx context.Context, arg UpdateBudgetPersonManualMatchReviewPreferenceParams) (BudgetToProfileMapping, error) {
 	row := q.db.QueryRow(ctx, updateBudgetPersonManualMatchReviewPreference, arg.ManualMatchReviewEnabled, arg.BudgetProfileID, arg.UserID)
 	var i BudgetToProfileMapping

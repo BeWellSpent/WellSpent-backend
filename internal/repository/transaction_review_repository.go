@@ -19,6 +19,9 @@ type TransactionReviewRepository interface {
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	GetConfirmedByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error)
 	GetByTransactionID(ctx context.Context, transactionID uuid.UUID) (db.TransactionReview, error)
+	GetByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error)
+	DeleteIfPending(ctx context.Context, id uuid.UUID) error
+	UpdateScoreIfPending(ctx context.Context, id uuid.UUID, score float64) error
 	ResetByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) error
 	CreateAlias(ctx context.Context, fixedExpenseID uuid.UUID, alias string) error
 	DeleteAlias(ctx context.Context, fixedExpenseID uuid.UUID, alias string) error
@@ -167,6 +170,43 @@ func (r *transactionReviewRepository) GetByTransactionID(ctx context.Context, tr
 
 func (r *transactionReviewRepository) ResetByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) error {
 	return r.q.ResetConfirmedReviewByMatchedTransaction(ctx, matchedTransactionID)
+}
+
+func (r *transactionReviewRepository) GetByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error) {
+	row, err := r.q.GetTransactionReviewByMatchedTransactionID(ctx, matchedTransactionID)
+	if err == pgx.ErrNoRows {
+		return db.TransactionReview{}, apperr.NotFound("transaction_review", matchedTransactionID.String())
+	}
+	if err != nil {
+		return db.TransactionReview{}, err
+	}
+	return db.TransactionReview{
+		ID:                   row.ID,
+		BudgetPeriodID:       row.BudgetPeriodID,
+		TransactionID:        row.TransactionID,
+		MatchedTransactionID: row.MatchedTransactionID,
+		MatchScore:           row.MatchScore,
+		Status:               row.Status,
+		CreatedAt:            row.CreatedAt,
+	}, nil
+}
+
+// DeleteIfPending removes only the review row, never the transactions it
+// links — scoped to 'pending' so it can never discard a confirmed or
+// dismissed decision the user already made.
+func (r *transactionReviewRepository) DeleteIfPending(ctx context.Context, id uuid.UUID) error {
+	return r.q.DeleteTransactionReviewIfPending(ctx, id)
+}
+
+func (r *transactionReviewRepository) UpdateScoreIfPending(ctx context.Context, id uuid.UUID, score float64) error {
+	var scoreNum pgtype.Numeric
+	if err := scoreNum.Scan(fmt.Sprintf("%.2f", score)); err != nil {
+		return err
+	}
+	return r.q.UpdateTransactionReviewScoreIfPending(ctx, db.UpdateTransactionReviewScoreIfPendingParams{
+		ID:         id,
+		MatchScore: scoreNum,
+	})
 }
 
 func (r *transactionReviewRepository) DeleteAlias(ctx context.Context, fixedExpenseID uuid.UUID, alias string) error {

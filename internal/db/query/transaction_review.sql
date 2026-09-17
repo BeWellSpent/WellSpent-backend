@@ -61,6 +61,25 @@ LIMIT 1;
 -- name: UpdateTransactionReviewStatus :exec
 UPDATE transaction_review SET status = $2 WHERE id = $1;
 
+-- The reverse of GetTransactionReviewByTransactionID: given the Fixed-type
+-- side of a match, find its review regardless of status, so an edit to the
+-- Fixed expense template can refresh a still-pending review's score.
+-- name: GetTransactionReviewByMatchedTransactionID :one
+SELECT id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at
+FROM transaction_review
+WHERE matched_transaction_id = $1
+LIMIT 1;
+
+-- Deletes only the review row — never the transactions it links. Scoped to
+-- 'pending' so an edit can never silently discard a confirmed or dismissed
+-- decision the user already made.
+-- name: DeleteTransactionReviewIfPending :exec
+DELETE FROM transaction_review WHERE id = $1 AND status = 'pending';
+
+-- Same 'pending' scope as the delete above, for the same reason.
+-- name: UpdateTransactionReviewScoreIfPending :exec
+UPDATE transaction_review SET match_score = $2 WHERE id = $1 AND status = 'pending';
+
 -- name: CreateFixedExpenseAlias :exec
 INSERT INTO fixed_expense_alias (fixed_expense_id, alias)
 VALUES ($1, $2)
