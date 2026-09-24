@@ -1062,21 +1062,28 @@ func (q *Queries) ListTransactionTypes(ctx context.Context) ([]TransactionType, 
 }
 
 const listTransactions = `-- name: ListTransactions :many
-SELECT id, name, amount, planned_amount, date, renewal_date,
-       budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
-       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
-FROM transaction
-WHERE budget_period_id = $1::uuid
-  AND ($2::int IS NULL OR category_id = $2)
-  AND ($3::int IS NULL OR transaction_type_id = $3)
-ORDER BY date DESC NULLS LAST
+SELECT t.id, t.name, t.amount, t.planned_amount, t.date, t.renewal_date,
+       t.budget_period_id, t.category_id, t.payment_method_id, t.transaction_frequency_id, t.transaction_type_id,
+       t.is_paid, t.paid_date, t.fixed_expense_id, t.plaid_transaction_id, t.is_excluded, t.installment_fixed_expense_id, t.carried_from_budget_period_id,
+       t.plaid_pfc_primary, t.plaid_pfc_detailed, t.plaid_reference_number, t.plaid_ppd_id
+FROM transaction t
+LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id
+WHERE t.budget_period_id = $1::uuid
+  AND ($2::int IS NULL OR t.category_id = $2)
+  AND ($3::int IS NULL OR t.transaction_type_id = $3)
+  AND (
+    $4::int IS NULL
+    OR pm.budget_person_id IS NULL
+    OR pm.budget_person_id = $4
+  )
+ORDER BY t.date DESC NULLS LAST
 `
 
 type ListTransactionsParams struct {
 	BudgetPeriodID    uuid.UUID `json:"budget_period_id"`
 	CategoryID        *int32    `json:"category_id"`
 	TransactionTypeID *int32    `json:"transaction_type_id"`
+	FocusedPersonID   *int32    `json:"focused_person_id"`
 }
 
 // A confirmed review's imported transaction is intentionally NOT filtered out
@@ -1084,8 +1091,16 @@ type ListTransactionsParams struct {
 // ConfirmTransactionReview excludes it from totals via is_excluded instead of
 // hiding the row outright, so unmarking the matched fixed expense later never
 // leaves it stranded/unrecoverable behind a review-status side channel.
+//
+// focused_person_id, when set, restricts to transactions attributed (via
+// payment method) to that person, plus unattributed ones.
 func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error) {
-	rows, err := q.db.Query(ctx, listTransactions, arg.BudgetPeriodID, arg.CategoryID, arg.TransactionTypeID)
+	rows, err := q.db.Query(ctx, listTransactions,
+		arg.BudgetPeriodID,
+		arg.CategoryID,
+		arg.TransactionTypeID,
+		arg.FocusedPersonID,
+	)
 	if err != nil {
 		return nil, err
 	}

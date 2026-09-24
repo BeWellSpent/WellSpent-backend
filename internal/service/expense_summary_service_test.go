@@ -60,7 +60,7 @@ func TestGetSummary_ForbiddenWhenNotMember(t *testing.T) {
 	}
 	svc := newTestExpenseSummarySvc(profiles, nil, nil, nil)
 
-	_, err := svc.GetSummary(context.Background(), periodID, callerID)
+	_, err := svc.GetSummary(context.Background(), periodID, callerID, false)
 
 	require.Error(t, err)
 	var forbiddenErr *apperr.ForbiddenError
@@ -106,7 +106,7 @@ func TestGetSummary_PlannedButUnspentCategory_VisibleInOverview(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	require.Len(t, resp.OverviewCategories, 1, "planned-but-unspent category must still appear in Overview")
@@ -167,7 +167,7 @@ func TestGetSummary_BasicPlanAndOverviewParity(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(100), resp.TotalCommitted.Units)
@@ -219,7 +219,7 @@ func TestGetSummary_FixedFallback_DueThisPeriod_CountsTowardCommitted(t *testing
 		nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	require.Len(t, resp.PlanCategories, 1)
@@ -268,7 +268,7 @@ func TestGetSummary_NotDueFixedTemplate_InformationalOnly(t *testing.T) {
 		},
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	require.Len(t, resp.PlanCategories, 1, "not-due Fixed expense category must still be visible on the Plan tab")
@@ -319,7 +319,7 @@ func TestGetSummary_NotDueFixedTemplate_EarliestDueDateWins(t *testing.T) {
 		},
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	require.Len(t, resp.PlanCategories, 1)
@@ -375,7 +375,7 @@ func TestGetSummary_PlanRowsSumToTotalCommitted(t *testing.T) {
 		},
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	require.Len(t, resp.PlanCategories, 3, "the not-due category is still listed, just at zero")
@@ -420,7 +420,7 @@ func TestGetSummary_SavingsCategory_UsesSavingsSourceSum(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	require.Len(t, resp.PlanCategories, 1)
@@ -461,7 +461,7 @@ func TestGetSummary_ExclusionRules_IsExcludedAndIncomeCategory(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	require.Len(t, resp.OverviewCategories, 1, "only the one non-excluded, non-Income transaction's category should be visible")
@@ -521,7 +521,7 @@ func TestGetSummary_CardPaymentDoesNotCancelTheCardsOwnPurchases(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(1477), resp.TotalActual.Units, "card payments must not net against the card's purchases")
@@ -572,7 +572,7 @@ func TestGetSummary_OverBudgetAndUnplanned(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	require.Len(t, resp.OverviewCategories, 1)
@@ -616,7 +616,7 @@ func TestGetSummary_PersonBreakdowns(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	require.Len(t, resp.PlanCategories, 1)
@@ -669,7 +669,7 @@ func TestGetSummary_ActualSplitByType_SumsToTotalActual(t *testing.T) {
 		nil, nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(100), resp.FixedActualTotal.Units, "only the paid fixed transaction counts")
@@ -719,7 +719,7 @@ func TestGetSummary_OverBudgetIDs_FlagFromCrossingPointOnward(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{crossing.String(), after.String()}, resp.OverBudgetTransactionIds,
@@ -765,7 +765,7 @@ func TestGetSummary_OverBudgetIDs_IgnoreFixedAndReceived(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	assert.Empty(t, resp.OverBudgetTransactionIds)
@@ -798,7 +798,7 @@ func TestGetSummary_OverBudgetIDs_UnplannedCategoryFlagsFromFirstSpend(t *testin
 		nil, nil,
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{first.String()}, resp.OverBudgetTransactionIds,
@@ -857,7 +857,7 @@ func TestGetSummary_NotDueTemplateSurvivesADueSiblingInTheSameCategory(t *testin
 		},
 	)
 
-	resp, err := svc.GetSummary(context.Background(), periodID, userID)
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
 	require.NoError(t, err)
 
 	require.Len(t, resp.PlanCategories, 1)
@@ -872,4 +872,133 @@ func TestGetSummary_NotDueTemplateSurvivesADueSiblingInTheSameCategory(t *testin
 		"the due bill alone is the plan; an upcoming one is never a planned tier")
 
 	require.NotNil(t, row.NextDueDate, "the caption needs a date to hang off")
+}
+
+// TestGetSummary_FocusedView_ScopesToCallerAndUnattributed is the direct
+// regression test for issue #72: with focused_view set, every total must
+// include only the caller's own rows plus unattributed ones — never another
+// person's, even though they're on the same budget and category.
+func TestGetSummary_FocusedView_ScopesToCallerAndUnattributed(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+	userID := uuid.New()
+	spouseUserID := uuid.New()
+	catID := int32(1)
+	myPersonID := int32(1)
+	spousePersonID := int32(2)
+	myPMID := uuid.New()
+	spousePMID := uuid.New()
+	variableType := int32(2)
+
+	svc := newTestExpenseSummarySvc(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			listPeople: func(_ context.Context, _ uuid.UUID) ([]db.BudgetToProfileMapping, error) {
+				return []db.BudgetToProfileMapping{
+					{ID: myPersonID, UserID: &userID},
+					{ID: spousePersonID, UserID: &spouseUserID},
+				}, nil
+			},
+			listIncomeSources: func(_ context.Context, _ uuid.UUID) ([]db.IncomeSource, error) {
+				myID, spouseID := myPersonID, spousePersonID
+				return []db.IncomeSource{
+					{DefaultAmount: n(t, "500.00"), BudgetPersonID: &myID},
+					{DefaultAmount: n(t, "300.00"), BudgetPersonID: &spouseID},
+					{DefaultAmount: n(t, "50.00")}, // unattributed
+				}, nil
+			},
+			listIncomeEntries: func(_ context.Context, _ uuid.UUID) ([]db.IncomeEntry, error) {
+				myID, spouseID := myPersonID, spousePersonID
+				return []db.IncomeEntry{
+					{Amount: n(t, "500.00"), BudgetPersonID: &myID},
+					{Amount: n(t, "300.00"), BudgetPersonID: &spouseID},
+					{Amount: n(t, "50.00")},
+				}, nil
+			},
+		},
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				return []db.Transaction{
+					{CategoryID: &catID, PaymentMethodID: &myPMID, Amount: n(t, "60.00"), PlannedAmount: n(t, "60.00"), TransactionTypeID: &variableType},
+					{CategoryID: &catID, PaymentMethodID: &spousePMID, Amount: n(t, "40.00"), PlannedAmount: n(t, "40.00"), TransactionTypeID: &variableType},
+					{CategoryID: &catID, Amount: n(t, "10.00"), PlannedAmount: n(t, "10.00"), TransactionTypeID: &variableType}, // unattributed
+				}, nil
+			},
+			listPaymentMethods: func(_ context.Context, _ uuid.UUID) ([]db.ListPaymentMethodsRow, error) {
+				myID, spouseID := myPersonID, spousePersonID
+				return []db.ListPaymentMethodsRow{
+					{ID: myPMID, BudgetPersonID: &myID},
+					{ID: spousePMID, BudgetPersonID: &spouseID},
+				}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		nil,
+	)
+
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, true)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(550), resp.IncomeFromSources.Units, "my $500 + unattributed $50, never the spouse's $300")
+	assert.Equal(t, int64(550), resp.IncomeFromEntries.Units)
+	assert.Equal(t, int64(70), resp.TotalActual.Units, "my $60 + unattributed $10, never the spouse's $40")
+	require.Len(t, resp.OverviewCategories, 1)
+	assert.Equal(t, int64(70), resp.OverviewCategories[0].ActualTotal.Units)
+}
+
+func TestGetSummary_FullView_IncludesEveryone(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+	userID := uuid.New()
+	spouseUserID := uuid.New()
+	catID := int32(1)
+	myPersonID := int32(1)
+	spousePersonID := int32(2)
+	myPMID := uuid.New()
+	spousePMID := uuid.New()
+	variableType := int32(2)
+
+	svc := newTestExpenseSummarySvc(
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, _ uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+			listPeople: func(_ context.Context, _ uuid.UUID) ([]db.BudgetToProfileMapping, error) {
+				return []db.BudgetToProfileMapping{
+					{ID: myPersonID, UserID: &userID},
+					{ID: spousePersonID, UserID: &spouseUserID},
+				}, nil
+			},
+		},
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				return []db.Transaction{
+					{CategoryID: &catID, PaymentMethodID: &myPMID, Amount: n(t, "60.00"), PlannedAmount: n(t, "60.00"), TransactionTypeID: &variableType},
+					{CategoryID: &catID, PaymentMethodID: &spousePMID, Amount: n(t, "40.00"), PlannedAmount: n(t, "40.00"), TransactionTypeID: &variableType},
+				}, nil
+			},
+			listPaymentMethods: func(_ context.Context, _ uuid.UUID) ([]db.ListPaymentMethodsRow, error) {
+				myID, spouseID := myPersonID, spousePersonID
+				return []db.ListPaymentMethodsRow{
+					{ID: myPMID, BudgetPersonID: &myID},
+					{ID: spousePMID, BudgetPersonID: &spouseID},
+				}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		nil,
+	)
+
+	resp, err := svc.GetSummary(context.Background(), periodID, userID, false)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(100), resp.TotalActual.Units, "focused_view=false must include everyone")
 }

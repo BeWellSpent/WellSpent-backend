@@ -70,7 +70,7 @@ func (h *BudgetHandler) ListTransactions(ctx context.Context, req *connect.Reque
 		v := req.Msg.TransactionTypeId
 		params.TransactionTypeID = &v
 	}
-	txns, svcErr := h.transactions.List(ctx, params, userID)
+	txns, svcErr := h.transactions.List(ctx, params, userID, req.Msg.FocusedView)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
@@ -773,7 +773,7 @@ func (h *BudgetHandler) GetExpenseSummary(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	summary, svcErr := h.expenseSummary.GetSummary(ctx, periodID, userID)
+	summary, svcErr := h.expenseSummary.GetSummary(ctx, periodID, userID, req.Msg.FocusedView)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
@@ -862,16 +862,25 @@ func (h *BudgetHandler) ListTransactionReviews(ctx context.Context, req *connect
 		if r.MatchedTransactionName != nil {
 			matchedName = *r.MatchedTransactionName
 		}
+		var txPersonID, matchedPersonID int64
+		if r.TransactionPersonID != nil {
+			txPersonID = int64(*r.TransactionPersonID)
+		}
+		if r.MatchedTransactionPersonID != nil {
+			matchedPersonID = int64(*r.MatchedTransactionPersonID)
+		}
 		review := &v1.TransactionReview{
-			Id:                     r.ID.String(),
-			BudgetPeriodId:         r.BudgetPeriodID.String(),
-			TransactionId:          r.TransactionID.String(),
-			MatchScore:             score.Float64,
-			Status:                 r.Status,
-			TransactionName:        txName,
-			TransactionAmount:      moneyFromNumeric(r.TransactionAmount),
-			MatchedTransactionId:   r.MatchedTransactionID.String(),
-			MatchedTransactionName: matchedName,
+			Id:                         r.ID.String(),
+			BudgetPeriodId:             r.BudgetPeriodID.String(),
+			TransactionId:              r.TransactionID.String(),
+			MatchScore:                 score.Float64,
+			Status:                     r.Status,
+			TransactionName:            txName,
+			TransactionAmount:          moneyFromNumeric(r.TransactionAmount),
+			MatchedTransactionId:       r.MatchedTransactionID.String(),
+			MatchedTransactionName:     matchedName,
+			TransactionPersonId:        txPersonID,
+			MatchedTransactionPersonId: matchedPersonID,
 		}
 		if r.CreatedAt.Valid {
 			review.CreatedAt = timestamppb.New(r.CreatedAt.Time)

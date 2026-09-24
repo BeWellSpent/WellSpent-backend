@@ -16,11 +16,15 @@ SELECT
     tr.match_score, tr.status, tr.created_at,
     t.name  AS transaction_name,
     t.amount AS transaction_amount,
-    mt.name AS matched_transaction_name
+    mt.name AS matched_transaction_name,
+    pm.budget_person_id  AS transaction_person_id,
+    mpm.budget_person_id AS matched_transaction_person_id
 FROM transaction_review tr
 JOIN transaction t  ON t.id  = tr.transaction_id
 JOIN transaction mt ON mt.id = tr.matched_transaction_id
 JOIN budget_period bp ON bp.id = tr.budget_period_id
+LEFT JOIN payment_methods pm  ON pm.id  = t.payment_method_id
+LEFT JOIN payment_methods mpm ON mpm.id = mt.payment_method_id
 WHERE bp.budget_profile_id = $1
   AND tr.status != 'dismissed'
   -- Confirmed reviews are returned for every period, archived included: they

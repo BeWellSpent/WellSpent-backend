@@ -4,15 +4,24 @@
 -- ConfirmTransactionReview excludes it from totals via is_excluded instead of
 -- hiding the row outright, so unmarking the matched fixed expense later never
 -- leaves it stranded/unrecoverable behind a review-status side channel.
-SELECT id, name, amount, planned_amount, date, renewal_date,
-       budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded, installment_fixed_expense_id, carried_from_budget_period_id,
-       plaid_pfc_primary, plaid_pfc_detailed, plaid_reference_number, plaid_ppd_id
-FROM transaction
-WHERE budget_period_id = sqlc.arg('budget_period_id')::uuid
-  AND (sqlc.narg('category_id')::int IS NULL OR category_id = sqlc.narg('category_id'))
-  AND (sqlc.narg('transaction_type_id')::int IS NULL OR transaction_type_id = sqlc.narg('transaction_type_id'))
-ORDER BY date DESC NULLS LAST;
+--
+-- focused_person_id, when set, restricts to transactions attributed (via
+-- payment method) to that person, plus unattributed ones.
+SELECT t.id, t.name, t.amount, t.planned_amount, t.date, t.renewal_date,
+       t.budget_period_id, t.category_id, t.payment_method_id, t.transaction_frequency_id, t.transaction_type_id,
+       t.is_paid, t.paid_date, t.fixed_expense_id, t.plaid_transaction_id, t.is_excluded, t.installment_fixed_expense_id, t.carried_from_budget_period_id,
+       t.plaid_pfc_primary, t.plaid_pfc_detailed, t.plaid_reference_number, t.plaid_ppd_id
+FROM transaction t
+LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id
+WHERE t.budget_period_id = sqlc.arg('budget_period_id')::uuid
+  AND (sqlc.narg('category_id')::int IS NULL OR t.category_id = sqlc.narg('category_id'))
+  AND (sqlc.narg('transaction_type_id')::int IS NULL OR t.transaction_type_id = sqlc.narg('transaction_type_id'))
+  AND (
+    sqlc.narg('focused_person_id')::int IS NULL
+    OR pm.budget_person_id IS NULL
+    OR pm.budget_person_id = sqlc.narg('focused_person_id')
+  )
+ORDER BY t.date DESC NULLS LAST;
 
 -- name: GetTransactionByID :one
 SELECT id, name, amount, planned_amount, date, renewal_date,
