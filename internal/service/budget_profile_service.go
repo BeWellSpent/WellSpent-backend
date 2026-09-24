@@ -1676,6 +1676,100 @@ func (s *BudgetProfileService) CreateInstallmentPlan(ctx context.Context, userID
 	return fe, updated, nil
 }
 
+// FixedFromTransactionInput carries the caller-chosen schedule for
+// CreateFixedExpenseFromTransaction. Name/amount/category/payment method
+// come from the source transaction, not from here.
+type FixedFromTransactionInput struct {
+	TransactionID  uuid.UUID
+	BudgetPeriodID uuid.UUID
+	Name           string // optional rename; empty keeps the transaction's own name
+	AnchorDate     *time.Time
+	FrequencyUnit  int16
+	IntervalMonths int32
+	IntervalWeeks  int32
+	DayOfWeek      int32
+}
+
+// CreateFixedExpenseFromTransaction turns a variable transaction into a
+// recurring FixedExpense, then runs the exact same confirm logic a manual
+// Transaction Review confirm does — the new fixed transaction is marked
+// paid and the original is excluded, via a real transaction_review row
+// rather than a bespoke link.
+//
+// Blocked on an archived period, unlike CreateInstallmentPlan: this starts a
+// new forward-looking obligation rather than correcting a past one.
+func (s *BudgetProfileService) CreateFixedExpenseFromTransaction(ctx context.Context, userID uuid.UUID, inp FixedFromTransactionInput) (db.FixedExpense, db.Transaction, error) {
+	period, err := s.profiles.GetPeriodByID(ctx, inp.BudgetPeriodID)
+	if err != nil {
+		return db.FixedExpense{}, db.Transaction{}, err
+	}
+	if _, err := s.assertCollaboratorOrAbove(ctx, period.BudgetProfileID, userID); err != nil {
+		return db.FixedExpense{}, db.Transaction{}, err
+	}
+	if period.IsArchived {
+		return db.FixedExpense{}, db.Transaction{}, apperr.Invalid("this budget period is archived and read-only")
+	}
+
+	tx, err := s.transactions.GetByID(ctx, inp.TransactionID)
+	if err != nil {
+		return db.FixedExpense{}, db.Transaction{}, err
+	}
+	if tx.BudgetPeriodID == nil || *tx.BudgetPeriodID != inp.BudgetPeriodID {
+		return db.FixedExpense{}, db.Transaction{}, apperr.NotFound("transaction", inp.TransactionID.String())
+	}
+	if tx.TransactionTypeID != nil && *tx.TransactionTypeID == fixedTransactionTypeID {
+		return db.FixedExpense{}, db.Transaction{}, apperr.Invalid("only a variable transaction can become a fixed expense")
+	}
+	if numericToNanos(tx.Amount) <= 0 {
+		return db.FixedExpense{}, db.Transaction{}, apperr.Invalid("only a spend can become a fixed expense")
+	}
+	if s.reviews != nil {
+		if existing, existingErr := s.reviews.GetByTransactionID(ctx, inp.TransactionID); existingErr == nil && existing.Status != "dismissed" {
+			return db.FixedExpense{}, db.Transaction{}, apperr.Invalid("this transaction is already matched to a fixed expense")
+		}
+	}
+
+	name := inp.Name
+	if name == "" && tx.Name != nil {
+		name = *tx.Name
+	}
+
+	fe, spawned, err := s.CreateFixedExpense(ctx, period.BudgetProfileID, userID, FixedExpenseInput{
+		Name:            name,
+		PlannedAmount:   tx.Amount,
+		CategoryID:      tx.CategoryID,
+		PaymentMethodID: tx.PaymentMethodID,
+		AnchorDate:      inp.AnchorDate,
+		FrequencyUnit:   inp.FrequencyUnit,
+		IntervalMonths:  inp.IntervalMonths,
+		IntervalWeeks:   inp.IntervalWeeks,
+		DayOfWeek:       inp.DayOfWeek,
+	})
+	if err != nil {
+		return db.FixedExpense{}, db.Transaction{}, err
+	}
+
+	// No transaction spawned this period (e.g. a future anchor date) — nothing
+	// to match against yet. The source transaction is left as-is.
+	if spawned == nil || s.reviews == nil {
+		return fe, tx, nil
+	}
+
+	review, err := s.reviews.Upsert(ctx, inp.BudgetPeriodID, inp.TransactionID, spawned.ID, 100.0)
+	if err != nil {
+		return fe, tx, err
+	}
+	if err := confirmTransactionMatch(ctx, s.transactions, s.fixedExpenses, s.reviews, s.profiles, review, period.BudgetProfileID); err != nil {
+		return fe, tx, err
+	}
+
+	updated, err := s.transactions.GetByID(ctx, inp.TransactionID)
+	if err != nil {
+		return fe, tx, nil
+	}
+	return fe, updated, nil
+}
+
 // DeleteInstallmentPlan reverses CreateInstallmentPlan: the plan and every
 // payment it spawned are deleted, and the original purchase counts again.
 //

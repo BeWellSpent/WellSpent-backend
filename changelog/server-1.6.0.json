@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.6.0",
+  "items": [
+    {
+      "changeType": "added",
+      "summaryEn": "A variable transaction can now become a recurring fixed expense in one step, automatically matched and marked as paid.",
+      "summaryEs": "Una transacción variable ahora puede convertirse en un gasto fijo recurrente en un solo paso, con coincidencia y pago automáticos."
+    }
+  ]
+}
