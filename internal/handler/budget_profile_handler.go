@@ -306,6 +306,22 @@ func (h *BudgetHandler) UpdateMyManualMatchReviewPreference(ctx context.Context,
 	return connect.NewResponse(&v1.UpdateMyManualMatchReviewPreferenceResponse{Person: toProtoBudgetPerson(m)}), nil
 }
 
+func (h *BudgetHandler) UpdateMyFocusedViewPreference(ctx context.Context, req *connect.Request[v1.UpdateMyFocusedViewPreferenceRequest]) (*connect.Response[v1.UpdateMyFocusedViewPreferenceResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	m, svcErr := h.profiles.UpdateMyFocusedViewPreference(ctx, profileID, req.Msg.Enabled, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.UpdateMyFocusedViewPreferenceResponse{Person: toProtoBudgetPerson(m)}), nil
+}
+
 func (h *BudgetHandler) RemoveBudgetPerson(ctx context.Context, req *connect.Request[v1.RemoveBudgetPersonRequest]) (*connect.Response[v1.RemoveBudgetPersonResponse], error) {
 	userID, err := h.currentUserID(ctx)
 	if err != nil {
@@ -593,6 +609,7 @@ func toProtoBudgetPerson(m db.BudgetToProfileMapping) *v1.BudgetPerson {
 		PlanChartType:            stringToChartType(m.PlanChartType),
 		OverviewChartType:        stringToChartType(m.OverviewChartType),
 		ManualMatchReviewEnabled: m.ManualMatchReviewEnabled,
+		FocusedViewEnabled:       m.FocusedViewEnabled,
 	}
 }
 

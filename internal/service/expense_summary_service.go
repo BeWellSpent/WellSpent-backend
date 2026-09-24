@@ -93,7 +93,7 @@ type catPersonKey struct {
 // (each via its own logged loadX method, so a failure names exactly which
 // dependency broke) into an expenseSummaryData, then hand that to
 // newExpenseSummaryCalculator to do the actual math.
-func (s *ExpenseSummaryService) GetSummary(ctx context.Context, periodID, userID uuid.UUID) (*v1.GetExpenseSummaryResponse, error) {
+func (s *ExpenseSummaryService) GetSummary(ctx context.Context, periodID, userID uuid.UUID, focusedView bool) (*v1.GetExpenseSummaryResponse, error) {
 	period, err := s.loadPeriod(ctx, periodID)
 	if err != nil {
 		return nil, err
@@ -107,8 +107,93 @@ func (s *ExpenseSummaryService) GetSummary(ctx context.Context, periodID, userID
 	if err != nil {
 		return nil, err
 	}
+	if focusedView {
+		if myPersonID, ok := findPersonIDByUserID(data.people, userID); ok {
+			applyFocusedView(data, myPersonID)
+		}
+	}
 
 	return newExpenseSummaryCalculator(data).response(), nil
+}
+
+// findPersonIDByUserID resolves the caller's own person row on this budget.
+func findPersonIDByUserID(people []db.BudgetToProfileMapping, userID uuid.UUID) (int32, bool) {
+	for _, p := range people {
+		if p.UserID != nil && *p.UserID == userID {
+			return p.ID, true
+		}
+	}
+	return 0, false
+}
+
+// applyFocusedView restricts data in place to rows attributed to myPersonID
+// plus unattributed ones, before the calculator ever sees it — every total
+// downstream is scoped for free, with no changes needed to the calculator.
+func applyFocusedView(data *expenseSummaryData, myPersonID int32) {
+	pmPersonMap := make(map[uuid.UUID]int32, len(data.paymentMethods))
+	for _, pm := range data.paymentMethods {
+		if pm.BudgetPersonID != nil {
+			pmPersonMap[pm.ID] = *pm.BudgetPersonID
+		}
+	}
+	mine := func(personID *int32) bool {
+		return personID == nil || *personID == myPersonID
+	}
+	mineViaMethod := func(methodID *uuid.UUID) bool {
+		if methodID == nil {
+			return true
+		}
+		personID, ok := pmPersonMap[*methodID]
+		return !ok || personID == myPersonID
+	}
+
+	txs := make([]db.Transaction, 0, len(data.transactions))
+	for _, tx := range data.transactions {
+		if mineViaMethod(tx.PaymentMethodID) {
+			txs = append(txs, tx)
+		}
+	}
+	data.transactions = txs
+
+	allocs := make([]db.ExpenseAllocation, 0, len(data.allocations))
+	for _, a := range data.allocations {
+		if mine(a.BudgetPersonID) {
+			allocs = append(allocs, a)
+		}
+	}
+	data.allocations = allocs
+
+	savings := make([]db.SavingsSource, 0, len(data.savingsSources))
+	for _, ss := range data.savingsSources {
+		if mine(ss.BudgetPersonID) {
+			savings = append(savings, ss)
+		}
+	}
+	data.savingsSources = savings
+
+	fixedExpenses := make([]db.FixedExpense, 0, len(data.activeFixedExpenses))
+	for _, fe := range data.activeFixedExpenses {
+		if mineViaMethod(fe.PaymentMethodID) {
+			fixedExpenses = append(fixedExpenses, fe)
+		}
+	}
+	data.activeFixedExpenses = fixedExpenses
+
+	incomeSources := make([]db.IncomeSource, 0, len(data.incomeSources))
+	for _, is := range data.incomeSources {
+		if mine(is.BudgetPersonID) {
+			incomeSources = append(incomeSources, is)
+		}
+	}
+	data.incomeSources = incomeSources
+
+	incomeEntries := make([]db.IncomeEntry, 0, len(data.incomeEntries))
+	for _, ie := range data.incomeEntries {
+		if mine(ie.BudgetPersonID) {
+			incomeEntries = append(incomeEntries, ie)
+		}
+	}
+	data.incomeEntries = incomeEntries
 }
 
 // ─── Data loading — one function per source, each logging its own failure ───

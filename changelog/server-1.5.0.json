@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.5.0",
+  "items": [
+    {
+      "changeType": "added",
+      "summaryEn": "Added a Focused View preference that scopes the Plan, Overview, Transactions, Income, and Savings tabs to your own data plus unattributed rows.",
+      "summaryEs": "Se agregó una preferencia de Vista Enfocada que limita las pestañas de Plan, Resumen, Transacciones, Ingresos y Ahorros a tus propios datos más las filas sin atribuir."
+    }
+  ]
+}

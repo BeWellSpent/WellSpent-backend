@@ -47,6 +47,7 @@ type mockBudgetProfileRepo struct {
 	updatePersonRole                        func(context.Context, db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error)
 	updatePersonPreferences                 func(context.Context, db.UpdateBudgetPersonPreferencesParams) (db.BudgetToProfileMapping, error)
 	updatePersonManualMatchReviewPreference func(context.Context, db.UpdateBudgetPersonManualMatchReviewPreferenceParams) (db.BudgetToProfileMapping, error)
+	updatePersonFocusedViewPreference       func(context.Context, db.UpdateBudgetPersonFocusedViewPreferenceParams) (db.BudgetToProfileMapping, error)
 	linkPersonToUser                        func(context.Context, db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error)
 	softRemovePerson                        func(context.Context, db.SoftRemovePersonFromProfileParams) error
 	softRemovePersonAndReassign             func(context.Context, db.SoftRemovePersonAndReassignFromProfileParams) error
@@ -221,6 +222,12 @@ func (m *mockBudgetProfileRepo) UpdatePersonManualMatchReviewPreference(ctx cont
 		return m.updatePersonManualMatchReviewPreference(ctx, arg)
 	}
 	return db.BudgetToProfileMapping{ManualMatchReviewEnabled: arg.ManualMatchReviewEnabled}, nil
+}
+func (m *mockBudgetProfileRepo) UpdatePersonFocusedViewPreference(ctx context.Context, arg db.UpdateBudgetPersonFocusedViewPreferenceParams) (db.BudgetToProfileMapping, error) {
+	if m.updatePersonFocusedViewPreference != nil {
+		return m.updatePersonFocusedViewPreference(ctx, arg)
+	}
+	return db.BudgetToProfileMapping{FocusedViewEnabled: arg.FocusedViewEnabled}, nil
 }
 func (m *mockBudgetProfileRepo) LinkPersonToUser(ctx context.Context, arg db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error) {
 	if m.linkPersonToUser != nil {
@@ -2415,6 +2422,60 @@ func TestUpdateMyManualMatchReviewPreference_ForbiddenForNonMember(t *testing.T)
 	svc := NewBudgetProfileService(profileRepo, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockUserRepo{})
 
 	_, err := svc.UpdateMyManualMatchReviewPreference(context.Background(), profileID, true, uuid.New())
+
+	require.Error(t, err)
+	assert.False(t, wrote, "must not attempt a write for a non-member")
+}
+
+func TestUpdateMyFocusedViewPreference_ScopesToCallerNotAPersonID(t *testing.T) {
+	profileID := uuid.New()
+	ownerID := uuid.New()
+	callerID := uuid.New()
+
+	var gotParams db.UpdateBudgetPersonFocusedViewPreferenceParams
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+		},
+		getPersonByUserID: func(_ context.Context, _ uuid.UUID, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
+			return db.BudgetToProfileMapping{UserID: &userID, Role: "viewer"}, nil
+		},
+		updatePersonFocusedViewPreference: func(_ context.Context, arg db.UpdateBudgetPersonFocusedViewPreferenceParams) (db.BudgetToProfileMapping, error) {
+			gotParams = arg
+			return db.BudgetToProfileMapping{FocusedViewEnabled: arg.FocusedViewEnabled}, nil
+		},
+	}
+
+	svc := NewBudgetProfileService(profileRepo, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockUserRepo{})
+
+	m, err := svc.UpdateMyFocusedViewPreference(context.Background(), profileID, true, callerID)
+
+	require.NoError(t, err, "a Viewer must be able to set their own preference")
+	assert.Equal(t, callerID, gotParams.UserID, "must scope the write to the caller, not any person_id")
+	assert.Equal(t, profileID, gotParams.BudgetProfileID)
+	assert.True(t, m.FocusedViewEnabled)
+}
+
+func TestUpdateMyFocusedViewPreference_ForbiddenForNonMember(t *testing.T) {
+	profileID := uuid.New()
+	var wrote bool
+
+	profileRepo := &mockBudgetProfileRepo{
+		getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+			return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil
+		},
+		getPersonByUserID: func(_ context.Context, _, _ uuid.UUID) (db.BudgetToProfileMapping, error) {
+			return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", "")
+		},
+		updatePersonFocusedViewPreference: func(_ context.Context, _ db.UpdateBudgetPersonFocusedViewPreferenceParams) (db.BudgetToProfileMapping, error) {
+			wrote = true
+			return db.BudgetToProfileMapping{}, nil
+		},
+	}
+
+	svc := NewBudgetProfileService(profileRepo, &mockTransactionRepo{}, &mockFixedExpenseRepo{}, &mockUserRepo{})
+
+	_, err := svc.UpdateMyFocusedViewPreference(context.Background(), profileID, true, uuid.New())
 
 	require.Error(t, err)
 	assert.False(t, wrote, "must not attempt a write for a non-member")

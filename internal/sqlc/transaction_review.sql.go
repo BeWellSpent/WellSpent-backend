@@ -311,11 +311,15 @@ SELECT
     tr.match_score, tr.status, tr.created_at,
     t.name  AS transaction_name,
     t.amount AS transaction_amount,
-    mt.name AS matched_transaction_name
+    mt.name AS matched_transaction_name,
+    pm.budget_person_id  AS transaction_person_id,
+    mpm.budget_person_id AS matched_transaction_person_id
 FROM transaction_review tr
 JOIN transaction t  ON t.id  = tr.transaction_id
 JOIN transaction mt ON mt.id = tr.matched_transaction_id
 JOIN budget_period bp ON bp.id = tr.budget_period_id
+LEFT JOIN payment_methods pm  ON pm.id  = t.payment_method_id
+LEFT JOIN payment_methods mpm ON mpm.id = mt.payment_method_id
 WHERE bp.budget_profile_id = $1
   AND tr.status != 'dismissed'
   -- Confirmed reviews are returned for every period, archived included: they
@@ -329,16 +333,18 @@ ORDER BY tr.match_score DESC
 `
 
 type ListTransactionReviewsRow struct {
-	ID                     uuid.UUID          `json:"id"`
-	BudgetPeriodID         uuid.UUID          `json:"budget_period_id"`
-	TransactionID          uuid.UUID          `json:"transaction_id"`
-	MatchedTransactionID   uuid.UUID          `json:"matched_transaction_id"`
-	MatchScore             pgtype.Numeric     `json:"match_score"`
-	Status                 string             `json:"status"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	TransactionName        *string            `json:"transaction_name"`
-	TransactionAmount      pgtype.Numeric     `json:"transaction_amount"`
-	MatchedTransactionName *string            `json:"matched_transaction_name"`
+	ID                         uuid.UUID          `json:"id"`
+	BudgetPeriodID             uuid.UUID          `json:"budget_period_id"`
+	TransactionID              uuid.UUID          `json:"transaction_id"`
+	MatchedTransactionID       uuid.UUID          `json:"matched_transaction_id"`
+	MatchScore                 pgtype.Numeric     `json:"match_score"`
+	Status                     string             `json:"status"`
+	CreatedAt                  pgtype.Timestamptz `json:"created_at"`
+	TransactionName            *string            `json:"transaction_name"`
+	TransactionAmount          pgtype.Numeric     `json:"transaction_amount"`
+	MatchedTransactionName     *string            `json:"matched_transaction_name"`
+	TransactionPersonID        *int32             `json:"transaction_person_id"`
+	MatchedTransactionPersonID *int32             `json:"matched_transaction_person_id"`
 }
 
 // ListTransactionReviews joins transaction twice: once for the
@@ -367,6 +373,8 @@ func (q *Queries) ListTransactionReviews(ctx context.Context, budgetProfileID uu
 			&i.TransactionName,
 			&i.TransactionAmount,
 			&i.MatchedTransactionName,
+			&i.TransactionPersonID,
+			&i.MatchedTransactionPersonID,
 		); err != nil {
 			return nil, err
 		}

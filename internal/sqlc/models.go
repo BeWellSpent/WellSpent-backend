@@ -66,6 +66,7 @@ type BudgetToProfileMapping struct {
 	PlanChartType            *string    `json:"plan_chart_type"`
 	OverviewChartType        *string    `json:"overview_chart_type"`
 	ManualMatchReviewEnabled bool       `json:"manual_match_review_enabled"`
+	FocusedViewEnabled       bool       `json:"focused_view_enabled"`
 }
 
 type Category struct {

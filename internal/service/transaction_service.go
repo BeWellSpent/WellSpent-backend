@@ -220,9 +220,18 @@ func (s *TransactionService) GetByID(ctx context.Context, id uuid.UUID) (db.Tran
 	return s.transactions.GetByID(ctx, id)
 }
 
-func (s *TransactionService) List(ctx context.Context, arg db.ListTransactionsParams, userID uuid.UUID) ([]db.Transaction, error) {
-	if err := s.assertPeriodMember(ctx, arg.BudgetPeriodID, userID); err != nil {
+func (s *TransactionService) List(ctx context.Context, arg db.ListTransactionsParams, userID uuid.UUID, focusedView bool) ([]db.Transaction, error) {
+	period, _, err := s.getUserRoleForPeriod(ctx, arg.BudgetPeriodID, userID)
+	if err != nil {
 		return nil, err
+	}
+	if focusedView {
+		personID, err := s.profiles.GetPersonByUserID(ctx, period.BudgetProfileID, userID)
+		if err != nil {
+			return nil, apperr.Forbidden("access denied")
+		}
+		id := personID.ID
+		arg.FocusedPersonID = &id
 	}
 	return s.transactions.List(ctx, arg)
 }

@@ -1291,7 +1291,7 @@ func TestListTransactions_CollaboratorAllowed(t *testing.T) {
 		&mockTransactionReviewRepo{},
 	)
 
-	txs, err := svc.List(context.Background(), db.ListTransactionsParams{BudgetPeriodID: periodID}, userID)
+	txs, err := svc.List(context.Background(), db.ListTransactionsParams{BudgetPeriodID: periodID}, userID, false)
 	require.NoError(t, err)
 	assert.Len(t, txs, 1)
 }
@@ -1323,8 +1323,78 @@ func TestListTransactions_ViewerAllowed(t *testing.T) {
 		&mockTransactionReviewRepo{},
 	)
 
-	_, err := svc.List(context.Background(), db.ListTransactionsParams{BudgetPeriodID: periodID}, userID)
+	_, err := svc.List(context.Background(), db.ListTransactionsParams{BudgetPeriodID: periodID}, userID, false)
 	require.NoError(t, err)
+}
+
+func TestListTransactions_FocusedView_ResolvesCallerPersonID(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	myPersonID := int32(7)
+
+	var gotParams db.ListTransactionsParams
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			list: func(_ context.Context, arg db.ListTransactionsParams) ([]db.Transaction, error) {
+				gotParams = arg
+				return nil, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil // caller is not owner
+			},
+			getPersonByUserID: func(_ context.Context, _, _ uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{ID: myPersonID, Role: "collaborator"}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.List(context.Background(), db.ListTransactionsParams{BudgetPeriodID: periodID}, userID, true)
+	require.NoError(t, err)
+	require.NotNil(t, gotParams.FocusedPersonID)
+	assert.Equal(t, myPersonID, *gotParams.FocusedPersonID)
+}
+
+func TestListTransactions_NotFocusedView_LeavesPersonIDNil(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+
+	var gotParams db.ListTransactionsParams
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			list: func(_ context.Context, arg db.ListTransactionsParams) ([]db.Transaction, error) {
+				gotParams = arg
+				return nil, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil
+			},
+			getPersonByUserID: func(_ context.Context, _, _ uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{Role: "collaborator"}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.List(context.Background(), db.ListTransactionsParams{BudgetPeriodID: periodID}, userID, false)
+	require.NoError(t, err)
+	assert.Nil(t, gotParams.FocusedPersonID)
 }
 
 func TestCreateTransaction_CollaboratorAllowed(t *testing.T) {
