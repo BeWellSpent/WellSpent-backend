@@ -680,17 +680,31 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 	if err != nil {
 		return err
 	}
+	return confirmTransactionMatch(ctx, s.transactions, s.fixedExpenses, s.reviews, s.profiles, review, period.BudgetProfileID)
+}
 
-	matchedTx, mErr := s.transactions.GetByID(ctx, review.MatchedTransactionID)
+// confirmTransactionMatch marks the matched (fixed) side paid and excludes
+// the transaction side, same as a manual Transaction Review confirm. Shared
+// so CreateFixedExpenseFromTransaction goes through the exact same path.
+func confirmTransactionMatch(
+	ctx context.Context,
+	transactions repository.TransactionRepository,
+	fixedExpenses repository.FixedExpenseRepository,
+	reviews repository.TransactionReviewRepository,
+	profiles repository.BudgetProfileRepository,
+	review db.TransactionReview,
+	budgetProfileID uuid.UUID,
+) error {
+	matchedTx, mErr := transactions.GetByID(ctx, review.MatchedTransactionID)
 	if mErr == nil {
-		importedTx, importedTxErr := s.transactions.GetByID(ctx, review.TransactionID)
+		importedTx, importedTxErr := transactions.GetByID(ctx, review.TransactionID)
 
 		// Save alias so future Plaid imports of the same merchant name
 		// auto-confirm — only meaningful when the match target was spawned
 		// from a FixedExpense template; savings-derived transactions have no
 		// template to alias against.
 		if importedTxErr == nil && matchedTx.FixedExpenseID != nil && importedTx.Name != nil {
-			if aliasErr := s.reviews.CreateAlias(ctx, *matchedTx.FixedExpenseID, *importedTx.Name); aliasErr != nil {
+			if aliasErr := reviews.CreateAlias(ctx, *matchedTx.FixedExpenseID, *importedTx.Name); aliasErr != nil {
 				// Not fatal: the alias only speeds up *future* imports of this
 				// merchant. This confirmation still stands.
 				log.Printf("transaction.confirm_review: save alias %q for fixed expense %s: %v",
@@ -716,14 +730,14 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 			// This error used to be discarded outright, so a bill that failed
 			// to be marked paid was indistinguishable from one that succeeded,
 			// and the RPC still reported success to the caller.
-			if _, paidErr := markFixedTransactionPaid(ctx, s.transactions, s.fixedExpenses,
+			if _, paidErr := markFixedTransactionPaid(ctx, transactions, fixedExpenses,
 				db.MarkTransactionAsPaidParams{
 					ID:             matchedTx.ID,
 					BudgetPeriodID: *matchedTx.BudgetPeriodID,
 					Amount:         paidAmount,
 					PaidDate:       paidDate,
 				},
-				autoUpdatePlannedAmountFor(ctx, s.profiles, period.BudgetProfileID, "transaction.confirm_review"),
+				autoUpdatePlannedAmountFor(ctx, profiles, budgetProfileID, "transaction.confirm_review"),
 				observed,
 				"transaction.confirm_review",
 			); paidErr != nil {
@@ -741,7 +755,7 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 	// entirely. It stays visible and toggleable, so unmarking the matched
 	// fixed expense later (which resets this review to "pending") never
 	// leaves it stranded behind a review-status side channel.
-	if _, excludeErr := s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
+	if _, excludeErr := transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
 		ID:             review.TransactionID,
 		BudgetPeriodID: review.BudgetPeriodID,
 		Excluded:       true,
@@ -754,8 +768,8 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 			review.TransactionID, excludeErr)
 	}
 
-	if statusErr := s.reviews.UpdateStatus(ctx, reviewID, "confirmed"); statusErr != nil {
-		log.Printf("transaction.confirm_review: confirm review %s: %v", reviewID, statusErr)
+	if statusErr := reviews.UpdateStatus(ctx, review.ID, "confirmed"); statusErr != nil {
+		log.Printf("transaction.confirm_review: confirm review %s: %v", review.ID, statusErr)
 		return statusErr
 	}
 	return nil

@@ -295,6 +295,43 @@ func (h *BudgetHandler) CreateInstallmentPlan(ctx context.Context, req *connect.
 	}), nil
 }
 
+func (h *BudgetHandler) CreateFixedExpenseFromTransaction(ctx context.Context, req *connect.Request[v1.CreateFixedExpenseFromTransactionRequest]) (*connect.Response[v1.CreateFixedExpenseFromTransactionResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	txID, err := uuid.Parse(req.Msg.TransactionId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	periodID, err := uuid.Parse(req.Msg.BudgetPeriodId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	var anchorDate *time.Time
+	if req.Msg.AnchorDate != nil {
+		t := req.Msg.AnchorDate.AsTime()
+		anchorDate = &t
+	}
+	fe, tx, svcErr := h.profiles.CreateFixedExpenseFromTransaction(ctx, userID, service.FixedFromTransactionInput{
+		TransactionID:  txID,
+		BudgetPeriodID: periodID,
+		Name:           req.Msg.Name,
+		AnchorDate:     anchorDate,
+		FrequencyUnit:  int16(req.Msg.FrequencyUnit),
+		IntervalMonths: req.Msg.IntervalMonths,
+		IntervalWeeks:  req.Msg.IntervalWeeks,
+		DayOfWeek:      req.Msg.DayOfWeek,
+	})
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.CreateFixedExpenseFromTransactionResponse{
+		FixedExpense: toProtoFixedExpense(fe),
+		Transaction:  toProtoTransaction(tx),
+	}), nil
+}
+
 func (h *BudgetHandler) DeleteInstallmentPlan(ctx context.Context, req *connect.Request[v1.DeleteInstallmentPlanRequest]) (*connect.Response[v1.DeleteInstallmentPlanResponse], error) {
 	userID, err := h.currentUserID(ctx)
 	if err != nil {
