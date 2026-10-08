@@ -17,9 +17,11 @@ type TransactionReviewRepository interface {
 	List(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListTransactionReviewsRow, error)
 	GetByID(ctx context.Context, id uuid.UUID) (db.TransactionReview, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
-	GetConfirmedByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error)
 	GetByTransactionID(ctx context.Context, transactionID uuid.UUID) (db.TransactionReview, error)
-	GetByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error)
+	// ListByMatchedTransactionID returns every review against a Fixed-type
+	// transaction, any status — more than one variable transaction can match
+	// the same fixed one (see docs/features/multiple-transactions-matching-one-fixed.md).
+	ListByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) ([]db.TransactionReview, error)
 	DeleteIfPending(ctx context.Context, id uuid.UUID) error
 	UpdateScoreIfPending(ctx context.Context, id uuid.UUID, score float64) error
 	ResetByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) error
@@ -130,23 +132,24 @@ func (r *transactionReviewRepository) GetFixedExpenseByAlias(ctx context.Context
 	return row, err
 }
 
-func (r *transactionReviewRepository) GetConfirmedByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error) {
-	row, err := r.q.GetConfirmedReviewByMatchedTransaction(ctx, matchedTransactionID)
-	if err == pgx.ErrNoRows {
-		return db.TransactionReview{}, apperr.NotFound("transaction_review", matchedTransactionID.String())
-	}
+func (r *transactionReviewRepository) ListByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) ([]db.TransactionReview, error) {
+	rows, err := r.q.ListTransactionReviewsByMatchedTransactionID(ctx, matchedTransactionID)
 	if err != nil {
-		return db.TransactionReview{}, err
+		return nil, err
 	}
-	return db.TransactionReview{
-		ID:                   row.ID,
-		BudgetPeriodID:       row.BudgetPeriodID,
-		TransactionID:        row.TransactionID,
-		MatchedTransactionID: row.MatchedTransactionID,
-		MatchScore:           row.MatchScore,
-		Status:               row.Status,
-		CreatedAt:            row.CreatedAt,
-	}, nil
+	reviews := make([]db.TransactionReview, 0, len(rows))
+	for _, row := range rows {
+		reviews = append(reviews, db.TransactionReview{
+			ID:                   row.ID,
+			BudgetPeriodID:       row.BudgetPeriodID,
+			TransactionID:        row.TransactionID,
+			MatchedTransactionID: row.MatchedTransactionID,
+			MatchScore:           row.MatchScore,
+			Status:               row.Status,
+			CreatedAt:            row.CreatedAt,
+		})
+	}
+	return reviews, nil
 }
 
 func (r *transactionReviewRepository) GetByTransactionID(ctx context.Context, transactionID uuid.UUID) (db.TransactionReview, error) {
@@ -170,25 +173,6 @@ func (r *transactionReviewRepository) GetByTransactionID(ctx context.Context, tr
 
 func (r *transactionReviewRepository) ResetByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) error {
 	return r.q.ResetConfirmedReviewByMatchedTransaction(ctx, matchedTransactionID)
-}
-
-func (r *transactionReviewRepository) GetByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error) {
-	row, err := r.q.GetTransactionReviewByMatchedTransactionID(ctx, matchedTransactionID)
-	if err == pgx.ErrNoRows {
-		return db.TransactionReview{}, apperr.NotFound("transaction_review", matchedTransactionID.String())
-	}
-	if err != nil {
-		return db.TransactionReview{}, err
-	}
-	return db.TransactionReview{
-		ID:                   row.ID,
-		BudgetPeriodID:       row.BudgetPeriodID,
-		TransactionID:        row.TransactionID,
-		MatchedTransactionID: row.MatchedTransactionID,
-		MatchScore:           row.MatchScore,
-		Status:               row.Status,
-		CreatedAt:            row.CreatedAt,
-	}, nil
 }
 
 // DeleteIfPending removes only the review row, never the transactions it

@@ -550,33 +550,37 @@ func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uui
 		return db.Transaction{}, err
 	}
 
-	// If this transaction was a confirmed review's match target, undo the
-	// confirmation: reset the review to pending and un-exclude the imported
-	// variable transaction from totals, restoring it to its normal
-	// awaiting-review state. Applies to any Fixed-type transaction —
-	// fixed-expense-spawned or savings-derived.
-	review, rErr := s.reviews.GetConfirmedByMatchedTransaction(ctx, tx.ID)
-	if rErr == nil {
+	// Undo every confirmed review against this transaction — there can be
+	// more than one (a split match) — un-excluding each matched variable
+	// transaction and dropping its alias, then resetting all of them to
+	// pending in one bulk update.
+	reviews, rErr := s.reviews.ListByMatchedTransactionID(ctx, tx.ID)
+	if rErr != nil {
+		log.Printf("transaction.unmark_paid: list reviews for transaction %s: %v", tx.ID, rErr)
+	}
+	anyConfirmed := false
+	for _, review := range reviews {
+		if review.Status != "confirmed" {
+			continue
+		}
+		anyConfirmed = true
 		if varTx, txErr := s.transactions.GetByID(ctx, review.TransactionID); txErr == nil && varTx.Name != nil && tx.FixedExpenseID != nil {
 			if aliasErr := s.reviews.DeleteAlias(ctx, *tx.FixedExpenseID, *varTx.Name); aliasErr != nil {
 				log.Printf("transaction.unmark_paid: drop alias %q for fixed expense %s: %v", *varTx.Name, *tx.FixedExpenseID, aliasErr)
 			}
-		}
-		if resetErr := s.reviews.ResetByMatchedTransaction(ctx, tx.ID); resetErr != nil {
-			// Leaves the review confirmed against a bill that is no longer paid —
-			// the inconsistency this whole undo path exists to prevent, so it must
-			// not pass silently.
-			log.Printf("transaction.unmark_paid: reset review for transaction %s: %v", tx.ID, resetErr)
 		}
 		if _, excludeErr := s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
 			ID:             review.TransactionID,
 			BudgetPeriodID: review.BudgetPeriodID,
 			Excluded:       false,
 		}); excludeErr != nil {
-			// The import stays excluded from totals while no longer being
-			// matched to anything — money the user spent that counts nowhere.
 			log.Printf("transaction.unmark_paid: un-exclude imported transaction %s: %v",
 				review.TransactionID, excludeErr)
+		}
+	}
+	if anyConfirmed {
+		if resetErr := s.reviews.ResetByMatchedTransaction(ctx, tx.ID); resetErr != nil {
+			log.Printf("transaction.unmark_paid: reset reviews for transaction %s: %v", tx.ID, resetErr)
 		}
 	}
 
@@ -712,40 +716,57 @@ func confirmTransactionMatch(
 			}
 		}
 
-		// Mark the matched transaction paid if it isn't already. Use the
-		// imported variable transaction's actual amount and date (what was
-		// really charged, and when it really cleared) rather than the fixed
-		// transaction's own planned amount/scheduled date, so the overview
-		// reflects the true spend and the template (below) syncs to reality
-		// instead of just echoing back what it already had.
-		if !matchedTx.IsPaid && matchedTx.BudgetPeriodID != nil {
-			paidAmount := matchedTx.PlannedAmount
-			paidDate := matchedTx.Date
-			var observed observedPayment
-			if importedTxErr == nil {
-				paidAmount = importedTx.Amount
-				paidDate = importedTx.Date
-				observed = observedPayment{CategoryID: importedTx.CategoryID, PaymentMethodID: importedTx.PaymentMethodID}
+		// Sums in any already-confirmed sibling reviews on the same fixed
+		// transaction, so a multi-match group totals correctly either way.
+		if matchedTx.BudgetPeriodID != nil {
+			siblings, sibErr := reviews.ListByMatchedTransactionID(ctx, review.MatchedTransactionID)
+			if sibErr != nil {
+				log.Printf("transaction.confirm_review: list sibling reviews for matched transaction %s: %v",
+					review.MatchedTransactionID, sibErr)
 			}
-			// This error used to be discarded outright, so a bill that failed
-			// to be marked paid was indistinguishable from one that succeeded,
-			// and the RPC still reported success to the caller.
-			if _, paidErr := markFixedTransactionPaid(ctx, transactions, fixedExpenses,
-				db.MarkTransactionAsPaidParams{
-					ID:             matchedTx.ID,
-					BudgetPeriodID: *matchedTx.BudgetPeriodID,
-					Amount:         paidAmount,
-					PaidDate:       paidDate,
-				},
-				autoUpdatePlannedAmountFor(ctx, profiles, budgetProfileID, "transaction.confirm_review"),
-				observed,
-				"transaction.confirm_review",
-			); paidErr != nil {
-				// Fatal here, unlike the alias above: confirming a review whose
-				// whole point is "this bill was paid" must not report success
-				// when the bill is still unpaid. Nothing has been excluded and
-				// the review is still pending, so the user can retry.
-				return paidErr
+			var siblingAmounts []pgtype.Numeric
+			for _, sib := range siblings {
+				if sib.ID == review.ID || sib.Status != "confirmed" {
+					continue
+				}
+				sibTx, sibErr := transactions.GetByID(ctx, sib.TransactionID)
+				if sibErr != nil {
+					log.Printf("transaction.confirm_review: get sibling transaction %s: %v", sib.TransactionID, sibErr)
+					continue
+				}
+				siblingAmounts = append(siblingAmounts, sibTx.Amount)
+			}
+
+			if !matchedTx.IsPaid || len(siblingAmounts) > 0 {
+				paidAmount := matchedTx.PlannedAmount
+				paidDate := matchedTx.Date
+				var observed observedPayment
+				if importedTxErr == nil {
+					paidAmount = importedTx.Amount
+					paidDate = importedTx.Date
+					observed = observedPayment{CategoryID: importedTx.CategoryID, PaymentMethodID: importedTx.PaymentMethodID}
+				}
+				paidAmount = sumAmounts(append(siblingAmounts, paidAmount)...)
+				// This error used to be discarded outright, so a bill that failed
+				// to be marked paid was indistinguishable from one that succeeded,
+				// and the RPC still reported success to the caller.
+				if _, paidErr := markFixedTransactionPaid(ctx, transactions, fixedExpenses,
+					db.MarkTransactionAsPaidParams{
+						ID:             matchedTx.ID,
+						BudgetPeriodID: *matchedTx.BudgetPeriodID,
+						Amount:         paidAmount,
+						PaidDate:       paidDate,
+					},
+					autoUpdatePlannedAmountFor(ctx, profiles, budgetProfileID, "transaction.confirm_review"),
+					observed,
+					"transaction.confirm_review",
+				); paidErr != nil {
+					// Fatal here, unlike the alias above: confirming a review whose
+					// whole point is "this bill was paid" must not report success
+					// when the bill is still unpaid. Nothing has been excluded and
+					// the review is still pending, so the user can retry.
+					return paidErr
+				}
 			}
 		}
 	}

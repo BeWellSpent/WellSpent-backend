@@ -469,9 +469,8 @@ type mockTransactionReviewRepo struct {
 	list                    func(context.Context, uuid.UUID) ([]db.ListTransactionReviewsRow, error)
 	getByID                 func(context.Context, uuid.UUID) (db.TransactionReview, error)
 	updateStatus            func(context.Context, uuid.UUID, string) error
-	getConfirmedByMatchedTx func(context.Context, uuid.UUID) (db.TransactionReview, error)
 	getByTransactionID      func(context.Context, uuid.UUID) (db.TransactionReview, error)
-	getByMatchedTx          func(context.Context, uuid.UUID) (db.TransactionReview, error)
+	listByMatchedTx         func(context.Context, uuid.UUID) ([]db.TransactionReview, error)
 	deleteIfPending         func(context.Context, uuid.UUID) error
 	updateScoreIfPending    func(context.Context, uuid.UUID, float64) error
 	resetByMatchedTx        func(context.Context, uuid.UUID) error
@@ -505,23 +504,17 @@ func (m *mockTransactionReviewRepo) UpdateStatus(ctx context.Context, id uuid.UU
 	}
 	return nil
 }
-func (m *mockTransactionReviewRepo) GetConfirmedByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error) {
-	if m.getConfirmedByMatchedTx != nil {
-		return m.getConfirmedByMatchedTx(ctx, matchedTransactionID)
-	}
-	return db.TransactionReview{}, apperr.NotFound("transaction_review", "")
-}
 func (m *mockTransactionReviewRepo) GetByTransactionID(ctx context.Context, transactionID uuid.UUID) (db.TransactionReview, error) {
 	if m.getByTransactionID != nil {
 		return m.getByTransactionID(ctx, transactionID)
 	}
 	return db.TransactionReview{}, apperr.NotFound("transaction_review", "")
 }
-func (m *mockTransactionReviewRepo) GetByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error) {
-	if m.getByMatchedTx != nil {
-		return m.getByMatchedTx(ctx, matchedTransactionID)
+func (m *mockTransactionReviewRepo) ListByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) ([]db.TransactionReview, error) {
+	if m.listByMatchedTx != nil {
+		return m.listByMatchedTx(ctx, matchedTransactionID)
 	}
-	return db.TransactionReview{}, apperr.NotFound("transaction_review", "")
+	return nil, nil
 }
 func (m *mockTransactionReviewRepo) DeleteIfPending(ctx context.Context, id uuid.UUID) error {
 	if m.deleteIfPending != nil {
@@ -2802,6 +2795,76 @@ func TestConfirmTransactionReview_AlreadyPaid_SkipsMarkAsPaid(t *testing.T) {
 	assert.False(t, markAsPaidCalled, "an already-paid match target should not be re-marked")
 }
 
+// A savings payment split across several bank transfers: confirming the
+// second review against an already-paid fixed transaction must sum in the
+// first (already-confirmed) transfer's amount, not just this one's.
+func TestConfirmTransactionReview_SumsAlreadyConfirmedSiblings(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	reviewID := uuid.New()
+	matchedTxID := uuid.New()
+	thisTxID := uuid.New()
+	siblingReviewID := uuid.New()
+	siblingTxID := uuid.New()
+
+	thisAmount := pgtype.Numeric{}
+	_ = thisAmount.Scan("300.00")
+	siblingAmount := pgtype.Numeric{}
+	_ = siblingAmount.Scan("200.00")
+
+	var markedPaidAmount pgtype.Numeric
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				switch id {
+				case matchedTxID:
+					return db.Transaction{ID: matchedTxID, IsPaid: true, BudgetPeriodID: &periodID}, nil
+				case siblingTxID:
+					return db.Transaction{ID: siblingTxID, Amount: siblingAmount}, nil
+				default:
+					return db.Transaction{ID: thisTxID, Amount: thisAmount}, nil
+				}
+			},
+			markAsPaid: func(_ context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				markedPaidAmount = arg.Amount
+				return db.Transaction{ID: arg.ID}, nil
+			},
+			setExcluded: func(_ context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
+				return db.Transaction{ID: arg.ID, IsExcluded: arg.Excluded}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.TransactionReview, error) {
+				return db.TransactionReview{ID: id, BudgetPeriodID: periodID, TransactionID: thisTxID, MatchedTransactionID: matchedTxID}, nil
+			},
+			listByMatchedTx: func(_ context.Context, _ uuid.UUID) ([]db.TransactionReview, error) {
+				return []db.TransactionReview{
+					{ID: reviewID, TransactionID: thisTxID, MatchedTransactionID: matchedTxID, Status: "pending"},
+					{ID: siblingReviewID, TransactionID: siblingTxID, MatchedTransactionID: matchedTxID, Status: "confirmed"},
+				}, nil
+			},
+			updateStatus: func(_ context.Context, _ uuid.UUID, _ string) error { return nil },
+		},
+	)
+
+	err := svc.ConfirmTransactionReview(context.Background(), userID, reviewID, profileID)
+	require.NoError(t, err)
+	got, _ := markedPaidAmount.Float64Value()
+	assert.Equal(t, 500.0, got.Float64, "paid amount should be this transfer plus the already-confirmed sibling")
+}
+
 func TestUnmarkTransactionAsPaid_ResetsConfirmedReview(t *testing.T) {
 	userID := uuid.New()
 	profileID := uuid.New()
@@ -2842,8 +2905,8 @@ func TestUnmarkTransactionAsPaid_ResetsConfirmedReview(t *testing.T) {
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
 		&mockTransactionReviewRepo{
-			getConfirmedByMatchedTx: func(_ context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error) {
-				return db.TransactionReview{TransactionID: importedTxID, MatchedTransactionID: matchedTransactionID}, nil
+			listByMatchedTx: func(_ context.Context, matchedTransactionID uuid.UUID) ([]db.TransactionReview, error) {
+				return []db.TransactionReview{{TransactionID: importedTxID, MatchedTransactionID: matchedTransactionID, Status: "confirmed"}}, nil
 			},
 			deleteAlias: func(_ context.Context, fixedExpenseID uuid.UUID, alias string) error {
 				deletedAliasFEID = fixedExpenseID
@@ -2864,4 +2927,64 @@ func TestUnmarkTransactionAsPaid_ResetsConfirmedReview(t *testing.T) {
 	assert.Equal(t, importedName, deletedAliasText)
 	assert.Equal(t, importedTxID, unexcludedID, "should un-exclude the imported transaction, not the fixed one being unmarked")
 	assert.False(t, unexcludedFlag, "unmarking paid should restore the imported transaction to a normal, non-excluded row")
+}
+
+// Unmarking a split match (several variable transactions confirmed against
+// one fixed transaction) must un-exclude every one of them, not just one.
+func TestUnmarkTransactionAsPaid_ResetsAllConfirmedReviewsInGroup(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	firstTxID := uuid.New()
+	secondTxID := uuid.New()
+	feID := uuid.New()
+	name := "TRANSFER"
+
+	unexcludedIDs := map[uuid.UUID]bool{}
+	var resetCalled bool
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			unmarkAsPaid: func(_ context.Context, arg db.UnmarkTransactionAsPaidParams) (db.Transaction, error) {
+				return db.Transaction{ID: arg.ID, IsPaid: false, FixedExpenseID: &feID}, nil
+			},
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: id, Name: &name}, nil
+			},
+			setExcluded: func(_ context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
+				unexcludedIDs[arg.ID] = true
+				return db.Transaction{ID: arg.ID, IsExcluded: arg.Excluded}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{
+			listByMatchedTx: func(_ context.Context, matchedTransactionID uuid.UUID) ([]db.TransactionReview, error) {
+				return []db.TransactionReview{
+					{TransactionID: firstTxID, MatchedTransactionID: matchedTransactionID, Status: "confirmed"},
+					{TransactionID: secondTxID, MatchedTransactionID: matchedTransactionID, Status: "confirmed"},
+				}, nil
+			},
+			deleteAlias: func(_ context.Context, _ uuid.UUID, _ string) error { return nil },
+			resetByMatchedTx: func(_ context.Context, _ uuid.UUID) error {
+				resetCalled = true
+				return nil
+			},
+		},
+	)
+
+	_, err := svc.UnmarkTransactionAsPaid(context.Background(), txID, periodID, userID)
+	require.NoError(t, err)
+	assert.True(t, unexcludedIDs[firstTxID], "first matched transaction should be un-excluded")
+	assert.True(t, unexcludedIDs[secondTxID], "second matched transaction should be un-excluded")
+	assert.True(t, resetCalled)
 }

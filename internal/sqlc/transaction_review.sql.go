@@ -99,39 +99,6 @@ func (q *Queries) DeleteTransactionReviewIfPending(ctx context.Context, id uuid.
 	return err
 }
 
-const getConfirmedReviewByMatchedTransaction = `-- name: GetConfirmedReviewByMatchedTransaction :one
-SELECT id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at
-FROM transaction_review
-WHERE matched_transaction_id = $1
-  AND status = 'confirmed'
-LIMIT 1
-`
-
-type GetConfirmedReviewByMatchedTransactionRow struct {
-	ID                   uuid.UUID          `json:"id"`
-	BudgetPeriodID       uuid.UUID          `json:"budget_period_id"`
-	TransactionID        uuid.UUID          `json:"transaction_id"`
-	MatchedTransactionID uuid.UUID          `json:"matched_transaction_id"`
-	MatchScore           pgtype.Numeric     `json:"match_score"`
-	Status               string             `json:"status"`
-	CreatedAt            pgtype.Timestamptz `json:"created_at"`
-}
-
-func (q *Queries) GetConfirmedReviewByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) (GetConfirmedReviewByMatchedTransactionRow, error) {
-	row := q.db.QueryRow(ctx, getConfirmedReviewByMatchedTransaction, matchedTransactionID)
-	var i GetConfirmedReviewByMatchedTransactionRow
-	err := row.Scan(
-		&i.ID,
-		&i.BudgetPeriodID,
-		&i.TransactionID,
-		&i.MatchedTransactionID,
-		&i.MatchScore,
-		&i.Status,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const getFixedExpenseByAlias = `-- name: GetFixedExpenseByAlias :one
 SELECT fe.id, fe.budget_profile_id, fe.name, fe.planned_amount, fe.category_id,
        fe.payment_method_id, fe.day_of_month, fe.is_active, fe.created_at
@@ -197,41 +164,6 @@ type GetTransactionReviewRow struct {
 func (q *Queries) GetTransactionReview(ctx context.Context, id uuid.UUID) (GetTransactionReviewRow, error) {
 	row := q.db.QueryRow(ctx, getTransactionReview, id)
 	var i GetTransactionReviewRow
-	err := row.Scan(
-		&i.ID,
-		&i.BudgetPeriodID,
-		&i.TransactionID,
-		&i.MatchedTransactionID,
-		&i.MatchScore,
-		&i.Status,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const getTransactionReviewByMatchedTransactionID = `-- name: GetTransactionReviewByMatchedTransactionID :one
-SELECT id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at
-FROM transaction_review
-WHERE matched_transaction_id = $1
-LIMIT 1
-`
-
-type GetTransactionReviewByMatchedTransactionIDRow struct {
-	ID                   uuid.UUID          `json:"id"`
-	BudgetPeriodID       uuid.UUID          `json:"budget_period_id"`
-	TransactionID        uuid.UUID          `json:"transaction_id"`
-	MatchedTransactionID uuid.UUID          `json:"matched_transaction_id"`
-	MatchScore           pgtype.Numeric     `json:"match_score"`
-	Status               string             `json:"status"`
-	CreatedAt            pgtype.Timestamptz `json:"created_at"`
-}
-
-// The reverse of GetTransactionReviewByTransactionID: given the Fixed-type
-// side of a match, find its review regardless of status, so an edit to the
-// Fixed expense template can refresh a still-pending review's score.
-func (q *Queries) GetTransactionReviewByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) (GetTransactionReviewByMatchedTransactionIDRow, error) {
-	row := q.db.QueryRow(ctx, getTransactionReviewByMatchedTransactionID, matchedTransactionID)
-	var i GetTransactionReviewByMatchedTransactionIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.BudgetPeriodID,
@@ -375,6 +307,56 @@ func (q *Queries) ListTransactionReviews(ctx context.Context, budgetProfileID uu
 			&i.MatchedTransactionName,
 			&i.TransactionPersonID,
 			&i.MatchedTransactionPersonID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTransactionReviewsByMatchedTransactionID = `-- name: ListTransactionReviewsByMatchedTransactionID :many
+SELECT id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at
+FROM transaction_review
+WHERE matched_transaction_id = $1
+`
+
+type ListTransactionReviewsByMatchedTransactionIDRow struct {
+	ID                   uuid.UUID          `json:"id"`
+	BudgetPeriodID       uuid.UUID          `json:"budget_period_id"`
+	TransactionID        uuid.UUID          `json:"transaction_id"`
+	MatchedTransactionID uuid.UUID          `json:"matched_transaction_id"`
+	MatchScore           pgtype.Numeric     `json:"match_score"`
+	Status               string             `json:"status"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+}
+
+// The reverse of GetTransactionReviewByTransactionID: given the Fixed-type
+// side of a match, find every review against it regardless of status — a
+// fixed transaction can be matched by more than one variable transaction
+// (e.g. a savings payment split across several bank transfers), so this is
+// never assumed to be a single row. Covers both "refresh a stale pending
+// review after a template edit" and "sum the confirmed amounts" callers.
+func (q *Queries) ListTransactionReviewsByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) ([]ListTransactionReviewsByMatchedTransactionIDRow, error) {
+	rows, err := q.db.Query(ctx, listTransactionReviewsByMatchedTransactionID, matchedTransactionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTransactionReviewsByMatchedTransactionIDRow
+	for rows.Next() {
+		var i ListTransactionReviewsByMatchedTransactionIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BudgetPeriodID,
+			&i.TransactionID,
+			&i.MatchedTransactionID,
+			&i.MatchScore,
+			&i.Status,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
