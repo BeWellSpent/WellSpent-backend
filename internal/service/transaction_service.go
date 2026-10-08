@@ -550,10 +550,7 @@ func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uui
 		return db.Transaction{}, err
 	}
 
-	// Undo every confirmed review against this transaction — there can be
-	// more than one (a split match) — un-excluding each matched variable
-	// transaction and dropping its alias, then resetting all of them to
-	// pending in one bulk update.
+	// Undo every confirmed review against this transaction, not just one.
 	reviews, rErr := s.reviews.ListByMatchedTransactionID(ctx, tx.ID)
 	if rErr != nil {
 		log.Printf("transaction.unmark_paid: list reviews for transaction %s: %v", tx.ID, rErr)
@@ -716,8 +713,7 @@ func confirmTransactionMatch(
 			}
 		}
 
-		// Sums in any already-confirmed sibling reviews on the same fixed
-		// transaction, so a multi-match group totals correctly either way.
+		// Sums in any already-confirmed sibling reviews on this fixed transaction.
 		if matchedTx.BudgetPeriodID != nil {
 			siblings, sibErr := reviews.ListByMatchedTransactionID(ctx, review.MatchedTransactionID)
 			if sibErr != nil {

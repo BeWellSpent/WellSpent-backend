@@ -2004,12 +2004,7 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 	return fe, nil
 }
 
-// refreshReviewForMatchedTransaction re-scores every still-pending review
-// against matchedTransactionID after a template edit synced its fields —
-// more than one variable transaction can be matched to it (a split match) —
-// so each reflects what the transaction actually looks like now rather than
-// a stale snapshot from when it was queued. A confirmed or dismissed review
-// is a decision the user already made and is left untouched.
+// refreshReviewForMatchedTransaction re-scores every pending review against it.
 func (s *BudgetProfileService) refreshReviewForMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID, fe db.FixedExpense) {
 	if s.reviews == nil {
 		return
@@ -2026,8 +2021,7 @@ func (s *BudgetProfileService) refreshReviewForMatchedTransaction(ctx context.Co
 	}
 }
 
-// refreshOnePendingReview is refreshReviewForMatchedTransaction's per-review
-// body, split out so it can run once per sibling in a split match.
+// refreshOnePendingReview runs once per sibling review in a split match.
 func (s *BudgetProfileService) refreshOnePendingReview(ctx context.Context, review db.TransactionReview, fe db.FixedExpense) {
 	variableTx, txErr := s.transactions.GetByID(ctx, review.TransactionID)
 	if txErr != nil || variableTx.Name == nil {

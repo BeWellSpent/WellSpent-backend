@@ -18,9 +18,7 @@ type TransactionReviewRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (db.TransactionReview, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	GetByTransactionID(ctx context.Context, transactionID uuid.UUID) (db.TransactionReview, error)
-	// ListByMatchedTransactionID returns every review against a Fixed-type
-	// transaction, any status — more than one variable transaction can match
-	// the same fixed one (see docs/features/multiple-transactions-matching-one-fixed.md).
+	// ListByMatchedTransactionID: a fixed transaction can have several matches.
 	ListByMatchedTransactionID(ctx context.Context, matchedTransactionID uuid.UUID) ([]db.TransactionReview, error)
 	DeleteIfPending(ctx context.Context, id uuid.UUID) error
 	UpdateScoreIfPending(ctx context.Context, id uuid.UUID, score float64) error
