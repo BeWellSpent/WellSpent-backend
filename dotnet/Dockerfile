@@ -17,9 +17,12 @@ WORKDIR /src
 # invalidate the NuGet restore layer.
 COPY dotnet/WellSpent.slnx dotnet/
 COPY dotnet/src/WellSpent.Api/WellSpent.Api.csproj dotnet/src/WellSpent.Api/
+COPY dotnet/src/WellSpent.Domain/WellSpent.Domain.csproj dotnet/src/WellSpent.Domain/
+COPY dotnet/src/WellSpent.Application/WellSpent.Application.csproj dotnet/src/WellSpent.Application/
 COPY dotnet/src/WellSpent.Infrastructure/WellSpent.Infrastructure.csproj dotnet/src/WellSpent.Infrastructure/
 COPY dotnet/src/WellSpent.Migrator/WellSpent.Migrator.csproj dotnet/src/WellSpent.Migrator/
 COPY dotnet/tests/WellSpent.Api.Tests/WellSpent.Api.Tests.csproj dotnet/tests/WellSpent.Api.Tests/
+COPY dotnet/tests/WellSpent.Application.Tests/WellSpent.Application.Tests.csproj dotnet/tests/WellSpent.Application.Tests/
 RUN dotnet restore dotnet/WellSpent.slnx
 
 COPY dotnet/ dotnet/

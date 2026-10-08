@@ -1,4 +1,5 @@
 using System.Text.Json;
+using WellSpent.Domain.Exceptions;
 
 namespace WellSpent.Api.Errors;
 

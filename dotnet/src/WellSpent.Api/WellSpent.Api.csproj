@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WellSpent.Infrastructure\WellSpent.Infrastructure.csproj" />
+    <ProjectReference Include="..\WellSpent.Application\WellSpent.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

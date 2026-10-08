@@ -2,9 +2,12 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
-using WellSpent.Api.Configuration;
+using WellSpent.Api.Endpoints;
 using WellSpent.Api.Errors;
+using WellSpent.Application;
+using WellSpent.Application.Configuration;
 using WellSpent.Infrastructure;
+using WellSpent.Infrastructure.Configuration;
 
 var config = AppConfig.Load();
 
@@ -18,7 +21,18 @@ try
     var builder = WebApplication.CreateBuilder(args);
     builder.Host.UseSerilog();
 
-    builder.Services.AddWellSpentInfrastructure(config.DatabaseUrl, config.ApplicationName);
+    builder.Services.AddInfrastructure(config);
+    builder.Services.AddApplication();
+
+    // The slice of AppConfig the Application layer needs — see
+    // AuthOptions's doc comment for why this indirection exists.
+    builder.Services.Configure<AuthOptions>(o =>
+    {
+        o.FrontendUrl = config.FrontendUrl;
+        o.ResendFromEmail = config.ResendFromEmail;
+        o.CaptchaEnforcementEnabled = config.CaptchaEnforcementEnabled;
+        o.EncryptionKey = config.EncryptionKey;
+    });
 
     builder.Services
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -52,8 +66,7 @@ try
     // Liveness only — no dependencies. Cloud Run's own health probe target.
     app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
-    // Proves the Npgsql pool + EF Core wiring actually reach the real schema,
-    // without mapping any table yet.
+    // Proves the Npgsql pool + EF Core wiring actually reach the real schema.
     app.MapGet("/health/db", async (WellSpentDbContext db) =>
     {
         var canConnect = await db.Database.CanConnectAsync();
@@ -62,14 +75,8 @@ try
             : Results.Problem("Database unreachable", statusCode: StatusCodes.Status503ServiceUnavailable);
     });
 
-    // Proves the JWT middleware round-trips a token issued the same way the
-    // Go backend issues one. Removed once a real authenticated endpoint
-    // exists (B2).
-    app.MapGet("/debug/whoami", (HttpContext ctx) =>
-    {
-        var sub = ctx.User.FindFirst("sub")?.Value;
-        return Results.Ok(new { sub });
-    }).RequireAuthorization();
+    app.MapAuthEndpoints();
+    app.MapUserEndpoints();
 
     app.Run();
 }

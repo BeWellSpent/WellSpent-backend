@@ -13,7 +13,7 @@ public static class ServiceCollectionExtensions
     /// a distinct application_name per deployed process, so connections stay
     /// identifiable in pg_stat_activity.
     /// </summary>
-    public static IServiceCollection AddWellSpentInfrastructure(
+    public static IServiceCollection AddWellSpentDbContext(
         this IServiceCollection services, string databaseUrl, string applicationName)
     {
         var csBuilder = PostgresConnectionString.FromDatabaseUrl(databaseUrl);

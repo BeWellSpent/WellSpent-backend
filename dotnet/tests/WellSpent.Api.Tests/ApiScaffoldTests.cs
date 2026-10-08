@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.IdentityModel.Tokens;
@@ -10,10 +9,15 @@ using Xunit;
 namespace WellSpent.Api.Tests;
 
 /// <summary>
-/// Smoke tests for the B1 scaffold: health endpoints, JWT middleware, and
-/// config loading. No business domain exists yet, so these only prove the
-/// pipeline (DI, auth, error mapping) actually wires up — not any business
-/// behavior.
+/// Pipeline-level smoke tests (DI, JWT middleware, error mapping) using a
+/// real authenticated endpoint (GET /rest/v1/users/me) rather than a
+/// throwaway debug route, now that one exists (B2). DATABASE_URL points
+/// nowhere reachable here on purpose — these tests only need to prove
+/// authentication happens before the handler runs, not exercise real
+/// business behavior (that's WellSpent.Application.Tests's job, with a
+/// mocked repository). A valid token that passes the 401 gate still fails
+/// downstream with a 500 (DB unreachable) — asserted as "anything but 401",
+/// which is the only claim this layer needs to make.
 /// </summary>
 public sealed class ApiScaffoldTests : IDisposable
 {
@@ -28,9 +32,8 @@ public sealed class ApiScaffoldTests : IDisposable
         // tests — DATABASE_URL/JWT_SECRET below are the only source.
         Environment.SetEnvironmentVariable("ENV", "test");
         Environment.SetEnvironmentVariable("JWT_SECRET", TestJwtSecret);
-        // Only needs to be a syntactically valid DATABASE_URL — EF Core
-        // doesn't connect until a request actually uses the DbContext, and
-        // no test here exercises /health/db. Same postgresql:// URI shape as
+        // Only needs to be a syntactically valid DATABASE_URL — nothing here
+        // needs it to actually connect. Same postgresql:// URI shape as
         // every real .env file uses (see PostgresConnectionString).
         Environment.SetEnvironmentVariable("DATABASE_URL", "postgresql://user:pass@localhost:5432/db?sslmode=disable");
 
@@ -48,38 +51,35 @@ public sealed class ApiScaffoldTests : IDisposable
     }
 
     [Fact]
-    public async Task WhoAmI_WithoutToken_ReturnsUnauthorized()
+    public async Task UsersMe_WithoutToken_ReturnsUnauthorized()
     {
         var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/debug/whoami");
+        var response = await client.GetAsync("/rest/v1/users/me");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task WhoAmI_WithValidToken_ReturnsSubClaim()
+    public async Task UsersMe_WithValidToken_PassesAuthentication()
     {
         var client = _factory.CreateClient();
-        var userId = Guid.NewGuid().ToString();
-        var token = IssueToken(userId, TestJwtSecret);
+        var token = IssueToken(Guid.NewGuid().ToString(), TestJwtSecret);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.GetAsync("/debug/whoami");
-        response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadFromJsonAsync<WhoAmIResponse>();
+        var response = await client.GetAsync("/rest/v1/users/me");
 
-        Assert.Equal(userId, body?.Sub);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task WhoAmI_WithTokenSignedByDifferentSecret_ReturnsUnauthorized()
+    public async Task UsersMe_WithTokenSignedByDifferentSecret_ReturnsUnauthorized()
     {
         var client = _factory.CreateClient();
         var token = IssueToken(Guid.NewGuid().ToString(), "a-completely-different-secret-value-xx");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.GetAsync("/debug/whoami");
+        var response = await client.GetAsync("/rest/v1/users/me");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -101,8 +101,6 @@ public sealed class ApiScaffoldTests : IDisposable
         };
         return handler.CreateToken(descriptor);
     }
-
-    private sealed record WhoAmIResponse(string? Sub);
 
     public void Dispose() => _factory.Dispose();
 }
