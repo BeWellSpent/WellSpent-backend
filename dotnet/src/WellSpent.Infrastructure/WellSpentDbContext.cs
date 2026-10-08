@@ -18,6 +18,12 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
     public DbSet<StatusBanner> StatusBanners => Set<StatusBanner>();
     public DbSet<ChangelogRelease> ChangelogReleases => Set<ChangelogRelease>();
     public DbSet<ChangelogItem> ChangelogItems => Set<ChangelogItem>();
+    public DbSet<BudgetProfile> BudgetProfiles => Set<BudgetProfile>();
+    public DbSet<BudgetPerson> BudgetPeople => Set<BudgetPerson>();
+    public DbSet<AlertSubscription> AlertSubscriptions => Set<AlertSubscription>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
+    public DbSet<BudgetInvite> BudgetInvites => Set<BudgetInvite>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,5 +32,11 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
         modelBuilder.ApplyConfiguration(new StatusBannerEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ChangelogReleaseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ChangelogItemEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new BudgetProfileEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new BudgetPersonEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new AlertSubscriptionEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new NotificationEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new DeviceTokenEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new BudgetInviteEntityConfiguration());
     }
 }

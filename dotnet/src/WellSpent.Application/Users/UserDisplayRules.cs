@@ -21,4 +21,20 @@ public static class UserDisplayRules
     /// <summary>Parses the stored stringified FilingStatus enum value back to an int. Empty/unparseable means unspecified (0).</summary>
     public static int ParseFilingStatus(string? stored) =>
         int.TryParse(stored, out var value) ? value : 0;
+
+    /// <summary>
+    /// Renders a user's name for other people to read, falling back to their
+    /// email when they haven't set one. Mirrors Go's userDisplayName exactly
+    /// — note this is deliberately more forgiving than
+    /// Invites.InviteDisplay.InviterName's SQL-COALESCE semantics (a single
+    /// present name part is still used here, not discarded).
+    /// </summary>
+    public static string DisplayName(User user)
+    {
+        var parts = new List<string>();
+        if (user.FirstName is not null) parts.Add(user.FirstName);
+        if (user.LastName is not null) parts.Add(user.LastName);
+        var name = string.Join(" ", parts).Trim();
+        return name.Length > 0 ? name : user.Email;
+    }
 }

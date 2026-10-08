@@ -22,6 +22,7 @@ public static class DependencyInjection
 
         services.AddScoped<Common.VerificationMailer>();
         services.AddScoped<Common.SuperuserGuard>();
+        services.AddScoped<Common.BudgetAccessGuard>();
 
         return services;
     }

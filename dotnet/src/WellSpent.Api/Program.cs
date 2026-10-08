@@ -79,6 +79,8 @@ try
     app.MapUserEndpoints();
     app.MapStatusEndpoints();
     app.MapChangelogEndpoints();
+    app.MapNotificationEndpoints();
+    app.MapInviteEndpoints();
 
     app.Run();
 }
