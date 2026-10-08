@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"log"
+	"math/big"
 
 	"github.com/BeWellSpent/wellspent-backend/internal/repository"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Marking a fixed transaction paid, in one place.
@@ -139,6 +141,18 @@ func markFixedTransactionPaid(
 			caller, tx.ID, fe.ID, updateErr)
 	}
 	return tx, nil
+}
+
+// sumAmounts adds pgtype.Numeric money values via exact nanos-scaled int64
+// arithmetic — same approach as expense_summary_service.go's numericToNanos,
+// never a float64 intermediate. Used to total several variable transactions
+// matched to one fixed transaction (a split savings payment, for example).
+func sumAmounts(amounts ...pgtype.Numeric) pgtype.Numeric {
+	var totalNanos int64
+	for _, a := range amounts {
+		totalNanos += numericToNanos(a)
+	}
+	return pgtype.Numeric{Int: big.NewInt(totalNanos), Exp: -9, Valid: true}
 }
 
 // autoUpdatePlannedAmountFor resolves the budget's setting from a period. The

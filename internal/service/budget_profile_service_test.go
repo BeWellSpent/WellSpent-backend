@@ -1352,8 +1352,8 @@ func TestUpdateFixedExpense_RefreshesPendingReviewScore_WhenStillDueAndStillMatc
 		},
 		&mockUserRepo{},
 	).WithReviews(&mockTransactionReviewRepo{
-		getByMatchedTx: func(_ context.Context, matchedTxID uuid.UUID) (db.TransactionReview, error) {
-			return db.TransactionReview{ID: reviewID, TransactionID: uuid.New(), MatchedTransactionID: matchedTxID, Status: "pending"}, nil
+		listByMatchedTx: func(_ context.Context, matchedTxID uuid.UUID) ([]db.TransactionReview, error) {
+			return []db.TransactionReview{{ID: reviewID, TransactionID: uuid.New(), MatchedTransactionID: matchedTxID, Status: "pending"}}, nil
 		},
 		updateScoreIfPending: func(_ context.Context, id uuid.UUID, score float64) error {
 			scoreUpdated = true
@@ -1424,8 +1424,8 @@ func TestUpdateFixedExpense_RemovesStalePendingReview_WhenNoLongerMatches(t *tes
 		},
 		&mockUserRepo{},
 	).WithReviews(&mockTransactionReviewRepo{
-		getByMatchedTx: func(_ context.Context, matchedTxID uuid.UUID) (db.TransactionReview, error) {
-			return db.TransactionReview{ID: reviewID, TransactionID: uuid.New(), MatchedTransactionID: matchedTxID, Status: "pending"}, nil
+		listByMatchedTx: func(_ context.Context, matchedTxID uuid.UUID) ([]db.TransactionReview, error) {
+			return []db.TransactionReview{{ID: reviewID, TransactionID: uuid.New(), MatchedTransactionID: matchedTxID, Status: "pending"}}, nil
 		},
 		deleteIfPending: func(_ context.Context, id uuid.UUID) error {
 			deleted = true
@@ -1485,8 +1485,8 @@ func TestUpdateFixedExpense_DoesNotTouchConfirmedOrDismissedReview(t *testing.T)
 				},
 				&mockUserRepo{},
 			).WithReviews(&mockTransactionReviewRepo{
-				getByMatchedTx: func(_ context.Context, matchedTxID uuid.UUID) (db.TransactionReview, error) {
-					return db.TransactionReview{ID: uuid.New(), TransactionID: uuid.New(), MatchedTransactionID: matchedTxID, Status: status}, nil
+				listByMatchedTx: func(_ context.Context, matchedTxID uuid.UUID) ([]db.TransactionReview, error) {
+					return []db.TransactionReview{{ID: uuid.New(), TransactionID: uuid.New(), MatchedTransactionID: matchedTxID, Status: status}}, nil
 				},
 				deleteIfPending: func(_ context.Context, _ uuid.UUID) error {
 					deleted = true

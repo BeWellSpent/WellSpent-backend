@@ -2004,20 +2004,31 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 	return fe, nil
 }
 
-// refreshReviewForMatchedTransaction re-scores a still-pending review after a
-// template edit synced its fields onto matchedTransactionID, so the review
-// reflects what the transaction actually looks like now rather than a stale
-// snapshot from when it was first queued. Below 80 removes the review row —
-// never either transaction it links. A confirmed or dismissed review is a
-// decision the user already made and is left untouched.
+// refreshReviewForMatchedTransaction re-scores every still-pending review
+// against matchedTransactionID after a template edit synced its fields —
+// more than one variable transaction can be matched to it (a split match) —
+// so each reflects what the transaction actually looks like now rather than
+// a stale snapshot from when it was queued. A confirmed or dismissed review
+// is a decision the user already made and is left untouched.
 func (s *BudgetProfileService) refreshReviewForMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID, fe db.FixedExpense) {
 	if s.reviews == nil {
 		return
 	}
-	review, err := s.reviews.GetByMatchedTransactionID(ctx, matchedTransactionID)
-	if err != nil || review.Status != "pending" {
+	reviews, err := s.reviews.ListByMatchedTransactionID(ctx, matchedTransactionID)
+	if err != nil {
+		log.Printf("fixed_expense: list reviews for matched transaction %s: %v", matchedTransactionID, err)
 		return
 	}
+	for _, review := range reviews {
+		if review.Status == "pending" {
+			s.refreshOnePendingReview(ctx, review, fe)
+		}
+	}
+}
+
+// refreshOnePendingReview is refreshReviewForMatchedTransaction's per-review
+// body, split out so it can run once per sibling in a split match.
+func (s *BudgetProfileService) refreshOnePendingReview(ctx context.Context, review db.TransactionReview, fe db.FixedExpense) {
 	variableTx, txErr := s.transactions.GetByID(ctx, review.TransactionID)
 	if txErr != nil || variableTx.Name == nil {
 		log.Printf("fixed_expense: refresh review %s: get transaction %s: %v", review.ID, review.TransactionID, txErr)

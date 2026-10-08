@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "1.7.0",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summaryEn": "A fixed expense matched to more than one bank transfer (e.g. a split savings payment) now pays out as the full combined amount, and unmarking it un-links every matched transfer, not just one.",
+      "summaryEs": "Un gasto fijo que coincide con más de una transferencia bancaria (por ejemplo, un pago de ahorro dividido) ahora se paga por el monto total combinado, y al desmarcarlo se desvinculan todas las transferencias, no solo una."
+    }
+  ]
+}

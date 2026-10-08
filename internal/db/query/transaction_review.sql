@@ -66,13 +66,15 @@ LIMIT 1;
 UPDATE transaction_review SET status = $2 WHERE id = $1;
 
 -- The reverse of GetTransactionReviewByTransactionID: given the Fixed-type
--- side of a match, find its review regardless of status, so an edit to the
--- Fixed expense template can refresh a still-pending review's score.
--- name: GetTransactionReviewByMatchedTransactionID :one
+-- side of a match, find every review against it regardless of status — a
+-- fixed transaction can be matched by more than one variable transaction
+-- (e.g. a savings payment split across several bank transfers), so this is
+-- never assumed to be a single row. Covers both "refresh a stale pending
+-- review after a template edit" and "sum the confirmed amounts" callers.
+-- name: ListTransactionReviewsByMatchedTransactionID :many
 SELECT id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at
 FROM transaction_review
-WHERE matched_transaction_id = $1
-LIMIT 1;
+WHERE matched_transaction_id = $1;
 
 -- Deletes only the review row — never the transactions it links. Scoped to
 -- 'pending' so an edit can never silently discard a confirmed or dismissed
@@ -91,13 +93,6 @@ ON CONFLICT (fixed_expense_id, alias) DO NOTHING;
 
 -- name: ListFixedExpenseAliases :many
 SELECT alias FROM fixed_expense_alias WHERE fixed_expense_id = $1;
-
--- name: GetConfirmedReviewByMatchedTransaction :one
-SELECT id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at
-FROM transaction_review
-WHERE matched_transaction_id = $1
-  AND status = 'confirmed'
-LIMIT 1;
 
 -- name: DeleteFixedExpenseAlias :exec
 DELETE FROM fixed_expense_alias
