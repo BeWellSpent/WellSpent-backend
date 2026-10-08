@@ -2795,9 +2795,7 @@ func TestConfirmTransactionReview_AlreadyPaid_SkipsMarkAsPaid(t *testing.T) {
 	assert.False(t, markAsPaidCalled, "an already-paid match target should not be re-marked")
 }
 
-// A savings payment split across several bank transfers: confirming the
-// second review against an already-paid fixed transaction must sum in the
-// first (already-confirmed) transfer's amount, not just this one's.
+// A split match's second confirm must sum in the first's amount too.
 func TestConfirmTransactionReview_SumsAlreadyConfirmedSiblings(t *testing.T) {
 	userID := uuid.New()
 	profileID := uuid.New()
@@ -2929,8 +2927,7 @@ func TestUnmarkTransactionAsPaid_ResetsConfirmedReview(t *testing.T) {
 	assert.False(t, unexcludedFlag, "unmarking paid should restore the imported transaction to a normal, non-excluded row")
 }
 
-// Unmarking a split match (several variable transactions confirmed against
-// one fixed transaction) must un-exclude every one of them, not just one.
+// Unmarking a split match must un-exclude every matched transaction.
 func TestUnmarkTransactionAsPaid_ResetsAllConfirmedReviewsInGroup(t *testing.T) {
 	userID := uuid.New()
 	profileID := uuid.New()
