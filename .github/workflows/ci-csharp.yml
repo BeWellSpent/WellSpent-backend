@@ -1,0 +1,29 @@
+name: CI — C# rewrite
+
+on:
+  push:
+    branches: [rewrite/csharp]
+  pull_request:
+    branches: [rewrite/csharp]
+
+# Build + test only. This branch is a long-lived, not-yet-shipped rewrite
+# (see docs/features/refactor-backend-csharp.md) — no deploy job exists here
+# on purpose. Wiring an actual Cloud Run deployment is a deliberate later
+# step, not something that should happen automatically on every push to this
+# branch while the rewrite is still in progress.
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Restore
+        run: dotnet restore dotnet/WellSpent.slnx
+      - name: Build
+        run: dotnet build dotnet/WellSpent.slnx --no-restore -c Release
+      - name: Test
+        run: dotnet test dotnet/WellSpent.slnx --no-build -c Release

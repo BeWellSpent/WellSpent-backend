@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WellSpent.Api/WellSpent.Api.csproj" />
+    <Project Path="src/WellSpent.Infrastructure/WellSpent.Infrastructure.csproj" />
+    <Project Path="src/WellSpent.Migrator/WellSpent.Migrator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WellSpent.Api.Tests/WellSpent.Api.Tests.csproj" />
+  </Folder>
+</Solution>
