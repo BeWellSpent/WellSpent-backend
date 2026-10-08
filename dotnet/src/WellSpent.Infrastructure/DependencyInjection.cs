@@ -17,6 +17,8 @@ public static class DependencyInjection
         services.AddWellSpentDbContext(config.DatabaseUrl, config.ApplicationName);
 
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IStatusBannerRepository, StatusBannerRepository>();
+        services.AddScoped<IChangelogRepository, ChangelogRepository>();
 
         services.AddSingleton<IJwtService, JwtService>();
         services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();

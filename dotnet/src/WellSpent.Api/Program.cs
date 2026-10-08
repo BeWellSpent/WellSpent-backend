@@ -77,6 +77,8 @@ try
 
     app.MapAuthEndpoints();
     app.MapUserEndpoints();
+    app.MapStatusEndpoints();
+    app.MapChangelogEndpoints();
 
     app.Run();
 }
