@@ -29,6 +29,11 @@ using WellSpent.Application.Budgets.UpdateMyFocusedViewPreference;
 using WellSpent.Application.Budgets.UpdateMyManualMatchReviewPreference;
 using WellSpent.Application.Budgets.UpdateSavingsSource;
 using WellSpent.Application.Common;
+using WellSpent.Application.ExpenseAllocations;
+using WellSpent.Application.ExpenseAllocations.DeleteExpenseAllocation;
+using WellSpent.Application.ExpenseAllocations.ListExpenseAllocations;
+using WellSpent.Application.ExpenseAllocations.UpsertExpenseAllocation;
+using WellSpent.Application.ExpenseSummary.GetExpenseSummary;
 using WellSpent.Application.FixedExpenses;
 using WellSpent.Application.FixedExpenses.CreateFixedExpense;
 using WellSpent.Application.FixedExpenses.DeleteFixedExpense;
@@ -245,6 +250,26 @@ public static class BudgetEndpoints
             return Results.Ok();
         });
 
+        // ── Expense allocations ──────────────────────────────────────────
+        group.MapGet("/{id:guid}/expense-allocations", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var allocations = await sender.Send(new ListExpenseAllocationsQuery(CurrentUser.GetId(ctx), id), ct);
+            return Results.Ok(new { allocations });
+        });
+
+        group.MapPut("/{id:guid}/expense-allocations", async (Guid id, UpsertExpenseAllocationRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var allocation = await sender.Send(new UpsertExpenseAllocationCommand(
+                CurrentUser.GetId(ctx), id, body.CategoryId, body.BudgetPersonId, body.PlannedAmount), ct);
+            return Results.Ok(new { allocation });
+        });
+
+        group.MapDelete("/{id:guid}/expense-allocations/{allocationId:int}", async (Guid id, int allocationId, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            await sender.Send(new DeleteExpenseAllocationCommand(CurrentUser.GetId(ctx), allocationId, id), ct);
+            return Results.Ok();
+        });
+
         // Separate namespace — GET /rest/v1/budgets/{id}/periods is the
         // profile-scoped list; a single period is looked up by its own id.
         var periodGroup = app.MapGroup("/rest/v1/budget-periods").WithTags("budgets").RequireAuthorization();
@@ -266,6 +291,13 @@ public static class BudgetEndpoints
         {
             var entry = await sender.Send(new UpdateIncomeEntryCommand(CurrentUser.GetId(ctx), entryId, id, body.Amount), ct);
             return Results.Ok(new { entry });
+        });
+
+        // ── Expense summary ──────────────────────────────────────────────
+        periodGroup.MapGet("/{id:guid}/expense-summary", async (Guid id, bool? focusedView, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var summary = await sender.Send(new GetExpenseSummaryQuery(CurrentUser.GetId(ctx), id, focusedView ?? false), ct);
+            return Results.Ok(summary);
         });
     }
 
@@ -295,4 +327,6 @@ public static class BudgetEndpoints
     }
 
     private sealed record UpdateIncomeEntryRequestBody(Money Amount);
+
+    private sealed record UpsertExpenseAllocationRequestBody(int CategoryId, int? BudgetPersonId, Money PlannedAmount);
 }

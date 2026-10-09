@@ -52,6 +52,9 @@ public interface ITransactionRepository
     /// <summary>Every global system category plus the caller's own active ones.</summary>
     Task<List<Category>> ListCategoriesAsync(Guid userId, CancellationToken ct);
 
+    /// <summary>Every seeded system category's stable key -&gt; id, for resolving a <c>system_key</c> (e.g. "income", "savings") without a user context. A row with no key is skipped, never keyed by name.</summary>
+    Task<Dictionary<string, int>> ListSystemCategoriesAsync(CancellationToken ct);
+
     /// <summary>
     /// Same set as ListCategoriesAsync, plus any category referenced by a
     /// transaction or fixed expense in the given budget — so a collaborator

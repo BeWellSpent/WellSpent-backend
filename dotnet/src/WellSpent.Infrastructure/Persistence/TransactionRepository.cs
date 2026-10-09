@@ -133,6 +133,16 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
             .OrderBy(c => c.Name)
             .ToListAsync(ct);
 
+    // Keyed on system_key, never name (issue #49) — a system category with no
+    // key (a pre-migration-000054 row that somehow missed backfill) is
+    // skipped rather than falling back to its name, so a gap stays silent
+    // rather than hiding behind a lookup that happens to still work in
+    // English.
+    public async Task<Dictionary<string, int>> ListSystemCategoriesAsync(CancellationToken ct) =>
+        await db.Categories
+            .Where(c => c.IsSystem && c.SystemKey != null)
+            .ToDictionaryAsync(c => c.SystemKey!, c => c.Id, ct);
+
     public async Task<List<Category>> ListCategoriesForBudgetAsync(Guid userId, Guid budgetProfileId, CancellationToken ct)
     {
         var ids = await db.Database.SqlQuery<int>(
