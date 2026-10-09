@@ -14,13 +14,21 @@ public sealed class CreateBudgetProfileCommandHandlerTests
 {
     private readonly IBudgetProfileRepository _profiles = Substitute.For<IBudgetProfileRepository>();
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
+    private readonly ITransactionRepository _transactions = Substitute.For<ITransactionRepository>();
+    private readonly IFixedExpenseRepository _fixedExpenses = Substitute.For<IFixedExpenseRepository>();
     private static readonly IMapper Mapper = new MapperConfiguration(
         cfg => cfg.AddProfile<BudgetMappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
 
     private TaxReserveRecalculator TaxReserve => new(_profiles, _users, NullLogger<TaxReserveRecalculator>.Instance);
 
+    public CreateBudgetProfileCommandHandlerTests()
+    {
+        _fixedExpenses.ListAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
+        _transactions.ListPaymentMethodsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
+    }
+
     private CreateBudgetProfileCommandHandler CreateHandler() =>
-        new(_profiles, _users, Mapper, TaxReserve, NullLogger<CreateBudgetProfileCommandHandler>.Instance);
+        new(_profiles, _users, _transactions, _fixedExpenses, Mapper, TaxReserve, NullLogger<CreateBudgetProfileCommandHandler>.Instance);
 
     private User SetUpOwner(Guid userId, string? countryCode = "US")
     {

@@ -1,6 +1,8 @@
 using MediatR;
 using WellSpent.Api.Auth;
 using WellSpent.Application.Common;
+using WellSpent.Application.FixedExpenses.CreateInstallmentPlan;
+using WellSpent.Application.FixedExpenses.DeleteInstallmentPlan;
 using WellSpent.Application.Transactions.CreateTransaction;
 using WellSpent.Application.Transactions.DeleteTransaction;
 using WellSpent.Application.Transactions.ListTransactions;
@@ -67,6 +69,20 @@ public static class TransactionEndpoints
                 CurrentUser.GetId(ctx), id, body.BudgetPeriodId, body.Excluded), ct);
             return Results.Ok(new { transaction });
         });
+
+        group.MapPost("/{id:guid}/installment-plan", async (
+            Guid id, Guid budgetPeriodId, CreateInstallmentPlanRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var result = await sender.Send(new CreateInstallmentPlanCommand(
+                CurrentUser.GetId(ctx), id, budgetPeriodId, body.FirstPaymentDate, body.TotalPayments, body.EndDate), ct);
+            return Results.Ok(new { fixedExpense = result.Expense, transaction = result.Transaction });
+        });
+
+        group.MapDelete("/{id:guid}/installment-plan", async (Guid id, Guid budgetPeriodId, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var transaction = await sender.Send(new DeleteInstallmentPlanCommand(CurrentUser.GetId(ctx), id, budgetPeriodId), ct);
+            return Results.Ok(new { transaction });
+        });
     }
 
     private sealed record CreateTransactionRequestBody(
@@ -80,4 +96,5 @@ public static class TransactionEndpoints
     private sealed record MarkPaidRequestBody(Guid BudgetPeriodId, Money PaidAmount, DateOnly PaidDate);
     private sealed record BudgetPeriodRequestBody(Guid BudgetPeriodId);
     private sealed record SetExcludedRequestBody(Guid BudgetPeriodId, bool Excluded);
+    private sealed record CreateInstallmentPlanRequestBody(DateOnly FirstPaymentDate, int TotalPayments, DateOnly? EndDate);
 }

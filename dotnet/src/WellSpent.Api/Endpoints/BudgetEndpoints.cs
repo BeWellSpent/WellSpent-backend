@@ -29,6 +29,11 @@ using WellSpent.Application.Budgets.UpdateMyFocusedViewPreference;
 using WellSpent.Application.Budgets.UpdateMyManualMatchReviewPreference;
 using WellSpent.Application.Budgets.UpdateSavingsSource;
 using WellSpent.Application.Common;
+using WellSpent.Application.FixedExpenses;
+using WellSpent.Application.FixedExpenses.CreateFixedExpense;
+using WellSpent.Application.FixedExpenses.DeleteFixedExpense;
+using WellSpent.Application.FixedExpenses.ListFixedExpenses;
+using WellSpent.Application.FixedExpenses.UpdateFixedExpense;
 using WellSpent.Application.PaymentMethods.ListPaymentMethods;
 
 namespace WellSpent.Api.Endpoints;
@@ -214,6 +219,32 @@ public static class BudgetEndpoints
             return Results.Ok();
         });
 
+        // ── Fixed expenses ───────────────────────────────────────────────
+        group.MapPost("/{id:guid}/fixed-expenses", async (Guid id, FixedExpenseRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var result = await sender.Send(new CreateFixedExpenseCommand(CurrentUser.GetId(ctx), id, body.ToFields()), ct);
+            return Results.Ok(new { fixedExpense = result.Expense, transaction = result.Transaction });
+        });
+
+        group.MapGet("/{id:guid}/fixed-expenses", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var fixedExpenses = await sender.Send(new ListFixedExpensesQuery(CurrentUser.GetId(ctx), id), ct);
+            return Results.Ok(new { fixedExpenses });
+        });
+
+        group.MapPut("/{id:guid}/fixed-expenses/{feId:guid}", async (
+            Guid id, Guid feId, FixedExpenseRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var fixedExpense = await sender.Send(new UpdateFixedExpenseCommand(CurrentUser.GetId(ctx), feId, id, body.ToFields()), ct);
+            return Results.Ok(new { fixedExpense });
+        });
+
+        group.MapDelete("/{id:guid}/fixed-expenses/{feId:guid}", async (Guid id, Guid feId, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            await sender.Send(new DeleteFixedExpenseCommand(CurrentUser.GetId(ctx), feId, id), ct);
+            return Results.Ok();
+        });
+
         // Separate namespace — GET /rest/v1/budgets/{id}/periods is the
         // profile-scoped list; a single period is looked up by its own id.
         var periodGroup = app.MapGroup("/rest/v1/budget-periods").WithTags("budgets").RequireAuthorization();
@@ -252,6 +283,16 @@ public static class BudgetEndpoints
         int? BudgetPersonId, string PaymentFrequency, bool BeforeTax);
 
     private sealed record SavingsSourceRequestBody(string Name, Money Amount, Guid? PaymentMethodId, int[]? PaymentDays);
+
+    private sealed record FixedExpenseRequestBody(
+        string Name, Money PlannedAmount, int? CategoryId, Guid? PaymentMethodId,
+        int DayOfMonth, int IntervalMonths, DateOnly? AnchorDate, string? FrequencyUnit,
+        int IntervalWeeks, int DayOfWeek, DateOnly? EndDate, int TotalPayments)
+    {
+        public FixedExpenseFields ToFields() => new(
+            Name, PlannedAmount, CategoryId, PaymentMethodId, DayOfMonth, IntervalMonths,
+            AnchorDate, FrequencyUnit, IntervalWeeks, DayOfWeek, EndDate, TotalPayments);
+    }
 
     private sealed record UpdateIncomeEntryRequestBody(Money Amount);
 }

@@ -35,6 +35,15 @@ public interface ITransactionRepository
     /// <summary>Resets Amount back to PlannedAmount, matching Go's SQL exactly.</summary>
     Task<Transaction> UnmarkTransactionAsPaidAsync(Guid id, Guid budgetPeriodId, CancellationToken ct);
 
+    /// <summary>Sets IsExcluded and the link in one call, so a transaction can never be excluded without the plan that explains why.</summary>
+    Task<Transaction> SetInstallmentPlanAsync(Guid id, Guid budgetPeriodId, Guid installmentFixedExpenseId, CancellationToken ct);
+
+    /// <summary>Reverses SetInstallmentPlanAsync: un-excludes and unlinks.</summary>
+    Task<Transaction> ClearInstallmentPlanAsync(Guid id, Guid budgetPeriodId, CancellationToken ct);
+
+    Task<List<Transaction>> ListByFixedExpenseAsync(Guid fixedExpenseId, CancellationToken ct);
+    Task DeleteByFixedExpenseAsync(Guid fixedExpenseId, CancellationToken ct);
+
     Task<Transaction> SetTransactionExcludedAsync(Guid id, Guid budgetPeriodId, bool excluded, CancellationToken ct);
 
     // ── Categories ───────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ public sealed class TransactionHandlerTests
 {
     private readonly IBudgetProfileRepository _profiles = Substitute.For<IBudgetProfileRepository>();
     private readonly ITransactionRepository _transactions = Substitute.For<ITransactionRepository>();
+    private readonly IFixedExpenseRepository _fixedExpenses = Substitute.For<IFixedExpenseRepository>();
     private BudgetAccessGuard Access => new(_profiles);
 
     private (Guid AdminId, Guid ProfileId, Guid PeriodId) SetUpOpenPeriod()
@@ -213,7 +214,7 @@ public sealed class TransactionHandlerTests
         _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
             .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = true });
 
-        await Assert.ThrowsAsync<ForbiddenException>(() => new MarkTransactionAsPaidCommandHandler(Access, _transactions)
+        await Assert.ThrowsAsync<ForbiddenException>(() => new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles)
             .Handle(new MarkTransactionAsPaidCommand(adminId, Guid.NewGuid(), periodId, new Money(50, 0), new DateOnly(2026, 2, 10)), CancellationToken.None));
     }
 
@@ -225,8 +226,71 @@ public sealed class TransactionHandlerTests
         _transactions.MarkTransactionAsPaidAsync(txId, periodId, 50m, new DateOnly(2026, 2, 10), Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = txId, Amount = 50m, PlannedAmount = 60m, IsPaid = true, PaidDate = new DateOnly(2026, 2, 10) });
 
-        var result = await new MarkTransactionAsPaidCommandHandler(Access, _transactions)
+        var result = await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles)
             .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(50, 0), new DateOnly(2026, 2, 10)), CancellationToken.None);
+
+        Assert.True(result.IsPaid);
+    }
+
+    [Fact]
+    public async Task MarkAsPaid_LinkedToFixedExpense_AutoUpdateOn_SyncsTemplateToWhatWasActuallyPaid()
+    {
+        var (adminId, profileId, periodId) = SetUpOpenPeriod();
+        var txId = Guid.NewGuid();
+        var feId = Guid.NewGuid();
+        var categoryId = 7;
+        var paymentMethodId = Guid.NewGuid();
+        _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = profileId, UserId = adminId, Name = "B", Cycle = "monthly", AutoUpdatePlannedAmount = true });
+        _transactions.MarkTransactionAsPaidAsync(txId, periodId, 65m, new DateOnly(2026, 2, 12), Arg.Any<CancellationToken>())
+            .Returns(new Transaction
+            {
+                Id = txId, Amount = 65m, PlannedAmount = 60m, IsPaid = true, PaidDate = new DateOnly(2026, 2, 12),
+                FixedExpenseId = feId, CategoryId = categoryId, PaymentMethodId = paymentMethodId,
+            });
+        _fixedExpenses.GetByIdAsync(feId, Arg.Any<CancellationToken>())
+            .Returns(new FixedExpense { Id = feId, BudgetProfileId = profileId, Name = "Rent", PlannedAmount = 60m });
+
+        await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles)
+            .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(65, 0), new DateOnly(2026, 2, 12)), CancellationToken.None);
+
+        await _fixedExpenses.Received(1).UpdateFromPaymentAsync(
+            feId, 65m, 12, Arg.Any<int>(), new DateOnly(2026, 2, 12), categoryId, paymentMethodId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MarkAsPaid_LinkedToFixedExpense_AutoUpdateOff_DoesNotSyncTemplate()
+    {
+        var (adminId, profileId, periodId) = SetUpOpenPeriod();
+        var txId = Guid.NewGuid();
+        var feId = Guid.NewGuid();
+        _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = profileId, UserId = adminId, Name = "B", Cycle = "monthly", AutoUpdatePlannedAmount = false });
+        _transactions.MarkTransactionAsPaidAsync(txId, periodId, 65m, new DateOnly(2026, 2, 12), Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = txId, Amount = 65m, IsPaid = true, FixedExpenseId = feId });
+
+        await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles)
+            .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(65, 0), new DateOnly(2026, 2, 12)), CancellationToken.None);
+
+        await _fixedExpenses.DidNotReceive().UpdateFromPaymentAsync(
+            Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<DateOnly?>(), Arg.Any<int?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MarkAsPaid_TemplateSyncFailure_IsNonFatal_PaymentStillReturned()
+    {
+        var (adminId, profileId, periodId) = SetUpOpenPeriod();
+        var txId = Guid.NewGuid();
+        var feId = Guid.NewGuid();
+        _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = profileId, UserId = adminId, Name = "B", Cycle = "monthly", AutoUpdatePlannedAmount = true });
+        _transactions.MarkTransactionAsPaidAsync(txId, periodId, 65m, new DateOnly(2026, 2, 12), Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = txId, Amount = 65m, IsPaid = true, FixedExpenseId = feId });
+        _fixedExpenses.GetByIdAsync(feId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<FixedExpense>(new NotFoundException("fixed_expense", feId.ToString())));
+
+        var result = await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles)
+            .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(65, 0), new DateOnly(2026, 2, 12)), CancellationToken.None);
 
         Assert.True(result.IsPaid);
     }

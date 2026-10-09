@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using WellSpent.Application.FixedExpenses;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 using WellSpent.Domain.Exceptions;
@@ -9,11 +10,11 @@ namespace WellSpent.Application.Budgets;
 /// Shared period-rollover core used by CreateBudgetProfile (first period) and
 /// CreateBudgetPeriod (every period after). Ports Go's createNextPeriod
 /// (budget_profile_service.go) incrementally as each dependency lands:
-/// date/archive mechanics and income pre-fill + tax-reserve recalc are done
-/// (B5 batches 1/2); the rest is deliberately deferred since it depends on
-/// entities that don't exist in this backend yet:
-///   - fixed-expense spawn → B5 batch 5 (Installment plans + FixedExpenses)
-///   - savings-source transaction spawn → B5 batch 4/5
+/// date/archive mechanics, income pre-fill + tax-reserve recalc, and
+/// fixed-expense spawn are done (B5 batches 1/2/5); the rest is deliberately
+/// deferred since it depends on entities that don't exist in this backend
+/// yet:
+///   - savings-source transaction spawn → B5 batch 5/6
 ///   - carryover → B5 batch 5/6
 ///   - period-created notification → wired once those land
 /// Each hook point is marked below. The live Go backend keeps serving every
@@ -22,8 +23,8 @@ namespace WellSpent.Application.Budgets;
 public static class BudgetPeriodRollover
 {
     public static async Task<BudgetPeriod> CreateNextPeriodAsync(
-        IBudgetProfileRepository profiles, TaxReserveRecalculator taxReserve, ILogger logger,
-        BudgetProfile profile, CancellationToken ct)
+        IBudgetProfileRepository profiles, ITransactionRepository transactions, IFixedExpenseRepository fixedExpenses,
+        TaxReserveRecalculator taxReserve, ILogger logger, BudgetProfile profile, CancellationToken ct)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         BudgetPeriod? latest = null;
@@ -106,11 +107,83 @@ public static class BudgetPeriodRollover
             logger.LogError(ex, "period_rollover.tax_reserve_recalc_failed profile_id={ProfileId}", profile.Id);
         }
 
-        // HOOK: fixed-expense spawn (B5 batch 5).
-        // HOOK: savings-source transaction spawn (B5 batch 4/5).
+        // Spawn fixed-expense transactions for the new period — only for
+        // expenses actually due this period's month, and at most once per
+        // calendar month even if a weekly/bi-weekly cycle lands more than one
+        // period inside that month. WEEK-unit expenses use a separate
+        // per-date path since a single period can contain several due weeks.
+        var activePaymentMethodIds = await ActivePaymentMethodIdsAsync(transactions, profile.Id, logger, ct);
+        var monthStart = new DateOnly(start.Year, start.Month, 1);
+        var monthEnd = monthStart.AddMonths(1);
+        List<Domain.Entities.FixedExpense> activeFixedExpenses;
+        try
+        {
+            activeFixedExpenses = await fixedExpenses.ListAsync(profile.Id, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "period_rollover.list_fixed_expenses_failed profile_id={ProfileId}", profile.Id);
+            activeFixedExpenses = [];
+        }
+        foreach (var fe in activeFixedExpenses)
+        {
+            try
+            {
+                if (fe.EndDate is { } endDate && start > endDate)
+                {
+                    // A finished payment plan keeps spawning bills the user no longer owes.
+                    await fixedExpenses.DeactivateAsync(fe.Id, profile.Id, ct);
+                    continue;
+                }
+                if (FixedExpenseScheduling.IsWeekUnit(fe))
+                {
+                    await FixedExpenseSpawning.SpawnWeeklyOccurrencesAsync(
+                        transactions, fixedExpenses, fe, period.Id, start, end, activePaymentMethodIds, ct);
+                    continue;
+                }
+                if (!FixedExpenseScheduling.IsDueInMonth(fe, monthStart)) continue;
+                if (await fixedExpenses.HasTransactionInMonthAsync(fe.Id, monthStart, monthEnd, ct)) continue;
+
+                await transactions.CreateTransactionAsync(new Transaction
+                {
+                    Name = fe.Name,
+                    Amount = fe.PlannedAmount,
+                    PlannedAmount = fe.PlannedAmount,
+                    Date = FixedExpenseScheduling.DateInMonth(fe, monthStart),
+                    BudgetPeriodId = period.Id,
+                    CategoryId = fe.CategoryId,
+                    PaymentMethodId = FixedExpenseSpawning.LivePaymentMethod(fe.PaymentMethodId, activePaymentMethodIds),
+                    TransactionTypeId = 1,
+                    FixedExpenseId = fe.Id,
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                // A bill the user owes this period simply never appears.
+                logger.LogError(ex, "period_rollover.fixed_expense_spawn_failed fixed_expense_id={FixedExpenseId} period_id={PeriodId}", fe.Id, period.Id);
+            }
+        }
+
+        // HOOK: savings-source transaction spawn (B5 batch 5/6).
         // HOOK: carryover (B5 batch 5/6).
         // HOOK: period-created notification.
 
         return period;
+    }
+
+    /// <summary>Payment methods a spawned bill may be attributed to. Null on failure, which LivePaymentMethod reads as "don't second-guess the template" — losing attribution on every bill in a period because one lookup failed would be worse than the problem this guards against.</summary>
+    private static async Task<HashSet<Guid>?> ActivePaymentMethodIdsAsync(
+        ITransactionRepository transactions, Guid profileId, ILogger logger, CancellationToken ct)
+    {
+        try
+        {
+            var methods = await transactions.ListPaymentMethodsAsync(profileId, ct);
+            return methods.Select(m => m.Id).ToHashSet();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "period_rollover.list_payment_methods_failed profile_id={ProfileId}", profileId);
+            return null;
+        }
     }
 }

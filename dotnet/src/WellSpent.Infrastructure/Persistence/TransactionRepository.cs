@@ -84,6 +84,34 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         return tx;
     }
 
+    public async Task<Transaction> SetInstallmentPlanAsync(Guid id, Guid budgetPeriodId, Guid installmentFixedExpenseId, CancellationToken ct)
+    {
+        var tx = await db.Transactions.FirstOrDefaultAsync(t => t.Id == id && t.BudgetPeriodId == budgetPeriodId, ct)
+            ?? throw new NotFoundException("transaction", id.ToString());
+        tx.IsExcluded = true;
+        tx.InstallmentFixedExpenseId = installmentFixedExpenseId;
+        await db.SaveChangesAsync(ct);
+        return tx;
+    }
+
+    public async Task<Transaction> ClearInstallmentPlanAsync(Guid id, Guid budgetPeriodId, CancellationToken ct)
+    {
+        var tx = await db.Transactions.FirstOrDefaultAsync(t => t.Id == id && t.BudgetPeriodId == budgetPeriodId, ct)
+            ?? throw new NotFoundException("transaction", id.ToString());
+        tx.IsExcluded = false;
+        tx.InstallmentFixedExpenseId = null;
+        await db.SaveChangesAsync(ct);
+        return tx;
+    }
+
+    public async Task<List<Transaction>> ListByFixedExpenseAsync(Guid fixedExpenseId, CancellationToken ct) =>
+        await db.Transactions.Where(t => t.FixedExpenseId == fixedExpenseId).ToListAsync(ct);
+
+    public async Task DeleteByFixedExpenseAsync(Guid fixedExpenseId, CancellationToken ct)
+    {
+        await db.Transactions.Where(t => t.FixedExpenseId == fixedExpenseId).ExecuteDeleteAsync(ct);
+    }
+
     public async Task<Transaction> SetTransactionExcludedAsync(Guid id, Guid budgetPeriodId, bool excluded, CancellationToken ct)
     {
         var tx = await db.Transactions.FirstOrDefaultAsync(t => t.Id == id && t.BudgetPeriodId == budgetPeriodId, ct)
