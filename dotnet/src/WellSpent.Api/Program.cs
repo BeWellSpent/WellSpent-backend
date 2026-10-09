@@ -81,6 +81,7 @@ try
     app.MapChangelogEndpoints();
     app.MapNotificationEndpoints();
     app.MapInviteEndpoints();
+    app.MapBudgetEndpoints();
 
     app.Run();
 }

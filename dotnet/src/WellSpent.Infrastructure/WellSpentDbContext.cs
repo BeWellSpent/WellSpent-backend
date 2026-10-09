@@ -20,6 +20,7 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
     public DbSet<ChangelogItem> ChangelogItems => Set<ChangelogItem>();
     public DbSet<BudgetProfile> BudgetProfiles => Set<BudgetProfile>();
     public DbSet<BudgetPerson> BudgetPeople => Set<BudgetPerson>();
+    public DbSet<BudgetPeriod> BudgetPeriods => Set<BudgetPeriod>();
     public DbSet<AlertSubscription> AlertSubscriptions => Set<AlertSubscription>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
@@ -34,6 +35,7 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
         modelBuilder.ApplyConfiguration(new ChangelogItemEntityConfiguration());
         modelBuilder.ApplyConfiguration(new BudgetProfileEntityConfiguration());
         modelBuilder.ApplyConfiguration(new BudgetPersonEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new BudgetPeriodEntityConfiguration());
         modelBuilder.ApplyConfiguration(new AlertSubscriptionEntityConfiguration());
         modelBuilder.ApplyConfiguration(new NotificationEntityConfiguration());
         modelBuilder.ApplyConfiguration(new DeviceTokenEntityConfiguration());

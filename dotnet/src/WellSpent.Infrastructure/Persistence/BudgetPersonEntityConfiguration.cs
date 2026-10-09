@@ -4,7 +4,6 @@ using WellSpent.Domain.Entities;
 
 namespace WellSpent.Infrastructure.Persistence;
 
-/// <summary>Maps the minimal slice of `budget_to_profile_mapping` this sub-issue needs — see BudgetPerson's doc comment.</summary>
 public sealed class BudgetPersonEntityConfiguration : IEntityTypeConfiguration<BudgetPerson>
 {
     public void Configure(EntityTypeBuilder<BudgetPerson> b)
@@ -22,5 +21,9 @@ public sealed class BudgetPersonEntityConfiguration : IEntityTypeConfiguration<B
         b.Property(x => x.IsActive).HasColumnName("is_active");
         b.Property(x => x.Color).HasColumnName("color");
         b.Property(x => x.Role).HasColumnName("role").IsRequired();
+        b.Property(x => x.PlanChartType).HasColumnName("plan_chart_type");
+        b.Property(x => x.OverviewChartType).HasColumnName("overview_chart_type");
+        b.Property(x => x.ManualMatchReviewEnabled).HasColumnName("manual_match_review_enabled");
+        b.Property(x => x.FocusedViewEnabled).HasColumnName("focused_view_enabled");
     }
 }

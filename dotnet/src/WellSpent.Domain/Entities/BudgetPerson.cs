@@ -1,12 +1,6 @@
 namespace WellSpent.Domain.Entities;
 
-/// <summary>
-/// Deliberately minimal slice of the `budget_to_profile_mapping` table — just
-/// the columns Notification/Invite's role checks and invite-acceptance writes
-/// need (B4). B5 extends this same class with chart/review/focused-view
-/// preferences etc. rather than redefining it. `Id` is the table's SERIAL
-/// (int4) PK, matching the Go repository's int32 usage throughout.
-/// </summary>
+/// <summary>`Id` is the table's SERIAL (int4) PK, matching the Go repository's int32 usage throughout.</summary>
 public sealed class BudgetPerson
 {
     public int Id { get; set; }
@@ -18,4 +12,10 @@ public sealed class BudgetPerson
 
     /// <summary>"admin" | "collaborator" | "viewer" | "unspecified".</summary>
     public required string Role { get; set; }
+
+    /// <summary>"pie" | "bar" | null (null = use the client default).</summary>
+    public string? PlanChartType { get; set; }
+    public string? OverviewChartType { get; set; }
+    public bool ManualMatchReviewEnabled { get; set; } = true;
+    public bool FocusedViewEnabled { get; set; }
 }
