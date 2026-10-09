@@ -72,4 +72,58 @@ public sealed class BudgetAccessGuard(IBudgetProfileRepository profiles)
         }
         return profile;
     }
+
+    /// <summary>
+    /// Mirrors TransactionService's own getUserRoleForPeriod: resolves the
+    /// period's profile and the caller's role. A non-member always gets
+    /// ForbiddenException here, never NotFoundException — unlike
+    /// EnsureMemberAsync above, which lets a non-member's NotFoundException
+    /// propagate. Go has both behaviors on different services; this is the
+    /// TransactionService one specifically.
+    /// </summary>
+    public async Task<(BudgetPeriod Period, string Role)> GetPeriodRoleAsync(Guid periodId, Guid callerId, CancellationToken ct)
+    {
+        var period = await profiles.GetPeriodByIdAsync(periodId, ct);
+        var profile = await profiles.GetByIdAsync(period.BudgetProfileId, ct);
+        if (profile.UserId == callerId)
+        {
+            return (period, "admin");
+        }
+        try
+        {
+            var person = await profiles.GetPersonByUserIdAsync(period.BudgetProfileId, callerId, ct);
+            return (period, person.Role);
+        }
+        catch (NotFoundException)
+        {
+            throw new ForbiddenException("access denied");
+        }
+    }
+
+    public async Task<BudgetPeriod> EnsureMemberOfPeriodAsync(Guid periodId, Guid callerId, CancellationToken ct)
+    {
+        var (period, _) = await GetPeriodRoleAsync(periodId, callerId, ct);
+        return period;
+    }
+
+    /// <summary>
+    /// Mirrors TransactionService's own assertPeriodCollaborator: the role
+    /// check runs BEFORE the archived check. This is the opposite order from
+    /// the income-entry path (BudgetProfileService's assertPeriodCollaborator,
+    /// archived-first) — a genuine inconsistency in Go between the two
+    /// services, not something to "fix" into one shared order here.
+    /// </summary>
+    public async Task<BudgetPeriod> EnsureCollaboratorOfPeriodAsync(Guid periodId, Guid callerId, CancellationToken ct)
+    {
+        var (period, role) = await GetPeriodRoleAsync(periodId, callerId, ct);
+        if (role != "admin" && role != "collaborator")
+        {
+            throw new ForbiddenException("access denied");
+        }
+        if (period.IsArchived)
+        {
+            throw new ForbiddenException("this budget period is archived and read-only");
+        }
+        return period;
+    }
 }

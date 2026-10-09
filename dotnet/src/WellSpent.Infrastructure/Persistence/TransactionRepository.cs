@@ -7,6 +7,92 @@ namespace WellSpent.Infrastructure.Persistence;
 
 public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionRepository
 {
+    // ── Transactions ─────────────────────────────────────────────────────────
+
+    public async Task<Transaction> GetTransactionAsync(Guid id, CancellationToken ct) =>
+        await db.Transactions.FirstOrDefaultAsync(t => t.Id == id, ct)
+            ?? throw new NotFoundException("transaction", id.ToString());
+
+    public async Task<List<Transaction>> ListTransactionsAsync(
+        Guid budgetPeriodId, int? categoryId, int? transactionTypeId, int? focusedPersonId, CancellationToken ct)
+    {
+        var query = db.Transactions.Where(t => t.BudgetPeriodId == budgetPeriodId);
+        if (categoryId is { } catId) query = query.Where(t => t.CategoryId == catId);
+        if (transactionTypeId is { } typeId) query = query.Where(t => t.TransactionTypeId == typeId);
+        if (focusedPersonId is { } personId)
+        {
+            query = query.Where(t =>
+                t.PaymentMethodId == null ||
+                db.PaymentMethods.Any(pm => pm.Id == t.PaymentMethodId && (pm.BudgetPersonId == null || pm.BudgetPersonId == personId)));
+        }
+        return await query.OrderByDescending(t => t.Date).ToListAsync(ct);
+    }
+
+    public async Task<Transaction> CreateTransactionAsync(Transaction transaction, CancellationToken ct)
+    {
+        db.Transactions.Add(transaction);
+        await db.SaveChangesAsync(ct);
+        return transaction;
+    }
+
+    public async Task<Transaction> UpdateTransactionAsync(Transaction transaction, CancellationToken ct)
+    {
+        var existing = await db.Transactions.FirstOrDefaultAsync(t => t.Id == transaction.Id, ct)
+            ?? throw new NotFoundException("transaction", transaction.Id.ToString());
+        existing.Name = transaction.Name;
+        existing.Amount = transaction.Amount;
+        existing.PlannedAmount = transaction.PlannedAmount;
+        existing.Date = transaction.Date;
+        existing.CategoryId = transaction.CategoryId;
+        existing.PaymentMethodId = transaction.PaymentMethodId;
+        existing.TransactionFrequencyId = transaction.TransactionFrequencyId;
+        existing.TransactionTypeId = transaction.TransactionTypeId;
+        await db.SaveChangesAsync(ct);
+        return existing;
+    }
+
+    public async Task DeleteTransactionAsync(Guid id, Guid? budgetPeriodId, CancellationToken ct)
+    {
+        // Note: EF Core translates == against a nullable parameter using
+        // C#'s null-safe equality (an "IS NULL" match), whereas Go's raw
+        // parameterized `budget_period_id = NULL` never matches in Postgres.
+        // A transaction with no period at all is a near-impossible edge case
+        // in practice, so this minor divergence is accepted rather than
+        // chased with raw SQL.
+        await db.Transactions.Where(t => t.Id == id && t.BudgetPeriodId == budgetPeriodId).ExecuteDeleteAsync(ct);
+    }
+
+    public async Task<Transaction> MarkTransactionAsPaidAsync(Guid id, Guid budgetPeriodId, decimal amount, DateOnly paidDate, CancellationToken ct)
+    {
+        var tx = await db.Transactions.FirstOrDefaultAsync(t => t.Id == id && t.BudgetPeriodId == budgetPeriodId, ct)
+            ?? throw new NotFoundException("transaction", id.ToString());
+        tx.IsPaid = true;
+        tx.PaidDate = paidDate;
+        tx.Amount = amount;
+        await db.SaveChangesAsync(ct);
+        return tx;
+    }
+
+    public async Task<Transaction> UnmarkTransactionAsPaidAsync(Guid id, Guid budgetPeriodId, CancellationToken ct)
+    {
+        var tx = await db.Transactions.FirstOrDefaultAsync(t => t.Id == id && t.BudgetPeriodId == budgetPeriodId, ct)
+            ?? throw new NotFoundException("transaction", id.ToString());
+        tx.IsPaid = false;
+        tx.PaidDate = null;
+        tx.Amount = tx.PlannedAmount;
+        await db.SaveChangesAsync(ct);
+        return tx;
+    }
+
+    public async Task<Transaction> SetTransactionExcludedAsync(Guid id, Guid budgetPeriodId, bool excluded, CancellationToken ct)
+    {
+        var tx = await db.Transactions.FirstOrDefaultAsync(t => t.Id == id && t.BudgetPeriodId == budgetPeriodId, ct)
+            ?? throw new NotFoundException("transaction", id.ToString());
+        tx.IsExcluded = excluded;
+        await db.SaveChangesAsync(ct);
+        return tx;
+    }
+
     // ── Categories ───────────────────────────────────────────────────────────
 
     public async Task<Category> GetCategoryAsync(int id, CancellationToken ct) =>

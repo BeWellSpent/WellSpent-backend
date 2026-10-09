@@ -84,6 +84,7 @@ try
     app.MapBudgetEndpoints();
     app.MapCategoryEndpoints();
     app.MapPaymentMethodEndpoints();
+    app.MapTransactionEndpoints();
 
     app.Run();
 }

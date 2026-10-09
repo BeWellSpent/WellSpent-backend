@@ -3,14 +3,40 @@ using WellSpent.Domain.Entities;
 namespace WellSpent.Domain.Abstractions;
 
 /// <summary>
-/// Covers Category and PaymentMethod (B5 batch 3) — the two Go groups this
-/// interface will host when B5 batch 4 (Transactions core) extends it with
-/// Transaction CRUD, mirroring Go's single transactionRepository grouping all
-/// three. A second interface isn't introduced for the same reason
-/// IBudgetProfileRepository stays one interface across its own batches.
+/// Covers Transaction, Category, and PaymentMethod — mirroring Go's single
+/// transactionRepository grouping all three. Batch 5 (Installment plans +
+/// Fixed expenses) adds the installment-plan link methods; batch 7
+/// (Transaction review) stays its own interface, matching Go's separate
+/// TransactionReviewRepository.
 /// </summary>
 public interface ITransactionRepository
 {
+    // ── Transactions ─────────────────────────────────────────────────────────
+    Task<Transaction> GetTransactionAsync(Guid id, CancellationToken ct);
+
+    Task<List<Transaction>> ListTransactionsAsync(
+        Guid budgetPeriodId, int? categoryId, int? transactionTypeId, int? focusedPersonId, CancellationToken ct);
+
+    Task<Transaction> CreateTransactionAsync(Transaction transaction, CancellationToken ct);
+
+    /// <summary>Full replace of the editable fields (Name/Amount/PlannedAmount/Date/Category/PaymentMethod/Frequency/Type) — not BudgetPeriodId, RenewalDate, or any paid/excluded/Plaid/installment field.</summary>
+    Task<Transaction> UpdateTransactionAsync(Transaction transaction, CancellationToken ct);
+
+    /// <summary>
+    /// Mirrors Go's SQL exactly, including its edge case: `budget_period_id = NULL`
+    /// is never true in Postgres, so a transaction with no period silently
+    /// fails to delete here too — not fixed, since it's the same real
+    /// behavior the Go query has.
+    /// </summary>
+    Task DeleteTransactionAsync(Guid id, Guid? budgetPeriodId, CancellationToken ct);
+
+    Task<Transaction> MarkTransactionAsPaidAsync(Guid id, Guid budgetPeriodId, decimal amount, DateOnly paidDate, CancellationToken ct);
+
+    /// <summary>Resets Amount back to PlannedAmount, matching Go's SQL exactly.</summary>
+    Task<Transaction> UnmarkTransactionAsPaidAsync(Guid id, Guid budgetPeriodId, CancellationToken ct);
+
+    Task<Transaction> SetTransactionExcludedAsync(Guid id, Guid budgetPeriodId, bool excluded, CancellationToken ct);
+
     // ── Categories ───────────────────────────────────────────────────────────
     Task<Category> GetCategoryAsync(int id, CancellationToken ct);
 
