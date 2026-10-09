@@ -49,4 +49,27 @@ public sealed class BudgetAccessGuard(IBudgetProfileRepository profiles)
         }
         return profile;
     }
+
+    /// <summary>Mirrors Go's assertCollaboratorOrAbove — same 404-vs-403 collapse as EnsureAdminAsync, just a wider role set (admin or collaborator).</summary>
+    public async Task<BudgetProfile> EnsureCollaboratorOrAboveAsync(Guid profileId, Guid callerId, CancellationToken ct)
+    {
+        var profile = await profiles.GetByIdAsync(profileId, ct);
+        if (profile.UserId != callerId)
+        {
+            BudgetPerson person;
+            try
+            {
+                person = await profiles.GetPersonByUserIdAsync(profileId, callerId, ct);
+            }
+            catch (NotFoundException)
+            {
+                throw new ForbiddenException("access denied");
+            }
+            if (person.Role != "admin" && person.Role != "collaborator")
+            {
+                throw new ForbiddenException("access denied");
+            }
+        }
+        return profile;
+    }
 }

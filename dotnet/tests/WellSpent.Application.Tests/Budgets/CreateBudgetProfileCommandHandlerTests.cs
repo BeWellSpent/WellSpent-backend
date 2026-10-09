@@ -17,8 +17,10 @@ public sealed class CreateBudgetProfileCommandHandlerTests
     private static readonly IMapper Mapper = new MapperConfiguration(
         cfg => cfg.AddProfile<BudgetMappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
 
+    private TaxReserveRecalculator TaxReserve => new(_profiles, _users, NullLogger<TaxReserveRecalculator>.Instance);
+
     private CreateBudgetProfileCommandHandler CreateHandler() =>
-        new(_profiles, _users, Mapper, NullLogger<CreateBudgetProfileCommandHandler>.Instance);
+        new(_profiles, _users, Mapper, TaxReserve, NullLogger<CreateBudgetProfileCommandHandler>.Instance);
 
     private User SetUpOwner(Guid userId, string? countryCode = "US")
     {
@@ -64,6 +66,7 @@ public sealed class CreateBudgetProfileCommandHandlerTests
             .Returns(Task.FromException<BudgetPeriod>(new NotFoundException("budget_period", "latest")));
         _profiles.CreatePeriodAsync(Arg.Any<BudgetPeriod>(), Arg.Any<CancellationToken>())
             .Returns(ci => ci.Arg<BudgetPeriod>());
+        _profiles.ListIncomeSourcesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
 
         var result = await CreateHandler().Handle(new CreateBudgetProfileCommand(userId, "My Budget", "monthly"), CancellationToken.None);
 

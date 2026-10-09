@@ -14,7 +14,7 @@ public sealed record CreateBudgetProfileCommand(Guid UserId, string Name, string
 public sealed record CreateBudgetProfileResult(BudgetProfileDto Profile, BudgetPeriodDto? Period);
 
 public sealed class CreateBudgetProfileCommandHandler(
-    IBudgetProfileRepository profiles, IUserRepository users, IMapper mapper,
+    IBudgetProfileRepository profiles, IUserRepository users, IMapper mapper, TaxReserveRecalculator taxReserve,
     ILogger<CreateBudgetProfileCommandHandler> logger)
     : IRequestHandler<CreateBudgetProfileCommand, CreateBudgetProfileResult>
 {
@@ -67,7 +67,7 @@ public sealed class CreateBudgetProfileCommandHandler(
         BudgetPeriod? period = null;
         try
         {
-            period = await BudgetPeriodRollover.CreateNextPeriodAsync(profiles, profile, ct);
+            period = await BudgetPeriodRollover.CreateNextPeriodAsync(profiles, taxReserve, logger, profile, ct);
         }
         catch (Exception ex)
         {

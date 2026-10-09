@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 using WellSpent.Domain.Exceptions;
@@ -6,24 +7,23 @@ namespace WellSpent.Application.Budgets;
 
 /// <summary>
 /// Shared period-rollover core used by CreateBudgetProfile (first period) and
-/// CreateBudgetPeriod (every period after). Ports only the date/archive
-/// mechanics of Go's createNextPeriod (budget_profile_service.go) — the rest
-/// of that function's orchestration is deliberately deferred to later B5
-/// batches, since it depends on entities that don't exist in this backend
-/// yet:
-///   - income-source pre-fill + tax-reserve recalculation → B5 batch 2 (Income/Savings)
+/// CreateBudgetPeriod (every period after). Ports Go's createNextPeriod
+/// (budget_profile_service.go) incrementally as each dependency lands:
+/// date/archive mechanics and income pre-fill + tax-reserve recalc are done
+/// (B5 batches 1/2); the rest is deliberately deferred since it depends on
+/// entities that don't exist in this backend yet:
 ///   - fixed-expense spawn → B5 batch 5 (Installment plans + FixedExpenses)
+///   - savings-source transaction spawn → B5 batch 4/5
 ///   - carryover → B5 batch 5/6
 ///   - period-created notification → wired once those land
-/// Each hook point is marked below. Until then, CreateBudgetPeriod in this
-/// backend only creates/archives period rows — correct and idempotent, just
-/// not yet feature-complete. The live Go backend keeps serving all actual
-/// period rollovers in the meantime.
+/// Each hook point is marked below. The live Go backend keeps serving every
+/// actual period rollover in the meantime.
 /// </summary>
 public static class BudgetPeriodRollover
 {
     public static async Task<BudgetPeriod> CreateNextPeriodAsync(
-        IBudgetProfileRepository profiles, BudgetProfile profile, CancellationToken ct)
+        IBudgetProfileRepository profiles, TaxReserveRecalculator taxReserve, ILogger logger,
+        BudgetProfile profile, CancellationToken ct)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         BudgetPeriod? latest = null;
@@ -73,8 +73,41 @@ public static class BudgetPeriodRollover
             }
         }
 
-        // HOOK: income pre-fill + tax reserve recalc (B5 batch 2).
+        // Pre-fill recurring income sources as entries.
+        var sources = await profiles.ListIncomeSourcesAsync(profile.Id, ct);
+        foreach (var src in sources.Where(s => s.Recurring))
+        {
+            try
+            {
+                await profiles.CreateIncomeEntryAsync(new IncomeEntry
+                {
+                    BudgetPeriodId = period.Id,
+                    IncomeSourceId = src.Id,
+                    BudgetPersonId = src.BudgetPersonId,
+                    Name = src.Name,
+                    Amount = src.DefaultAmount,
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                // The period opens with less income than the user expects,
+                // which silently inflates every "remaining to allocate" figure.
+                logger.LogError(ex, "period_rollover.income_prefill_failed income_source_id={IncomeSourceId} period_id={PeriodId}", src.Id, period.Id);
+            }
+        }
+
+        // Recalculate per-person tax reserve entries.
+        try
+        {
+            await taxReserve.RecalculateAsync(profile.Id, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "period_rollover.tax_reserve_recalc_failed profile_id={ProfileId}", profile.Id);
+        }
+
         // HOOK: fixed-expense spawn (B5 batch 5).
+        // HOOK: savings-source transaction spawn (B5 batch 4/5).
         // HOOK: carryover (B5 batch 5/6).
         // HOOK: period-created notification.
 

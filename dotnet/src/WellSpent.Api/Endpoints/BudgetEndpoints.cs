@@ -1,23 +1,34 @@
 using MediatR;
 using WellSpent.Api.Auth;
 using WellSpent.Application.Budgets.AddBudgetPeople;
+using WellSpent.Application.Budgets.AddIncomeSource;
+using WellSpent.Application.Budgets.AddSavingsSource;
 using WellSpent.Application.Budgets.CreateBudgetPeriod;
 using WellSpent.Application.Budgets.CreateBudgetProfile;
 using WellSpent.Application.Budgets.DeleteBudgetProfile;
+using WellSpent.Application.Budgets.DeleteIncomeSource;
+using WellSpent.Application.Budgets.DeleteSavingsSource;
 using WellSpent.Application.Budgets.GetBudgetPeriod;
 using WellSpent.Application.Budgets.GetBudgetProfile;
 using WellSpent.Application.Budgets.ListBudgetPeople;
 using WellSpent.Application.Budgets.ListBudgetPeriods;
 using WellSpent.Application.Budgets.ListBudgetProfiles;
+using WellSpent.Application.Budgets.ListIncomeEntries;
+using WellSpent.Application.Budgets.ListIncomeSources;
+using WellSpent.Application.Budgets.ListSavingsSources;
 using WellSpent.Application.Budgets.RemoveBudgetPerson;
 using WellSpent.Application.Budgets.SetBudgetAutoUpdatePlannedAmount;
 using WellSpent.Application.Budgets.SetBudgetCarryoverEnabled;
 using WellSpent.Application.Budgets.UpdateBudgetPerson;
 using WellSpent.Application.Budgets.UpdateBudgetPersonRole;
 using WellSpent.Application.Budgets.UpdateBudgetProfile;
+using WellSpent.Application.Budgets.UpdateIncomeEntry;
+using WellSpent.Application.Budgets.UpdateIncomeSource;
 using WellSpent.Application.Budgets.UpdateMyBudgetPreferences;
 using WellSpent.Application.Budgets.UpdateMyFocusedViewPreference;
 using WellSpent.Application.Budgets.UpdateMyManualMatchReviewPreference;
+using WellSpent.Application.Budgets.UpdateSavingsSource;
+using WellSpent.Application.Common;
 
 namespace WellSpent.Api.Endpoints;
 
@@ -137,6 +148,64 @@ public static class BudgetEndpoints
             return Results.Ok(new { person });
         });
 
+        // ── Income sources ───────────────────────────────────────────────
+        group.MapPost("/{id:guid}/income-sources", async (Guid id, IncomeSourceRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var source = await sender.Send(new AddIncomeSourceCommand(
+                CurrentUser.GetId(ctx), id, body.Name, body.IncomeType, body.DefaultAmount,
+                body.Recurring, body.BudgetPersonId, body.PaymentFrequency, body.BeforeTax), ct);
+            return Results.Ok(new { source });
+        });
+
+        group.MapGet("/{id:guid}/income-sources", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var sources = await sender.Send(new ListIncomeSourcesQuery(CurrentUser.GetId(ctx), id), ct);
+            return Results.Ok(new { sources });
+        });
+
+        group.MapPut("/{id:guid}/income-sources/{sourceId:int}", async (
+            Guid id, int sourceId, IncomeSourceRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var source = await sender.Send(new UpdateIncomeSourceCommand(
+                CurrentUser.GetId(ctx), sourceId, id, body.Name, body.IncomeType, body.DefaultAmount,
+                body.Recurring, body.BudgetPersonId, body.PaymentFrequency, body.BeforeTax), ct);
+            return Results.Ok(new { source });
+        });
+
+        group.MapDelete("/{id:guid}/income-sources/{sourceId:int}", async (Guid id, int sourceId, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            await sender.Send(new DeleteIncomeSourceCommand(CurrentUser.GetId(ctx), sourceId, id), ct);
+            return Results.Ok();
+        });
+
+        // ── Savings sources ──────────────────────────────────────────────
+        group.MapPost("/{id:guid}/savings-sources", async (Guid id, SavingsSourceRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var source = await sender.Send(new AddSavingsSourceCommand(
+                CurrentUser.GetId(ctx), id, body.Name, body.Amount, body.PaymentMethodId, body.PaymentDays ?? []), ct);
+            return Results.Ok(new { source });
+        });
+
+        group.MapGet("/{id:guid}/savings-sources", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var sources = await sender.Send(new ListSavingsSourcesQuery(CurrentUser.GetId(ctx), id), ct);
+            return Results.Ok(new { sources });
+        });
+
+        group.MapPut("/{id:guid}/savings-sources/{sourceId:int}", async (
+            Guid id, int sourceId, SavingsSourceRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var source = await sender.Send(new UpdateSavingsSourceCommand(
+                CurrentUser.GetId(ctx), sourceId, id, body.Name, body.Amount, body.PaymentMethodId, body.PaymentDays ?? []), ct);
+            return Results.Ok(new { source });
+        });
+
+        group.MapDelete("/{id:guid}/savings-sources/{sourceId:int}", async (Guid id, int sourceId, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            await sender.Send(new DeleteSavingsSourceCommand(CurrentUser.GetId(ctx), sourceId, id), ct);
+            return Results.Ok();
+        });
+
         // Separate namespace — GET /rest/v1/budgets/{id}/periods is the
         // profile-scoped list; a single period is looked up by its own id.
         var periodGroup = app.MapGroup("/rest/v1/budget-periods").WithTags("budgets").RequireAuthorization();
@@ -144,6 +213,20 @@ public static class BudgetEndpoints
         {
             var period = await sender.Send(new GetBudgetPeriodQuery(CurrentUser.GetId(ctx), id), ct);
             return Results.Ok(new { period });
+        });
+
+        // ── Income entries ───────────────────────────────────────────────
+        periodGroup.MapGet("/{id:guid}/income-entries", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var entries = await sender.Send(new ListIncomeEntriesQuery(CurrentUser.GetId(ctx), id), ct);
+            return Results.Ok(new { entries });
+        });
+
+        periodGroup.MapPut("/{id:guid}/income-entries/{entryId:int}", async (
+            Guid id, int entryId, UpdateIncomeEntryRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var entry = await sender.Send(new UpdateIncomeEntryCommand(CurrentUser.GetId(ctx), entryId, id, body.Amount), ct);
+            return Results.Ok(new { entry });
         });
     }
 
@@ -155,4 +238,12 @@ public static class BudgetEndpoints
     private sealed record MyPreferencesRequestBody(string? PlanChartType, string? OverviewChartType);
     private sealed record NewPersonRequestBody(string UserName, Guid? UserId, string? Color);
     private sealed record AddBudgetPeopleRequestBody(List<NewPersonRequestBody> People);
+
+    private sealed record IncomeSourceRequestBody(
+        string Name, string IncomeType, Money DefaultAmount, bool Recurring,
+        int? BudgetPersonId, string PaymentFrequency, bool BeforeTax);
+
+    private sealed record SavingsSourceRequestBody(string Name, Money Amount, Guid? PaymentMethodId, int[]? PaymentDays);
+
+    private sealed record UpdateIncomeEntryRequestBody(Money Amount);
 }

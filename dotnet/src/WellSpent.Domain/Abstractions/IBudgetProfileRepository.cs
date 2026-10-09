@@ -68,4 +68,32 @@ public interface IBudgetProfileRepository
 
     Task SoftRemovePersonAsync(int personId, Guid profileId, CancellationToken ct);
     Task SoftRemovePersonAndReassignAsync(int personId, Guid profileId, Guid replacementPaymentMethodId, int replacementPersonId, CancellationToken ct);
+
+    // ── Income sources ───────────────────────────────────────────────────────
+    Task<List<IncomeSource>> ListIncomeSourcesAsync(Guid profileId, CancellationToken ct);
+    Task<IncomeSource> AddIncomeSourceAsync(IncomeSource source, CancellationToken ct);
+    Task<IncomeSource> UpdateIncomeSourceAsync(IncomeSource source, CancellationToken ct);
+    Task DeleteIncomeSourceAsync(int id, Guid profileId, CancellationToken ct);
+
+    // ── Income entries ───────────────────────────────────────────────────────
+    Task<List<IncomeEntry>> ListIncomeEntriesAsync(Guid periodId, CancellationToken ct);
+    Task<IncomeEntry> CreateIncomeEntryAsync(IncomeEntry entry, CancellationToken ct);
+    Task<IncomeEntry> UpdateIncomeEntryAsync(int id, Guid periodId, decimal amount, CancellationToken ct);
+
+    // ── Savings sources ──────────────────────────────────────────────────────
+    Task<SavingsSource> GetSavingsSourceAsync(int id, Guid profileId, CancellationToken ct);
+    Task<SavingsSource> AddSavingsSourceAsync(SavingsSource source, CancellationToken ct);
+    Task<List<SavingsSource>> ListSavingsSourcesAsync(Guid profileId, CancellationToken ct);
+    Task<SavingsSource> UpdateSavingsSourceAsync(SavingsSource source, CancellationToken ct);
+    Task DeleteSavingsSourceAsync(int id, Guid profileId, CancellationToken ct);
+    Task<SavingsSource> UpsertTaxReserveSavingsSourceAsync(Guid profileId, int personId, decimal amount, decimal federalAmount, decimal stateAmount, CancellationToken ct);
+    Task DeleteTaxReserveSavingsSourceAsync(Guid profileId, CancellationToken ct);
+
+    /// <summary>
+    /// payment_methods isn't a mapped EF entity yet (B5 batch 3) — raw SQL, same
+    /// escape-hatch pattern as the other cross-table operations in this
+    /// repository. Throws NotFoundException if the payment method doesn't exist,
+    /// mirroring Go's GetPaymentMethod.
+    /// </summary>
+    Task<int?> GetPaymentMethodBudgetPersonIdAsync(Guid paymentMethodId, CancellationToken ct);
 }

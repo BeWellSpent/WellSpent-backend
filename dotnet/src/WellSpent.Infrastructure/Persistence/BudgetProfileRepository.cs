@@ -78,6 +78,150 @@ public sealed class BudgetProfileRepository(WellSpentDbContext db) : IBudgetProf
             $"DELETE FROM payment_methods WHERE id = ANY({ids.ToArray()})", ct);
     }
 
+    // ── Income sources ───────────────────────────────────────────────────────
+
+    public async Task<List<IncomeSource>> ListIncomeSourcesAsync(Guid profileId, CancellationToken ct) =>
+        await db.IncomeSources.Where(s => s.BudgetProfileId == profileId).OrderBy(s => s.Id).ToListAsync(ct);
+
+    public async Task<IncomeSource> AddIncomeSourceAsync(IncomeSource source, CancellationToken ct)
+    {
+        db.IncomeSources.Add(source);
+        await db.SaveChangesAsync(ct);
+        return source;
+    }
+
+    public async Task<IncomeSource> UpdateIncomeSourceAsync(IncomeSource source, CancellationToken ct)
+    {
+        var existing = await db.IncomeSources.FirstOrDefaultAsync(
+            s => s.Id == source.Id && s.BudgetProfileId == source.BudgetProfileId, ct)
+            ?? throw new NotFoundException("income_source", source.Id.ToString());
+        existing.Name = source.Name;
+        existing.IncomeType = source.IncomeType;
+        existing.DefaultAmount = source.DefaultAmount;
+        existing.Recurring = source.Recurring;
+        existing.BudgetPersonId = source.BudgetPersonId;
+        existing.PaymentFrequency = source.PaymentFrequency;
+        existing.BeforeTax = source.BeforeTax;
+        await db.SaveChangesAsync(ct);
+        return existing;
+    }
+
+    public async Task DeleteIncomeSourceAsync(int id, Guid profileId, CancellationToken ct)
+    {
+        await db.IncomeSources.Where(s => s.Id == id && s.BudgetProfileId == profileId).ExecuteDeleteAsync(ct);
+    }
+
+    // ── Income entries ───────────────────────────────────────────────────────
+
+    public async Task<List<IncomeEntry>> ListIncomeEntriesAsync(Guid periodId, CancellationToken ct) =>
+        await db.IncomeEntries.Where(e => e.BudgetPeriodId == periodId).OrderBy(e => e.Id).ToListAsync(ct);
+
+    public async Task<IncomeEntry> CreateIncomeEntryAsync(IncomeEntry entry, CancellationToken ct)
+    {
+        db.IncomeEntries.Add(entry);
+        await db.SaveChangesAsync(ct);
+        return entry;
+    }
+
+    public async Task<IncomeEntry> UpdateIncomeEntryAsync(int id, Guid periodId, decimal amount, CancellationToken ct)
+    {
+        var entry = await db.IncomeEntries.FirstOrDefaultAsync(e => e.Id == id && e.BudgetPeriodId == periodId, ct)
+            ?? throw new NotFoundException("income_entry", id.ToString());
+        entry.Amount = amount;
+        await db.SaveChangesAsync(ct);
+        return entry;
+    }
+
+    // ── Savings sources ──────────────────────────────────────────────────────
+
+    public async Task<SavingsSource> GetSavingsSourceAsync(int id, Guid profileId, CancellationToken ct) =>
+        await db.SavingsSources.FirstOrDefaultAsync(s => s.Id == id && s.BudgetProfileId == profileId, ct)
+            ?? throw new NotFoundException("savings_source", id.ToString());
+
+    public async Task<SavingsSource> AddSavingsSourceAsync(SavingsSource source, CancellationToken ct)
+    {
+        db.SavingsSources.Add(source);
+        await db.SaveChangesAsync(ct);
+        return source;
+    }
+
+    public async Task<List<SavingsSource>> ListSavingsSourcesAsync(Guid profileId, CancellationToken ct) =>
+        await db.SavingsSources.Where(s => s.BudgetProfileId == profileId).OrderBy(s => s.Id).ToListAsync(ct);
+
+    public async Task<SavingsSource> UpdateSavingsSourceAsync(SavingsSource source, CancellationToken ct)
+    {
+        var existing = await db.SavingsSources.FirstOrDefaultAsync(
+            s => s.Id == source.Id && s.BudgetProfileId == source.BudgetProfileId, ct)
+            ?? throw new NotFoundException("savings_source", source.Id.ToString());
+        existing.Name = source.Name;
+        existing.Amount = source.Amount;
+        existing.Frequency = source.Frequency;
+        existing.BudgetPersonId = source.BudgetPersonId;
+        existing.PaymentMethodId = source.PaymentMethodId;
+        existing.PaymentDays = source.PaymentDays;
+        await db.SaveChangesAsync(ct);
+        return existing;
+    }
+
+    public async Task DeleteSavingsSourceAsync(int id, Guid profileId, CancellationToken ct)
+    {
+        await db.SavingsSources.Where(s => s.Id == id && s.BudgetProfileId == profileId).ExecuteDeleteAsync(ct);
+    }
+
+    public async Task<SavingsSource> UpsertTaxReserveSavingsSourceAsync(
+        Guid profileId, int personId, decimal amount, decimal federalAmount, decimal stateAmount, CancellationToken ct)
+    {
+        // Mirrors Go's ON CONFLICT (budget_profile_id, budget_person_id) WHERE
+        // is_tax_reserve = TRUE upsert against the partial unique index —
+        // EF Core has no native upsert, so this reads-then-writes instead,
+        // which is fine here since recalculateTaxReserve's caller already
+        // deleted every existing tax-reserve row for this profile first.
+        var existing = await db.SavingsSources.FirstOrDefaultAsync(
+            s => s.BudgetProfileId == profileId && s.BudgetPersonId == personId && s.IsTaxReserve, ct);
+        if (existing is not null)
+        {
+            existing.Amount = amount;
+            existing.FederalAmount = federalAmount;
+            existing.StateAmount = stateAmount;
+            await db.SaveChangesAsync(ct);
+            return existing;
+        }
+
+        var created = new SavingsSource
+        {
+            BudgetProfileId = profileId,
+            BudgetPersonId = personId,
+            Name = "Future Tax Payment",
+            Amount = amount,
+            Frequency = "monthly",
+            IsTaxReserve = true,
+            FederalAmount = federalAmount,
+            StateAmount = stateAmount,
+        };
+        db.SavingsSources.Add(created);
+        await db.SaveChangesAsync(ct);
+        return created;
+    }
+
+    public async Task DeleteTaxReserveSavingsSourceAsync(Guid profileId, CancellationToken ct)
+    {
+        await db.SavingsSources.Where(s => s.BudgetProfileId == profileId && s.IsTaxReserve).ExecuteDeleteAsync(ct);
+    }
+
+    public async Task<int?> GetPaymentMethodBudgetPersonIdAsync(Guid paymentMethodId, CancellationToken ct)
+    {
+        var exists = await db.Database.SqlQuery<Guid>(
+            $"SELECT pm.id FROM payment_methods pm WHERE pm.id = {paymentMethodId}").ToListAsync(ct);
+        if (exists.Count == 0)
+        {
+            throw new NotFoundException("payment_method", paymentMethodId.ToString());
+        }
+
+        var personIds = await db.Database.SqlQuery<int?>(
+            $"SELECT pm.budget_person_id FROM payment_methods pm WHERE pm.id = {paymentMethodId}").ToListAsync(ct);
+        return personIds[0];
+    }
+
     // ── Period ───────────────────────────────────────────────────────────────
 
     public async Task<BudgetPeriod> CreatePeriodAsync(BudgetPeriod period, CancellationToken ct)
