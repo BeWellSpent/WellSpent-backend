@@ -24,6 +24,8 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
     public DbSet<IncomeSource> IncomeSources => Set<IncomeSource>();
     public DbSet<IncomeEntry> IncomeEntries => Set<IncomeEntry>();
     public DbSet<SavingsSource> SavingsSources => Set<SavingsSource>();
+    public DbSet<Category> Categories => Set<Category>();
+    public DbSet<PaymentMethod> PaymentMethods => Set<PaymentMethod>();
     public DbSet<AlertSubscription> AlertSubscriptions => Set<AlertSubscription>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
@@ -42,6 +44,8 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
         modelBuilder.ApplyConfiguration(new IncomeSourceEntityConfiguration());
         modelBuilder.ApplyConfiguration(new IncomeEntryEntityConfiguration());
         modelBuilder.ApplyConfiguration(new SavingsSourceEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new CategoryEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new PaymentMethodEntityConfiguration());
         modelBuilder.ApplyConfiguration(new AlertSubscriptionEntityConfiguration());
         modelBuilder.ApplyConfiguration(new NotificationEntityConfiguration());
         modelBuilder.ApplyConfiguration(new DeviceTokenEntityConfiguration());

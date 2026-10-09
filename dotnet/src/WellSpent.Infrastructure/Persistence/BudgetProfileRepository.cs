@@ -64,9 +64,11 @@ public sealed class BudgetProfileRepository(WellSpentDbContext db) : IBudgetProf
     }
 
     public async Task<List<Guid>> ListPaymentMethodIdsByBudgetProfileAsync(Guid profileId, CancellationToken ct) =>
+        // EF Core's SqlQuery<T> for a scalar type requires the result column
+        // aliased exactly "Value" — it wraps the query and selects that name.
         await db.Database.SqlQuery<Guid>(
             $"""
-            SELECT pm.id FROM payment_methods pm
+            SELECT pm.id AS "Value" FROM payment_methods pm
             JOIN budget_to_profile_mapping btpm ON btpm.id = pm.budget_person_id
             WHERE btpm.budget_profile_id = {profileId}
             """).ToListAsync(ct);
@@ -210,15 +212,12 @@ public sealed class BudgetProfileRepository(WellSpentDbContext db) : IBudgetProf
 
     public async Task<int?> GetPaymentMethodBudgetPersonIdAsync(Guid paymentMethodId, CancellationToken ct)
     {
-        var exists = await db.Database.SqlQuery<Guid>(
-            $"SELECT pm.id FROM payment_methods pm WHERE pm.id = {paymentMethodId}").ToListAsync(ct);
-        if (exists.Count == 0)
+        var personIds = await db.Database.SqlQuery<int?>(
+            $"""SELECT pm.budget_person_id AS "Value" FROM payment_methods pm WHERE pm.id = {paymentMethodId}""").ToListAsync(ct);
+        if (personIds.Count == 0)
         {
             throw new NotFoundException("payment_method", paymentMethodId.ToString());
         }
-
-        var personIds = await db.Database.SqlQuery<int?>(
-            $"SELECT pm.budget_person_id FROM payment_methods pm WHERE pm.id = {paymentMethodId}").ToListAsync(ct);
         return personIds[0];
     }
 
@@ -258,6 +257,10 @@ public sealed class BudgetProfileRepository(WellSpentDbContext db) : IBudgetProf
 
     public async Task<BudgetPerson> GetPersonAsync(int personId, Guid profileId, CancellationToken ct) =>
         await db.BudgetPeople.FirstOrDefaultAsync(p => p.Id == personId && p.BudgetProfileId == profileId, ct)
+            ?? throw new NotFoundException("budget_person", personId.ToString());
+
+    public async Task<BudgetPerson> GetPersonByIdAsync(int personId, CancellationToken ct) =>
+        await db.BudgetPeople.FirstOrDefaultAsync(p => p.Id == personId, ct)
             ?? throw new NotFoundException("budget_person", personId.ToString());
 
     public async Task<BudgetPerson> GetPersonByUserIdAsync(Guid profileId, Guid userId, CancellationToken ct) =>

@@ -82,6 +82,8 @@ try
     app.MapNotificationEndpoints();
     app.MapInviteEndpoints();
     app.MapBudgetEndpoints();
+    app.MapCategoryEndpoints();
+    app.MapPaymentMethodEndpoints();
 
     app.Run();
 }

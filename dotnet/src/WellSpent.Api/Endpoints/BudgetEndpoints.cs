@@ -29,6 +29,7 @@ using WellSpent.Application.Budgets.UpdateMyFocusedViewPreference;
 using WellSpent.Application.Budgets.UpdateMyManualMatchReviewPreference;
 using WellSpent.Application.Budgets.UpdateSavingsSource;
 using WellSpent.Application.Common;
+using WellSpent.Application.PaymentMethods.ListPaymentMethods;
 
 namespace WellSpent.Api.Endpoints;
 
@@ -146,6 +147,13 @@ public static class BudgetEndpoints
         {
             var person = await sender.Send(new UpdateMyFocusedViewPreferenceCommand(CurrentUser.GetId(ctx), id, body.Enabled), ct);
             return Results.Ok(new { person });
+        });
+
+        // ── Payment methods (list only — create/update/delete are top-level, see PaymentMethodEndpoints) ──
+        group.MapGet("/{id:guid}/payment-methods", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var methods = await sender.Send(new ListPaymentMethodsQuery(CurrentUser.GetId(ctx), id), ct);
+            return Results.Ok(new { methods });
         });
 
         // ── Income sources ───────────────────────────────────────────────

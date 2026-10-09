@@ -22,6 +22,7 @@ public static class DependencyInjection
         services.AddScoped<IBudgetProfileRepository, BudgetProfileRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IInviteRepository, InviteRepository>();
+        services.AddScoped<ITransactionRepository, TransactionRepository>();
 
         services.AddSingleton<IJwtService, JwtService>();
         services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();

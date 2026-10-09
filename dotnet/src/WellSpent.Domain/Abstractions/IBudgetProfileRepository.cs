@@ -48,6 +48,9 @@ public interface IBudgetProfileRepository
     Task<List<BudgetPerson>> ListPeopleAsync(Guid profileId, CancellationToken ct);
     Task<BudgetPerson> GetPersonAsync(int personId, Guid profileId, CancellationToken ct);
 
+    /// <summary>Keyed on the person id alone, no profile id — used to resolve a person's own BudgetProfileId (e.g. from a payment method's BudgetPersonId).</summary>
+    Task<BudgetPerson> GetPersonByIdAsync(int personId, CancellationToken ct);
+
     /// <summary>Active person only (IsActive = true), matching the Go query exactly.</summary>
     Task<BudgetPerson> GetPersonByUserIdAsync(Guid profileId, Guid userId, CancellationToken ct);
 
