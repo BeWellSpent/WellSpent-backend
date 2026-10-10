@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using WellSpent.Application.Plaid;
@@ -14,8 +15,14 @@ public sealed class ResyncPlaidConnectionCommandHandlerTests
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly IPlaidItemRepository _items = Substitute.For<IPlaidItemRepository>();
 
+    // Unconfigured: CreateScope() returns null, which the real
+    // PlaidBackgroundSync catches and logs internally.
+    private readonly IServiceScopeFactory _scopeFactory = Substitute.For<IServiceScopeFactory>();
+
     private ResyncPlaidConnectionCommandHandler CreateHandler() =>
-        new(new PlaidAccessGuard(_users), _items, NullLogger<ResyncPlaidConnectionCommandHandler>.Instance);
+        new(new PlaidAccessGuard(_users), _items,
+            new PlaidBackgroundSync(_scopeFactory, NullLogger<PlaidBackgroundSync>.Instance),
+            NullLogger<ResyncPlaidConnectionCommandHandler>.Instance);
 
     private static User UsUser(string plan = "lifetime") => new() { Id = Guid.NewGuid(), Email = "u@example.com", CountryCode = "US", Plan = plan };
 

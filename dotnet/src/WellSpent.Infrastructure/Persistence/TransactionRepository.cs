@@ -62,6 +62,37 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         await db.Transactions.Where(t => t.Id == id && t.BudgetPeriodId == budgetPeriodId).ExecuteDeleteAsync(ct);
     }
 
+    public async Task<Transaction?> GetTransactionByPlaidIdAsync(string plaidTransactionId, CancellationToken ct) =>
+        await db.Transactions.FirstOrDefaultAsync(t => t.PlaidTransactionId == plaidTransactionId, ct);
+
+    public async Task<bool> ExistsTransactionByPlaidIdAsync(string plaidTransactionId, CancellationToken ct) =>
+        await db.Transactions.AnyAsync(t => t.PlaidTransactionId == plaidTransactionId, ct);
+
+    public async Task UpdateTransactionFromPlaidAsync(string plaidTransactionId, string name, decimal amount, CancellationToken ct)
+    {
+        var tx = await db.Transactions.FirstOrDefaultAsync(t => t.PlaidTransactionId == plaidTransactionId, ct);
+        if (tx is null) return;
+        tx.Name = name;
+        tx.Amount = amount;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteTransactionByPlaidIdAsync(string plaidTransactionId, CancellationToken ct) =>
+        await db.Transactions.Where(t => t.PlaidTransactionId == plaidTransactionId).ExecuteDeleteAsync(ct);
+
+    public async Task<Transaction> RepointTransactionPlaidIdAsync(
+        string oldPlaidTransactionId, string newPlaidTransactionId, string name, decimal amount, DateOnly date, CancellationToken ct)
+    {
+        var tx = await db.Transactions.FirstOrDefaultAsync(t => t.PlaidTransactionId == oldPlaidTransactionId, ct)
+            ?? throw new NotFoundException("transaction", oldPlaidTransactionId);
+        tx.PlaidTransactionId = newPlaidTransactionId;
+        tx.Name = name;
+        tx.Amount = amount;
+        tx.Date = date;
+        await db.SaveChangesAsync(ct);
+        return tx;
+    }
+
     public async Task<Transaction> MarkTransactionAsPaidAsync(Guid id, Guid budgetPeriodId, decimal amount, DateOnly paidDate, CancellationToken ct)
     {
         var tx = await db.Transactions.FirstOrDefaultAsync(t => t.Id == id && t.BudgetPeriodId == budgetPeriodId, ct)

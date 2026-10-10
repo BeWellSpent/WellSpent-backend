@@ -31,4 +31,18 @@ public interface IPlaidItemRepository
 
     /// <summary>Clears cursor and LastSyncedAt, stamps LastManualResyncAt, resets status to active — all atomically.</summary>
     Task<PlaidItem> ResetCursorAsync(Guid id, CancellationToken ct);
+
+    /// <summary>
+    /// Active-or-errored items due for a sync (never synced, or last synced
+    /// over a day ago), excluding any budget with no live period — those
+    /// would have nowhere to import into, so calling Plaid just burns quota.
+    /// Ordered by profile so a run can process and report per-budget.
+    /// </summary>
+    Task<List<PlaidItem>> ListActiveForSyncAsync(CancellationToken ct);
+
+    /// <summary>Same as ListActiveForSyncAsync but scoped to one profile and without the cooldown — cycle-budgets forces a sync before archiving a closing period (issue #68, B7).</summary>
+    Task<List<PlaidItem>> ListActiveForProfileSyncAsync(Guid profileId, CancellationToken ct);
+
+    /// <summary>Only called after a successful sync, so it also clears a prior 'error' status back to 'active'.</summary>
+    Task<PlaidItem> UpdateSyncAsync(Guid id, string cursor, CancellationToken ct);
 }

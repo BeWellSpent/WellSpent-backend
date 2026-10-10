@@ -26,6 +26,8 @@ public static class DependencyInjection
         services.AddScoped<Budgets.TaxReserveRecalculator>();
         services.AddScoped<Plaid.PlaidAccessGuard>();
         services.AddScoped<Plaid.PlaidPaymentMethodSync>();
+        services.AddScoped<Plaid.PlaidSyncEngine>();
+        services.AddSingleton<Plaid.PlaidBackgroundSync>();
 
         return services;
     }

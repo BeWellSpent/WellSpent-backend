@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -22,10 +23,16 @@ public sealed class ExchangePublicTokenCommandHandlerTests
     private readonly IPlaidClient _plaid = Substitute.For<IPlaidClient>();
     private readonly ICryptoService _crypto = Substitute.For<ICryptoService>();
 
+    // Unconfigured: CreateScope() returns null, which the real
+    // PlaidBackgroundSync catches and logs internally — fine for these
+    // tests, which only assert on the handler's own synchronous result.
+    private readonly IServiceScopeFactory _scopeFactory = Substitute.For<IServiceScopeFactory>();
+
     private ExchangePublicTokenCommandHandler CreateHandler() => new(
         new PlaidAccessGuard(_users), new BudgetAccessGuard(_profiles), _items, _plaid, _crypto,
         Options.Create(new AuthOptions { EncryptionKey = "test-key" }),
         new PlaidPaymentMethodSync(_profiles, _transactions, NullLogger<PlaidPaymentMethodSync>.Instance),
+        new PlaidBackgroundSync(_scopeFactory, NullLogger<PlaidBackgroundSync>.Instance),
         NullLogger<ExchangePublicTokenCommandHandler>.Instance);
 
     private static User UsUser(string plan = "lifetime") => new() { Id = Guid.NewGuid(), Email = "u@example.com", CountryCode = "US", Plan = plan };

@@ -42,6 +42,9 @@ public interface IBudgetProfileRepository
     /// <summary>Throws NotFoundException when the profile has no period yet.</summary>
     Task<BudgetPeriod> GetLatestPeriodAsync(Guid profileId, CancellationToken ct);
 
+    /// <summary>The period covering this date, or null when none does — a normal case for a transaction dated outside any live or archived period, not an error.</summary>
+    Task<BudgetPeriod?> GetPeriodByDateAsync(Guid profileId, DateOnly date, CancellationToken ct);
+
     Task ArchivePeriodAsync(Guid id, CancellationToken ct);
 
     // ── People ───────────────────────────────────────────────────────────────

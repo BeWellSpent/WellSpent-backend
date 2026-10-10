@@ -30,6 +30,24 @@ public interface ITransactionRepository
     /// </summary>
     Task DeleteTransactionAsync(Guid id, Guid? budgetPeriodId, CancellationToken ct);
 
+    /// <summary>Null when no transaction carries this Plaid id — a normal case (not yet imported), not an error.</summary>
+    Task<Transaction?> GetTransactionByPlaidIdAsync(string plaidTransactionId, CancellationToken ct);
+
+    Task<bool> ExistsTransactionByPlaidIdAsync(string plaidTransactionId, CancellationToken ct);
+
+    /// <summary>Name/Amount only, matched by PlaidTransactionId — mirrors Go's UpdateTransactionFromPlaid exactly (a Plaid 'modified' entry never changes anything else).</summary>
+    Task UpdateTransactionFromPlaidAsync(string plaidTransactionId, string name, decimal amount, CancellationToken ct);
+
+    Task DeleteTransactionByPlaidIdAsync(string plaidTransactionId, CancellationToken ct);
+
+    /// <summary>
+    /// Repoints a pending transaction onto the posted one that settled it —
+    /// an UPDATE-in-place (new Plaid id, name, amount, date) on the existing
+    /// row, preserving its own id so FKs like transaction_review.transaction_id
+    /// survive. Never delete+reinsert (issue #67).
+    /// </summary>
+    Task<Transaction> RepointTransactionPlaidIdAsync(string oldPlaidTransactionId, string newPlaidTransactionId, string name, decimal amount, DateOnly date, CancellationToken ct);
+
     Task<Transaction> MarkTransactionAsPaidAsync(Guid id, Guid budgetPeriodId, decimal amount, DateOnly paidDate, CancellationToken ct);
 
     /// <summary>Resets Amount back to PlannedAmount, matching Go's SQL exactly.</summary>

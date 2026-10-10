@@ -243,6 +243,12 @@ public sealed class BudgetProfileRepository(WellSpentDbContext db) : IBudgetProf
             .OrderByDescending(p => p.StartDate).FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("budget_period", "latest for " + profileId);
 
+    public async Task<BudgetPeriod?> GetPeriodByDateAsync(Guid profileId, DateOnly date, CancellationToken ct) =>
+        await db.BudgetPeriods
+            .Where(p => p.BudgetProfileId == profileId && p.StartDate <= date && p.EndDate >= date)
+            .OrderByDescending(p => p.StartDate)
+            .FirstOrDefaultAsync(ct);
+
     public async Task ArchivePeriodAsync(Guid id, CancellationToken ct)
     {
         await db.BudgetPeriods.Where(p => p.Id == id).ExecuteUpdateAsync(

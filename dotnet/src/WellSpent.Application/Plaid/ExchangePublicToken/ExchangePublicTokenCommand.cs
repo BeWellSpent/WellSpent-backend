@@ -21,6 +21,7 @@ public sealed class ExchangePublicTokenCommandHandler(
     ICryptoService crypto,
     IOptions<AuthOptions> options,
     PlaidPaymentMethodSync paymentMethodSync,
+    PlaidBackgroundSync backgroundSync,
     ILogger<ExchangePublicTokenCommandHandler> logger) : IRequestHandler<ExchangePublicTokenCommand, PlaidConnectionDto>
 {
     public async Task<PlaidConnectionDto> Handle(ExchangePublicTokenCommand request, CancellationToken ct)
@@ -77,9 +78,9 @@ public sealed class ExchangePublicTokenCommandHandler(
             "plaid.item_connected plaid_item_id={PlaidItemId} item_id={ItemId} institution={InstitutionName} user_id={UserId} payment_methods_created={PaymentMethodsCreated}",
             item.Id, item.ItemId, institutionName ?? "", request.UserId, created);
 
-        // HOOK: trigger an immediate background sync for this item, detached
-        // from the request, so transactions appear right after connecting
-        // (B6 batch 3 — SyncItem doesn't exist yet).
+        // Fired after the item is stored, so transactions appear right after
+        // connecting rather than waiting for the next scheduled run.
+        backgroundSync.FireAndForgetSyncItem(item.Id);
 
         return PlaidConnectionMapping.ToDto(item);
     }

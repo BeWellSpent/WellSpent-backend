@@ -1,64 +1,75 @@
 using WellSpent.Domain.Entities;
 
-namespace WellSpent.Application.TransactionReviews;
+namespace WellSpent.Application.Plaid;
 
 /// <summary>
-/// Pure scoring core for manual-match review (CreateTransaction/
-/// UpdateTransaction/ConfirmTransactionReview) — mirrors Go's scoreBestMatch
-/// in plaid_sync.go exactly. Weights: amount within $3 = 40, name match
-/// (alias or word-overlap) = 20, payment method match = 20, category match =
-/// 20 — so ≥80 needs amount plus two of the other three, or all three
-/// non-amount signals together.
-///
-/// NOT shared with the Plaid sync path: this function skips
-/// IsInstallmentPlan fixed expenses, but Go's sync-path scorer
-/// (syncScoreBestMatch) does not — a real divergence, confirmed by re-reading
-/// plaid_sync.go for B6, not the "will be unified" this comment used to
-/// claim. See Plaid.PlaidSyncMatching for the sync path's own scorer.
+/// Mirrors internal/service/plaid_sync.go's syncScoreBestMatch exactly —
+/// deliberately a separate function from TransactionReviews.TransactionMatching
+/// (the manual-match/ConfirmTransactionReview scorer, ported in B5 batch 7),
+/// not a reuse of it, because Go's two scorers are not identical: this one
+/// does NOT skip IsInstallmentPlan fixed expenses, while the manual-path one
+/// does. That earlier batch's doc comment claimed this one would share the
+/// same core "once B6 ports the Plaid sync job" — re-reading plaid_sync.go
+/// for this batch found that claim wrong, so it is corrected here rather than
+/// carried forward as a silent behavioral change. Also returns whether the
+/// best match hit via an alias/exact-amount (bestAliasHit/bestAmountOk),
+/// which the sync engine's auto-confirm-vs-queue branch needs and the
+/// manual path's single ≥80 threshold does not.
 /// </summary>
-public static class TransactionMatching
+public static class PlaidSyncMatching
 {
     private const decimal AmountTolerance = 3.0m;
 
-    public static (double Score, FixedExpense? Match) ScoreBestMatch(
+    public static (double Score, FixedExpense? Match, bool AliasHit, bool AmountOk) ScoreBestMatch(
         string name, decimal amount, int? categoryId, Guid? paymentMethodId,
         List<FixedExpense> expenses, Dictionary<Guid, List<string>> aliasesByFixedExpenseId)
     {
         var best = 0.0;
         FixedExpense? bestFe = null;
+        var bestAliasHit = false;
+        var bestAmountOk = false;
         var nameLower = name.ToLowerInvariant();
 
         foreach (var fe in expenses)
         {
-            // A card installment settles inside the card's own balance and
-            // never lands on a bank feed as its own line item, so anything
-            // scoring against one is a false positive by construction
-            // (issue #54). Skipped here, not at each call site, so neither
-            // can forget.
-            if (fe.IsInstallmentPlan) continue;
-
             var score = 0.0;
-            if (AmountWithinTolerance(amount, fe)) score += 40;
+
+            var amountOk = AmountWithinTolerance(amount, fe);
+            if (amountOk)
+            {
+                score += 40;
+            }
 
             var aliasHit = aliasesByFixedExpenseId.TryGetValue(fe.Id, out var aliases) &&
                 aliases.Any(alias => string.Equals(alias, name, StringComparison.OrdinalIgnoreCase) || NameWordsOverlap(alias.ToLowerInvariant(), nameLower));
+
             // Exact match first: a short name ("F1") has no words >= 4 chars,
             // so word-overlap alone would score it 0 even against an identical name.
             if (aliasHit || string.Equals(name, fe.Name, StringComparison.OrdinalIgnoreCase) || NameWordsOverlap(nameLower, fe.Name.ToLowerInvariant()))
             {
                 score += 20;
             }
-            if (paymentMethodId is { } pmId && fe.PaymentMethodId == pmId) score += 20;
-            if (categoryId is { } catId && fe.CategoryId == catId) score += 20;
+
+            if (paymentMethodId is { } pmId && fe.PaymentMethodId == pmId)
+            {
+                score += 20;
+            }
+
+            if (categoryId is { } catId && fe.CategoryId == catId)
+            {
+                score += 20;
+            }
 
             if (score > best)
             {
                 best = score;
                 bestFe = fe;
+                bestAliasHit = aliasHit;
+                bestAmountOk = amountOk;
             }
         }
 
-        return (best, bestFe);
+        return (best, bestFe, bestAliasHit, bestAmountOk);
     }
 
     private static bool AmountWithinTolerance(decimal txAmount, FixedExpense fe) =>
@@ -85,6 +96,7 @@ public static class TransactionMatching
                 Flush();
             }
         }
+
         Flush();
         return words;
 

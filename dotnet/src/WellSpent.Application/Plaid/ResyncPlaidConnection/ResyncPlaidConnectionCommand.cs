@@ -12,13 +12,13 @@ public sealed record ResyncPlaidConnectionCommand(Guid UserId, Guid ConnectionId
 /// <summary>
 /// Mirrors Go's PlaidService.ResyncConnection. Clearing the cursor alone
 /// would only make the connection eligible for the scheduled job (Mon/Wed/
-/// Fri) — the immediate sync this triggers (HOOK, B6 batch 3) is the whole
-/// point, since a button that did just that would appear to do nothing for
-/// up to three days.
+/// Fri) — the immediate sync this fires is the whole point, since a button
+/// that did just that would appear to do nothing for up to three days.
 /// </summary>
 public sealed class ResyncPlaidConnectionCommandHandler(
     PlaidAccessGuard plaidAccess,
     IPlaidItemRepository items,
+    PlaidBackgroundSync backgroundSync,
     ILogger<ResyncPlaidConnectionCommandHandler> logger) : IRequestHandler<ResyncPlaidConnectionCommand, PlaidConnectionDto>
 {
     public async Task<PlaidConnectionDto> Handle(ResyncPlaidConnectionCommand request, CancellationToken ct)
@@ -49,8 +49,9 @@ public sealed class ResyncPlaidConnectionCommandHandler(
         var reset = await items.ResetCursorAsync(request.ConnectionId, ct);
         logger.LogInformation("plaid.resync_requested plaid_item_id={PlaidItemId} user_id={UserId}", reset.Id, request.UserId);
 
-        // HOOK: trigger an immediate background sync for this item, detached
-        // from the request (B6 batch 3 — SyncItem doesn't exist yet).
+        // Detached from the request for the same reason the post-connect
+        // sync is: replaying a full history outlives the RPC that asked for it.
+        backgroundSync.FireAndForgetSyncItem(reset.Id);
 
         var ownerName = UserDisplayRules.DisplayName(owner);
         return PlaidConnectionMapping.ToDto(reset, ownerName, true, true, PlaidConnectionRules.ResyncAvailableAt(reset, DateTime.UtcNow));

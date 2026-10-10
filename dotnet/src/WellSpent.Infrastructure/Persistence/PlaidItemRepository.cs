@@ -69,4 +69,32 @@ public sealed class PlaidItemRepository(WellSpentDbContext db) : IPlaidItemRepos
         await db.SaveChangesAsync(ct);
         return item;
     }
+
+    public async Task<List<PlaidItem>> ListActiveForSyncAsync(CancellationToken ct) =>
+        await db.PlaidItems
+            .Where(pi => (pi.Status == "active" || pi.Status == "error")
+                && (pi.LastSyncedAt == null || pi.LastSyncedAt < DateTime.UtcNow.AddDays(-1))
+                && db.BudgetPeriods.Any(bp => bp.BudgetProfileId == pi.BudgetProfileId && !bp.IsArchived))
+            .OrderBy(pi => pi.BudgetProfileId)
+            .ThenBy(pi => pi.LastSyncedAt)
+            .ToListAsync(ct);
+
+    public async Task<List<PlaidItem>> ListActiveForProfileSyncAsync(Guid profileId, CancellationToken ct) =>
+        await db.PlaidItems
+            .Where(pi => pi.BudgetProfileId == profileId
+                && (pi.Status == "active" || pi.Status == "error")
+                && db.BudgetPeriods.Any(bp => bp.BudgetProfileId == pi.BudgetProfileId && !bp.IsArchived))
+            .OrderBy(pi => pi.LastSyncedAt)
+            .ToListAsync(ct);
+
+    public async Task<PlaidItem> UpdateSyncAsync(Guid id, string cursor, CancellationToken ct)
+    {
+        var item = await db.PlaidItems.FirstOrDefaultAsync(i => i.Id == id, ct)
+            ?? throw new NotFoundException("plaid_item", id.ToString());
+        item.Cursor = cursor;
+        item.LastSyncedAt = DateTime.UtcNow;
+        item.Status = "active";
+        await db.SaveChangesAsync(ct);
+        return item;
+    }
 }
