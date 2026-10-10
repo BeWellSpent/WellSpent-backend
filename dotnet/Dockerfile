@@ -22,6 +22,7 @@ COPY dotnet/src/WellSpent.Application/WellSpent.Application.csproj dotnet/src/We
 COPY dotnet/src/WellSpent.Infrastructure/WellSpent.Infrastructure.csproj dotnet/src/WellSpent.Infrastructure/
 COPY dotnet/src/WellSpent.Migrator/WellSpent.Migrator.csproj dotnet/src/WellSpent.Migrator/
 COPY dotnet/src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj dotnet/src/WellSpent.Jobs.PlaidSync/
+COPY dotnet/src/WellSpent.Jobs.CycleBudgets/WellSpent.Jobs.CycleBudgets.csproj dotnet/src/WellSpent.Jobs.CycleBudgets/
 COPY dotnet/tests/WellSpent.Api.Tests/WellSpent.Api.Tests.csproj dotnet/tests/WellSpent.Api.Tests/
 COPY dotnet/tests/WellSpent.Application.Tests/WellSpent.Application.Tests.csproj dotnet/tests/WellSpent.Application.Tests/
 COPY dotnet/tests/WellSpent.Infrastructure.Tests/WellSpent.Infrastructure.Tests.csproj dotnet/tests/WellSpent.Infrastructure.Tests/
@@ -31,6 +32,7 @@ COPY dotnet/ dotnet/
 RUN dotnet publish dotnet/src/WellSpent.Api/WellSpent.Api.csproj -c Release -o /app/api --no-restore
 RUN dotnet publish dotnet/src/WellSpent.Migrator/WellSpent.Migrator.csproj -c Release -o /app/migrator --no-restore
 RUN dotnet publish dotnet/src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj -c Release -o /app/plaid-sync --no-restore
+RUN dotnet publish dotnet/src/WellSpent.Jobs.CycleBudgets/WellSpent.Jobs.CycleBudgets.csproj -c Release -o /app/cycle-budgets --no-restore
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
@@ -45,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgssapi-krb5-
 COPY --from=builder /app/api ./api
 COPY --from=builder /app/migrator ./migrator
 COPY --from=builder /app/plaid-sync ./plaid-sync
+COPY --from=builder /app/cycle-budgets ./cycle-budgets
 
 # The migrator locates its schema source of truth (the existing goose SQL
 # files) by walking up from its own binary to find go.mod — the same lookup
