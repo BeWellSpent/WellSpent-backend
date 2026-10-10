@@ -23,6 +23,7 @@ COPY dotnet/src/WellSpent.Infrastructure/WellSpent.Infrastructure.csproj dotnet/
 COPY dotnet/src/WellSpent.Migrator/WellSpent.Migrator.csproj dotnet/src/WellSpent.Migrator/
 COPY dotnet/tests/WellSpent.Api.Tests/WellSpent.Api.Tests.csproj dotnet/tests/WellSpent.Api.Tests/
 COPY dotnet/tests/WellSpent.Application.Tests/WellSpent.Application.Tests.csproj dotnet/tests/WellSpent.Application.Tests/
+COPY dotnet/tests/WellSpent.Infrastructure.Tests/WellSpent.Infrastructure.Tests.csproj dotnet/tests/WellSpent.Infrastructure.Tests/
 RUN dotnet restore dotnet/WellSpent.slnx
 
 COPY dotnet/ dotnet/

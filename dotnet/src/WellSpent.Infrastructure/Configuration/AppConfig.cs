@@ -31,6 +31,14 @@ public sealed class AppConfig
     public string TurnstileSecretKey { get; init; } = "";
     public bool CaptchaEnforcementEnabled { get; init; }
 
+    public string PlaidClientId { get; init; } = "";
+    public string PlaidSecret { get; init; } = "";
+    public string PlaidEnv { get; init; } = "sandbox";
+    public int PlaidHttpMaxRetries { get; init; } = 3;
+    // Same env var as Go's PLAID_HTTP_RETRY_DELAY, but plain seconds here, not a Go duration string like "5s".
+    public TimeSpan PlaidHttpRetryDelay { get; init; } = TimeSpan.FromSeconds(5);
+    public bool PlaidLogRedactSensitive { get; init; } = true;
+
     /// <summary>Sent as Postgres' application_name — distinct per deployed process.</summary>
     public string ApplicationName => $"wellspent-api-{Env}";
 
@@ -67,6 +75,13 @@ public sealed class AppConfig
 
             TurnstileSecretKey = OptionalEnv("TURNSTILE_SECRET_KEY", ""),
             CaptchaEnforcementEnabled = OptionalEnv("CAPTCHA_ENFORCEMENT_ENABLED", "false") == "true",
+
+            PlaidClientId = OptionalEnv("PLAID_CLIENT_ID", ""),
+            PlaidSecret = OptionalEnv("PLAID_SECRET", ""),
+            PlaidEnv = OptionalEnv("PLAID_ENV", "sandbox"),
+            PlaidHttpMaxRetries = int.Parse(OptionalEnv("PLAID_HTTP_MAX_RETRIES", "3")),
+            PlaidHttpRetryDelay = TimeSpan.FromSeconds(int.Parse(OptionalEnv("PLAID_HTTP_RETRY_DELAY", "5"))),
+            PlaidLogRedactSensitive = OptionalEnv("PLAID_LOG_REDACT_SENSITIVE", "true") == "true",
         };
     }
 

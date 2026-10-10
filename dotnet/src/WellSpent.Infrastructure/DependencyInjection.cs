@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Resend;
 using WellSpent.Application.Abstractions;
 using WellSpent.Domain.Abstractions;
@@ -34,6 +35,24 @@ public static class DependencyInjection
         services.AddHttpClient<IGoogleOAuthClient, GoogleOAuthClient>();
         services.AddHttpClient<IAppleAuthClient, AppleAuthClient>();
         services.AddHttpClient<ICaptchaVerifier, TurnstileCaptchaVerifier>();
+
+        // Named, not typed: Going.Plaid's PlaidClient dispatches through
+        // IHttpClientFactory.CreateClient("PlaidClient") internally, so the
+        // retry/redaction handler has to be registered under that exact name.
+        services.AddTransient<PlaidLoggingRetryHandler>();
+        services.AddHttpClient("PlaidClient").AddHttpMessageHandler<PlaidLoggingRetryHandler>();
+        services.AddSingleton(sp =>
+        {
+            var env = config.PlaidEnv == "production" ? Going.Plaid.Environment.Production : Going.Plaid.Environment.Sandbox;
+            return new Going.Plaid.PlaidClient(
+                env,
+                config.PlaidClientId,
+                config.PlaidSecret,
+                accessToken: null,
+                httpClientFactory: sp.GetRequiredService<IHttpClientFactory>(),
+                logger: sp.GetRequiredService<ILogger<Going.Plaid.PlaidClient>>());
+        });
+        services.AddSingleton<IPlaidClient, GoingPlaidClient>();
 
         if (string.IsNullOrEmpty(config.ResendApiKey))
         {
