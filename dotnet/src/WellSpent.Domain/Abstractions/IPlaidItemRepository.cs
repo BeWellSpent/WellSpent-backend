@@ -2,17 +2,12 @@ using WellSpent.Domain.Entities;
 
 namespace WellSpent.Domain.Abstractions;
 
-/// <summary>
-/// Mirrors Go's ListActivePlaidItemsWithOwnerByBudgetProfileRow — the item
-/// plus the owning user's display name and plan, needed when several
-/// members' connections appear in one budget-scoped list.
-/// </summary>
+/// <summary>Mirrors Go's ListActivePlaidItemsWithOwnerByBudgetProfileRow.</summary>
 public sealed record PlaidItemWithOwnerRow(PlaidItem Item, string OwnerName, string OwnerPlan);
 
-/// <summary>Mirrors Go's ListUnsyncableConnectionsForUserRow — one row per (budget, free-plan member) whose connections the sync job skips.</summary>
+/// <summary>Mirrors Go's ListUnsyncableConnectionsForUserRow.</summary>
 public sealed record UnsyncableConnectionRow(Guid BudgetProfileId, string BudgetName, Guid MemberUserId, string MemberName, int ConnectionCount);
 
-/// <summary>Scoped to what B6 batch 2 (the 6 interactive RPCs) needs. Batch 3 (the sync engine) extends this with the cursor/sync-state methods it needs, rather than adding them speculatively now.</summary>
 public interface IPlaidItemRepository
 {
     Task<PlaidItem> CreateAsync(PlaidItem item, CancellationToken ct);
@@ -32,15 +27,10 @@ public interface IPlaidItemRepository
     /// <summary>Clears cursor and LastSyncedAt, stamps LastManualResyncAt, resets status to active — all atomically.</summary>
     Task<PlaidItem> ResetCursorAsync(Guid id, CancellationToken ct);
 
-    /// <summary>
-    /// Active-or-errored items due for a sync (never synced, or last synced
-    /// over a day ago), excluding any budget with no live period — those
-    /// would have nowhere to import into, so calling Plaid just burns quota.
-    /// Ordered by profile so a run can process and report per-budget.
-    /// </summary>
+    /// <summary>Active-or-errored items due for a sync, excluding budgets with no live period.</summary>
     Task<List<PlaidItem>> ListActiveForSyncAsync(CancellationToken ct);
 
-    /// <summary>Same as ListActiveForSyncAsync but scoped to one profile and without the cooldown — cycle-budgets forces a sync before archiving a closing period (issue #68, B7).</summary>
+    /// <summary>Same as ListActiveForSyncAsync but scoped to one profile, no cooldown — used by cycle-budgets (B7).</summary>
     Task<List<PlaidItem>> ListActiveForProfileSyncAsync(Guid profileId, CancellationToken ct);
 
     /// <summary>Only called after a successful sync, so it also clears a prior 'error' status back to 'active'.</summary>

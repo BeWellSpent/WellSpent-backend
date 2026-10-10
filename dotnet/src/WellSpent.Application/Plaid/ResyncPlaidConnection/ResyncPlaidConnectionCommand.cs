@@ -9,12 +9,7 @@ namespace WellSpent.Application.Plaid.ResyncPlaidConnection;
 
 public sealed record ResyncPlaidConnectionCommand(Guid UserId, Guid ConnectionId) : IRequest<PlaidConnectionDto>;
 
-/// <summary>
-/// Mirrors Go's PlaidService.ResyncConnection. Clearing the cursor alone
-/// would only make the connection eligible for the scheduled job (Mon/Wed/
-/// Fri) — the immediate sync this fires is the whole point, since a button
-/// that did just that would appear to do nothing for up to three days.
-/// </summary>
+/// <summary>Mirrors Go's PlaidService.ResyncConnection — the immediate sync this fires is the whole point, not just clearing the cursor.</summary>
 public sealed class ResyncPlaidConnectionCommandHandler(
     PlaidAccessGuard plaidAccess,
     IPlaidItemRepository items,
@@ -35,9 +30,7 @@ public sealed class ResyncPlaidConnectionCommandHandler(
             throw new AppValidationException("this connection is disconnected — reconnect it to import transactions again");
         }
 
-        // Pointless rather than merely unentitled: the sync job skips free-tier
-        // owners on every run, so a resync would clear the cursor and import
-        // nothing, losing the user's place for no benefit.
+        // A resync for a free-tier owner would clear the cursor and import nothing.
         var owner = await plaidAccess.RequireProOrLifetimeAsync(request.UserId, ct);
 
         if (PlaidConnectionRules.ResyncAvailableAt(item, DateTime.UtcNow) is { } nextAvailable)
@@ -49,8 +42,7 @@ public sealed class ResyncPlaidConnectionCommandHandler(
         var reset = await items.ResetCursorAsync(request.ConnectionId, ct);
         logger.LogInformation("plaid.resync_requested plaid_item_id={PlaidItemId} user_id={UserId}", reset.Id, request.UserId);
 
-        // Detached from the request for the same reason the post-connect
-        // sync is: replaying a full history outlives the RPC that asked for it.
+        // Detached: replaying a full history outlives the RPC that asked for it.
         backgroundSync.FireAndForgetSyncItem(reset.Id);
 
         var ownerName = UserDisplayRules.DisplayName(owner);

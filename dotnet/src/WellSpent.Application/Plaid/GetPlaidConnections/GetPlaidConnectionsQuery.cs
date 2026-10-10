@@ -31,8 +31,7 @@ public sealed class GetPlaidConnectionsQueryHandler(
             connections = rows.Select(row =>
             {
                 var isOwner = row.Item.UserId == request.UserId;
-                // Only the owner can act on a resync, so telling anyone else
-                // when one becomes available is noise on a button they don't have.
+                // Only the owner can act on a resync.
                 var resyncAvailableAt = isOwner ? PlaidConnectionRules.ResyncAvailableAt(row.Item, now) : null;
                 return PlaidConnectionMapping.ToDto(row.Item, row.OwnerName, isOwner, row.OwnerPlan != "free", resyncAvailableAt);
             }).ToList();
@@ -48,9 +47,7 @@ public sealed class GetPlaidConnectionsQueryHandler(
                 .ToList();
         }
 
-        // Best-effort: the connection list is the useful payload, and failing
-        // the whole call because a supplementary warning couldn't be computed
-        // would trade a working screen for a broken one.
+        // Best-effort — a broken warning shouldn't break the whole screen.
         List<BudgetSyncWarningDto> warnings;
         try
         {

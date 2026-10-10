@@ -7,12 +7,7 @@ public sealed record PlaidConnectionDto(
     DateTime? LastSyncedAt, Guid BudgetProfileId, string OwnerName, bool IsOwner,
     bool SyncEnabled, DateTime? ResyncAvailableAt);
 
-/// <summary>
-/// Reports that some connections on a shared budget are skipped by the sync
-/// job because their owner isn't on a paid plan. Deliberately an aggregate,
-/// not the connections themselves — other members have no business seeing
-/// which institutions someone banks with.
-/// </summary>
+/// <summary>Aggregate, not the connections themselves — other members shouldn't see which institutions someone banks with.</summary>
 public sealed record BudgetSyncWarningDto(Guid BudgetProfileId, string BudgetName, string MemberName, int ConnectionCount, bool IsCurrentUser);
 
 /// <summary>Mirrors internal/service/plaid_service.go's resyncAvailableAt exactly.</summary>
@@ -35,13 +30,7 @@ public static class PlaidConnectionRules
 
 public static class PlaidConnectionMapping
 {
-    /// <summary>
-    /// Bare item, no owner context — mirrors Go's toProtoPlaidConnection
-    /// exactly. Used by ExchangePublicToken/RefreshPlaidAccounts, which are
-    /// always about the caller's own connection; both clients refetch the
-    /// list rather than rendering this response directly, so OwnerName/
-    /// IsOwner/SyncEnabled are left at their defaults on purpose.
-    /// </summary>
+    /// <summary>Bare item, no owner context — mirrors Go's toProtoPlaidConnection; both clients refetch the list instead of rendering this.</summary>
     public static PlaidConnectionDto ToDto(PlaidItem item) =>
         new(item.Id, item.InstitutionId ?? "", item.InstitutionName ?? "", item.Status,
             item.LastSyncedAt, item.BudgetProfileId, "", false, false, null);

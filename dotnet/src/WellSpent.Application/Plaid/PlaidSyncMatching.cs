@@ -2,20 +2,7 @@ using WellSpent.Domain.Entities;
 
 namespace WellSpent.Application.Plaid;
 
-/// <summary>
-/// Mirrors internal/service/plaid_sync.go's syncScoreBestMatch exactly —
-/// deliberately a separate function from TransactionReviews.TransactionMatching
-/// (the manual-match/ConfirmTransactionReview scorer, ported in B5 batch 7),
-/// not a reuse of it, because Go's two scorers are not identical: this one
-/// does NOT skip IsInstallmentPlan fixed expenses, while the manual-path one
-/// does. That earlier batch's doc comment claimed this one would share the
-/// same core "once B6 ports the Plaid sync job" — re-reading plaid_sync.go
-/// for this batch found that claim wrong, so it is corrected here rather than
-/// carried forward as a silent behavioral change. Also returns whether the
-/// best match hit via an alias/exact-amount (bestAliasHit/bestAmountOk),
-/// which the sync engine's auto-confirm-vs-queue branch needs and the
-/// manual path's single ≥80 threshold does not.
-/// </summary>
+/// <summary>Mirrors plaid_sync.go's syncScoreBestMatch. Deliberately separate from TransactionMatching: this one does NOT skip IsInstallmentPlan.</summary>
 public static class PlaidSyncMatching
 {
     private const decimal AmountTolerance = 3.0m;
@@ -43,8 +30,7 @@ public static class PlaidSyncMatching
             var aliasHit = aliasesByFixedExpenseId.TryGetValue(fe.Id, out var aliases) &&
                 aliases.Any(alias => string.Equals(alias, name, StringComparison.OrdinalIgnoreCase) || NameWordsOverlap(alias.ToLowerInvariant(), nameLower));
 
-            // Exact match first: a short name ("F1") has no words >= 4 chars,
-            // so word-overlap alone would score it 0 even against an identical name.
+            // Exact match first: a short name has no words >= 4 chars for overlap to catch.
             if (aliasHit || string.Equals(name, fe.Name, StringComparison.OrdinalIgnoreCase) || NameWordsOverlap(nameLower, fe.Name.ToLowerInvariant()))
             {
                 score += 20;

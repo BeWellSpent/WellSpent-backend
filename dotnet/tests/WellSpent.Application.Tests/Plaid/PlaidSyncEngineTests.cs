@@ -36,10 +36,7 @@ public sealed class PlaidSyncEngineTests
             .Returns(new User { Id = item.UserId, Email = "owner@example.com", Plan = plan });
         _transactions.ListSystemCategoriesAsync(Arg.Any<CancellationToken>()).Returns(new Dictionary<string, int>());
         _crypto.Decrypt("encrypted", "test-key").Returns("real-access-token");
-        // AutoUpdatePlannedAmount=false sidesteps the template-sync branch of
-        // FixedExpensePaymentSync.MarkPaidAsync, which has its own dedicated
-        // coverage elsewhere (B5 batch 5) — these tests are about the sync
-        // engine's own branching, not template propagation.
+        // AutoUpdatePlannedAmount=false sidesteps template-sync, covered separately in B5 batch 5.
         _budgets.GetByIdAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
             .Returns(new BudgetProfile { Id = item.BudgetProfileId, UserId = item.UserId, Name = "x", Cycle = "monthly", AutoUpdatePlannedAmount = false });
         _fixedExpenses.ListAsync(item.BudgetProfileId, Arg.Any<CancellationToken>()).Returns([]);
@@ -153,9 +150,7 @@ public sealed class PlaidSyncEngineTests
         var today = DateOnly.FromDateTime(DateTime.Today);
         var period = new BudgetPeriod { Id = periodId, BudgetProfileId = item.BudgetProfileId, StartDate = today.AddDays(-10), EndDate = today.AddDays(10) };
 
-        // Name word-overlap (20) + payment method match (20) + category match
-        // (20) = 60 — below the auto-confirm threshold (needs amount+alias)
-        // but queuing only needs score >= 80, so push it over with the amount too.
+        // Name+pm+category = 60, below auto-confirm — add the amount to clear the queue threshold of 80.
         var catId = 5;
         var pmId = Guid.NewGuid();
         _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
@@ -221,8 +216,7 @@ public sealed class PlaidSyncEngineTests
 
         var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
 
-        // Previously this returned a bare nil and logged one line, which is
-        // how a connection sat unsynced for over two weeks without anyone noticing.
+        // Must be reported, not a silent skip (a prior version of this bug sat unsynced for weeks).
         Assert.True(result.SkippedUnentitled, "a free-tier owner's connection must be reported, not silently skipped");
         Assert.Null(result.Error);
         Assert.Equal("Chase", result.InstitutionName);

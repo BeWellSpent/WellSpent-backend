@@ -3,13 +3,7 @@ namespace WellSpent.Application.Abstractions;
 /// <summary>A Plaid-linked bank account normalised for WellSpent.</summary>
 public sealed record PlaidLinkedAccount(string PlaidAccountId, string Name, string Mask, string Type, string Subtype);
 
-/// <summary>
-/// A Plaid transaction normalised for import. ReferenceNumber/PpdId are
-/// populated only for inter-bank transfers and payroll ACH respectively —
-/// empty otherwise, which is most transactions. PendingTransactionId links a
-/// newly-posted transaction back to the pending one it replaces; empty for an
-/// ordinary transaction with no pending predecessor.
-/// </summary>
+/// <summary>A Plaid transaction normalised for import. PendingTransactionId links a settled transaction back to the pending one it replaces; empty otherwise.</summary>
 public sealed record PlaidImportedTransaction(
     string PlaidId,
     string AccountId,

@@ -15,8 +15,7 @@ public sealed class ResyncPlaidConnectionCommandHandlerTests
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly IPlaidItemRepository _items = Substitute.For<IPlaidItemRepository>();
 
-    // Unconfigured: CreateScope() returns null, which the real
-    // PlaidBackgroundSync catches and logs internally.
+    // Unconfigured CreateScope() returns null; PlaidBackgroundSync catches and logs it.
     private readonly IServiceScopeFactory _scopeFactory = Substitute.For<IServiceScopeFactory>();
 
     private ResyncPlaidConnectionCommandHandler CreateHandler() =>

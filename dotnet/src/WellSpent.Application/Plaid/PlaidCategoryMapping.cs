@@ -1,13 +1,6 @@
 namespace WellSpent.Application.Plaid;
 
-/// <summary>
-/// Mirrors internal/plaid/category.go's ResolvePlaidCategory exactly. Returns
-/// the category.system_key string (see ITransactionRepository.ListSystemCategoriesAsync)
-/// for a Plaid personal_finance_category pair — detailed is checked first,
-/// falling back to primary. Empty string only for a primary outside Plaid's
-/// published taxonomy, which should never happen since every one of Plaid's
-/// 16 primaries is covered below.
-/// </summary>
+/// <summary>Mirrors internal/plaid/category.go's ResolvePlaidCategory — detailed checked first, falls back to primary.</summary>
 public static class PlaidCategoryMapping
 {
     private static readonly Dictionary<string, string> DetailedToCategory = new()

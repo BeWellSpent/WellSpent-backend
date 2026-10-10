@@ -37,8 +37,7 @@ public sealed class RefreshPlaidAccountsCommandHandlerTests
         var profileId = Guid.NewGuid();
         var connId = Guid.NewGuid();
 
-        // Plaid now reports only "acct-kept" and "acct-new" — "acct-removed"
-        // (an existing payment method) is gone.
+        // "acct-removed" (an existing payment method) is gone from this report.
         _users.GetByIdAsync(user.Id, Arg.Any<CancellationToken>()).Returns(user);
         _items.GetByIdAsync(connId, Arg.Any<CancellationToken>())
             .Returns(new PlaidItem { Id = connId, UserId = user.Id, BudgetProfileId = profileId, AccessToken = "encrypted", ItemId = "plaid-item-1" });

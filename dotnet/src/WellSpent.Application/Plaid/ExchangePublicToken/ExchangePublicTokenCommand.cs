@@ -78,8 +78,7 @@ public sealed class ExchangePublicTokenCommandHandler(
             "plaid.item_connected plaid_item_id={PlaidItemId} item_id={ItemId} institution={InstitutionName} user_id={UserId} payment_methods_created={PaymentMethodsCreated}",
             item.Id, item.ItemId, institutionName ?? "", request.UserId, created);
 
-        // Fired after the item is stored, so transactions appear right after
-        // connecting rather than waiting for the next scheduled run.
+        // Fired now so transactions appear right after connecting.
         backgroundSync.FireAndForgetSyncItem(item.Id);
 
         return PlaidConnectionMapping.ToDto(item);

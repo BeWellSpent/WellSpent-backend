@@ -45,8 +45,7 @@ public sealed class GetPlaidConnectionsQueryHandlerTests
         Assert.Equal("Ada Lovelace", result.Connections[0].OwnerName);
         Assert.True(result.Connections[0].SyncEnabled);
 
-        // A co-member's connection: visible, attributed, but not actionable —
-        // and flagged as never syncing, which status alone would report as healthy.
+        // A co-member's connection: visible, not actionable, flagged as never syncing.
         Assert.False(result.Connections[1].IsOwner);
         Assert.Equal("Grace Hopper", result.Connections[1].OwnerName);
         Assert.False(result.Connections[1].SyncEnabled);

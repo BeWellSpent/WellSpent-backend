@@ -6,11 +6,7 @@ using System.Text.Json.Nodes;
 
 namespace WellSpent.Infrastructure.ExternalServices;
 
-/// <summary>
-/// The pure (no I/O) half of internal/plaid/transport.go's logging/redaction
-/// logic, split out of <see cref="PlaidLoggingRetryHandler"/> so it can be
-/// unit tested directly instead of only through a full HTTP round trip.
-/// </summary>
+/// <summary>Pure half of transport.go's logging/redaction, split out of <see cref="PlaidLoggingRetryHandler"/> for direct unit testing.</summary>
 public static class PlaidHttpLogFormatting
 {
     private const int MaxLoggedBodyBytes = 4096;

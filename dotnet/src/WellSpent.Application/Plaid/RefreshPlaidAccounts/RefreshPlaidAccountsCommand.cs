@@ -10,12 +10,7 @@ namespace WellSpent.Application.Plaid.RefreshPlaidAccounts;
 
 public sealed record RefreshPlaidAccountsCommand(Guid UserId, Guid ConnectionId) : IRequest<PlaidConnectionDto>;
 
-/// <summary>
-/// Mirrors Go's PlaidService.RefreshAccounts — called after a Link "update
-/// mode" session completes, since update mode doesn't return a public_token
-/// to exchange. Unlike ExchangePublicToken, decrypt and GetAccounts failures
-/// here are hard errors, not swallowed.
-/// </summary>
+/// <summary>Mirrors Go's PlaidService.RefreshAccounts. Unlike ExchangePublicToken, decrypt/GetAccounts failures here are hard errors.</summary>
 public sealed class RefreshPlaidAccountsCommandHandler(
     PlaidAccessGuard plaidAccess,
     IPlaidItemRepository items,

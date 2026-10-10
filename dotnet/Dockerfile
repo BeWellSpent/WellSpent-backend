@@ -21,6 +21,7 @@ COPY dotnet/src/WellSpent.Domain/WellSpent.Domain.csproj dotnet/src/WellSpent.Do
 COPY dotnet/src/WellSpent.Application/WellSpent.Application.csproj dotnet/src/WellSpent.Application/
 COPY dotnet/src/WellSpent.Infrastructure/WellSpent.Infrastructure.csproj dotnet/src/WellSpent.Infrastructure/
 COPY dotnet/src/WellSpent.Migrator/WellSpent.Migrator.csproj dotnet/src/WellSpent.Migrator/
+COPY dotnet/src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj dotnet/src/WellSpent.Jobs.PlaidSync/
 COPY dotnet/tests/WellSpent.Api.Tests/WellSpent.Api.Tests.csproj dotnet/tests/WellSpent.Api.Tests/
 COPY dotnet/tests/WellSpent.Application.Tests/WellSpent.Application.Tests.csproj dotnet/tests/WellSpent.Application.Tests/
 COPY dotnet/tests/WellSpent.Infrastructure.Tests/WellSpent.Infrastructure.Tests.csproj dotnet/tests/WellSpent.Infrastructure.Tests/
@@ -29,6 +30,7 @@ RUN dotnet restore dotnet/WellSpent.slnx
 COPY dotnet/ dotnet/
 RUN dotnet publish dotnet/src/WellSpent.Api/WellSpent.Api.csproj -c Release -o /app/api --no-restore
 RUN dotnet publish dotnet/src/WellSpent.Migrator/WellSpent.Migrator.csproj -c Release -o /app/migrator --no-restore
+RUN dotnet publish dotnet/src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj -c Release -o /app/plaid-sync --no-restore
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
@@ -42,6 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgssapi-krb5-
 
 COPY --from=builder /app/api ./api
 COPY --from=builder /app/migrator ./migrator
+COPY --from=builder /app/plaid-sync ./plaid-sync
 
 # The migrator locates its schema source of truth (the existing goose SQL
 # files) by walking up from its own binary to find go.mod — the same lookup
@@ -54,7 +57,5 @@ COPY internal/db/migrations ./internal/db/migrations
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
 
-# Cloud Run overrides this with --command=./migrator for the migration-runner
-# Job, the same way the Go image's three binaries are selected per deployment
-# target today.
+# Cloud Run overrides this per Job (--command=./migrator, ./plaid-sync), same as Go's three binaries.
 ENTRYPOINT ["dotnet", "api/WellSpent.Api.dll"]

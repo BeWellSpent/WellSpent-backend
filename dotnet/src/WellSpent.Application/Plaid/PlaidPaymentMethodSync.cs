@@ -6,15 +6,7 @@ using WellSpent.Domain.Exceptions;
 
 namespace WellSpent.Application.Plaid;
 
-/// <summary>
-/// Shared between ExchangePublicTokenCommand (fresh connect) and
-/// RefreshPlaidAccountsCommand (post update-mode) — mirrors Go's
-/// createMissingPaymentMethods exactly. Creates a payment method for any
-/// linked account not already represented (by PlaidAccountId, or by a
-/// name-match fallback for accounts Plaid re-IDs on reconnect). Everything
-/// here is non-fatal per account: the caller's PlaidItem is already
-/// persisted regardless of outcome.
-/// </summary>
+/// <summary>Shared by ExchangePublicToken/RefreshPlaidAccounts — mirrors Go's createMissingPaymentMethods. Non-fatal per account.</summary>
 public sealed class PlaidPaymentMethodSync(
     IBudgetProfileRepository budgets,
     ITransactionRepository transactions,
@@ -48,9 +40,7 @@ public sealed class PlaidPaymentMethodSync(
                 continue;
             }
 
-            // Name-based fallback — Plaid issues new account ids on reconnect. If a
-            // method with the same name exists, relink it so future reconnects
-            // dedup correctly, instead of creating a duplicate.
+            // Name fallback — Plaid issues new account ids on reconnect; relink instead of duplicating.
             var existingByName = await transactions.GetPaymentMethodByUserAndNameAsync(userId, name, ct);
             if (existingByName is not null)
             {

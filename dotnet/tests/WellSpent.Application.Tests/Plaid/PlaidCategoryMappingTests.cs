@@ -6,10 +6,7 @@ namespace WellSpent.Application.Tests.Plaid;
 /// <summary>Mirrors internal/plaid/category_test.go's TestResolvePlaidCategory_* suite exactly, against the system_key string convention instead of Go's category.Key type.</summary>
 public sealed class PlaidCategoryMappingTests
 {
-    // Plaid's full personal_finance_category taxonomy (v2) at the primary
-    // level. Kept here so EveryPlaidPrimaryResolves can prove no primary
-    // falls through uncategorized — LOAN_PAYMENTS previously did, silently,
-    // in the Go original this mirrors.
+    // Plaid's full PFC taxonomy at the primary level — proves no primary falls through uncategorized.
     private static readonly string[] PlaidPrimaries =
     [
         "INCOME", "TRANSFER_IN", "TRANSFER_OUT", "LOAN_PAYMENTS", "BANK_FEES",
@@ -23,9 +20,7 @@ public sealed class PlaidCategoryMappingTests
     {
         foreach (var primary in PlaidPrimaries)
         {
-            // An unrecognized detailed value under a known primary must still
-            // land somewhere — this is the case Plaid creates whenever it
-            // extends the taxonomy without us noticing.
+            // An unrecognized detailed value under a known primary must still land somewhere.
             var result = PlaidCategoryMapping.Resolve(primary, primary + "_SOMETHING_NEW");
             Assert.False(string.IsNullOrEmpty(result), $"{primary} has no mapping — transactions under it would import uncategorized");
         }

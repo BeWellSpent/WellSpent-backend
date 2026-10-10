@@ -8,12 +8,7 @@ using WellSpent.Domain.Entities;
 
 namespace WellSpent.Application.Plaid;
 
-/// <summary>
-/// Mirrors internal/service/plaid_sync.go exactly: three entry points
-/// (SyncAllAsync/SyncProfileAsync/SyncItemAsync) funnel into one per-item
-/// core. Safe to call from a detached background task — see
-/// PlaidBackgroundSync — since it takes no dependency on an HTTP request.
-/// </summary>
+/// <summary>Mirrors plaid_sync.go: three entry points funnel into one per-item core. Safe to call from a background task.</summary>
 public sealed class PlaidSyncEngine(
     IPlaidItemRepository items,
     IUserRepository users,
@@ -81,10 +76,7 @@ public sealed class PlaidSyncEngine(
 
     private Task NotifyProfileAsync(ProfileSyncResult profile, CancellationToken ct)
     {
-        // HOOK: notify budget members of imported transactions / pending
-        // reviews (Notification domain's event-dispatch wiring isn't done
-        // yet — see ManualMatchReview's and MarkTransactionForReview's own
-        // identical HOOK comments).
+        // HOOK: notify budget members (Notification domain's event-dispatch wiring isn't done yet).
         return Task.CompletedTask;
     }
 
@@ -92,10 +84,7 @@ public sealed class PlaidSyncEngine(
     {
         var result = new ItemSyncResult { ItemId = item.Id, InstitutionName = item.InstitutionName ?? "" };
 
-        // Entitled per connection owner, not per budget. A failed owner
-        // lookup does not skip the sync — it just can't gate on plan, so the
-        // sync proceeds as if entitled (mirrors Go's `err == nil && plan ==
-        // "free"` short-circuit exactly).
+        // Entitled per connection owner, not per budget. A failed owner lookup does not skip the sync.
         try
         {
             var owner = await users.GetByIdAsync(item.UserId, ct);
@@ -147,9 +136,7 @@ public sealed class PlaidSyncEngine(
             }
             catch (Exception statusEx)
             {
-                // The connection stays reading "active" while it is in fact
-                // broken, so both clients' bank-connection panels show it
-                // healthy and nobody knows to reconnect.
+                // Connection stays reading "active" while actually broken.
                 logger.LogError(statusEx, "plaid.sync_mark_errored_failed plaid_item_id={PlaidItemId}", item.Id);
             }
 
@@ -160,9 +147,7 @@ public sealed class PlaidSyncEngine(
         logger.LogInformation("plaid.sync_fetched plaid_item_id={PlaidItemId} added={Added} modified={Modified} removed={Removed}",
             item.Id, sync.Added.Count, sync.Modified.Count, sync.RemovedIds.Count);
 
-        // Resolved once per Plaid account: the payment method it maps to,
-        // and the name to report it under — resolved even with no payment
-        // method, so an unmapped account still shows up in the summary.
+        // Resolved once per Plaid account: payment method + name to report it under.
         var pmCache = new Dictionary<string, (Guid? PaymentMethodId, string Name)>();
         var byAccount = new Dictionary<string, int>();
 
@@ -194,15 +179,7 @@ public sealed class PlaidSyncEngine(
                 continue;
             }
 
-            // A pending transaction Plaid has now settled arrives under a
-            // brand-new PlaidId, linked back to the pending one only through
-            // PendingTransactionId. Repointing the existing local row onto
-            // it, in place, is what stops that pending id's later appearance
-            // in RemovedIds from being treated as an ordinary delete below —
-            // transaction_review.transaction_id is ON DELETE CASCADE, so
-            // deleting that row would silently drop a confirmed review (and
-            // the paid fixed-expense link it recorded) with nothing to
-            // explain why (issue #67).
+            // A settled pending transaction arrives under a new PlaidId — repoint in place (issue #67).
             if (!string.IsNullOrEmpty(tx.PendingTransactionId))
             {
                 var existing = await transactions.GetTransactionByPlaidIdAsync(tx.PendingTransactionId, ct);
@@ -266,9 +243,7 @@ public sealed class PlaidSyncEngine(
                     TransactionFrequencyId = OneOffFrequencyId,
                     TransactionTypeId = VariableTypeId,
                     PlaidTransactionId = tx.PlaidId,
-                    // Plaid's own classification, kept alongside the category
-                    // resolved from it, so a later re-classification stays
-                    // possible instead of the mapping being applied once and discarded.
+                    // Plaid's own classification, kept so a later re-classification stays possible.
                     PlaidPfcPrimary = EmptyToNull(tx.PfcPrimary),
                     PlaidPfcDetailed = EmptyToNull(tx.PfcDetailed),
                     PlaidReferenceNumber = EmptyToNull(tx.ReferenceNumber),
@@ -285,9 +260,7 @@ public sealed class PlaidSyncEngine(
                 item.Id, tx.Name, tx.Date, tx.Amount, CategoryLogValue(categoryKey, categoryId));
             importedAdded++;
 
-            // Tracks whether this transaction was consumed by the
-            // fixed-expense match below. Anything left unconsumed is "newly
-            // available" and is what the per-account summary counts.
+            // Unconsumed = "newly available", counted in the per-account summary.
             var consumed = false;
 
             var (bestScore, bestFe, bestAliasHit, bestAmountOk) =
@@ -298,10 +271,7 @@ public sealed class PlaidSyncEngine(
                 continue;
             }
 
-            // A transaction landing in a closed period may not settle
-            // anything: marking paid and excluding are both blocked on
-            // archived periods everywhere else, so the sync must not do it
-            // either. It imports and stops.
+            // Archived periods block mark-paid/exclude everywhere else; the sync must too.
             if (period.IsArchived)
             {
                 byAccount[accountName] = byAccount.GetValueOrDefault(accountName) + 1;
@@ -310,9 +280,7 @@ public sealed class PlaidSyncEngine(
                 continue;
             }
 
-            // Scoped to this transaction's own period — searching every live
-            // period would let a payment reach forward and mark the next
-            // period's bill paid (issue #41).
+            // Scoped to this transaction's own period, not every live one (issue #41).
             var unpaid = await fixedExpenses.GetUnpaidTransactionInPeriodAsync(bestFe.Id, period.Id, ct);
             var hasUnpaidTarget = unpaid is not null;
 
@@ -358,10 +326,7 @@ public sealed class PlaidSyncEngine(
             logger.LogInformation("plaid.sync_updated plaid_item_id={PlaidItemId} name={Name} amount={Amount}", item.Id, tx.Name, tx.Amount);
         }
 
-        // A pending id that settled this run was already repointed above,
-        // before this loop runs — its PlaidTransactionId no longer matches
-        // the removed id, so this delete is a correct no-op for it rather
-        // than something this loop needs to special-case.
+        // A pending id already repointed above no longer matches here, so this delete no-ops for it.
         foreach (var plaidId in sync.RemovedIds)
         {
             try
@@ -377,11 +342,7 @@ public sealed class PlaidSyncEngine(
             logger.LogInformation("plaid.sync_removed plaid_item_id={PlaidItemId} plaid_id={PlaidId}", item.Id, plaidId);
         }
 
-        // A failure here means the transactions above were imported/updated/
-        // removed successfully but the item's cursor wasn't advanced — the
-        // next run re-fetches the same batch (harmless, dedup skips
-        // re-imports) but should still surface as a failure so it isn't
-        // silently retried forever without anyone noticing.
+        // A cursor-persist failure re-fetches the same batch next run (harmless) but must still surface.
         Exception? cursorError = null;
         try
         {
@@ -411,13 +372,7 @@ public sealed class PlaidSyncEngine(
         return result;
     }
 
-    // Mirrors Go's inline switch-case exactly: each of the four steps
-    // (mark paid, create review, confirm review, exclude import) is a
-    // separate try/catch with its own log line and byAccount fallback —
-    // collapsing them into one try/catch would hide which step actually
-    // failed, which is the whole point of this granularity (a mark-paid
-    // that succeeds while the review-create after it fails is a real,
-    // reportable partial state, not an all-or-nothing transaction).
+    // Each of the four steps has its own try/catch — collapsing them would hide which one failed.
     private async Task<bool> TryAutoConfirmAsync(
         Guid itemId, PlaidImportedTransaction tx, BudgetPeriod period, Transaction inserted, Transaction unpaid,
         FixedExpense bestFe, double bestScore, int? categoryId, Guid? paymentMethodId, bool autoUpdatePlanned,
@@ -474,13 +429,7 @@ public sealed class PlaidSyncEngine(
         return true;
     }
 
-    // Mirrors Go's settlePendingTransaction exactly — an UPDATE-in-place on
-    // the existing row, never delete+reinsert (issue #67). If the repointed
-    // row is the subject of an already-*confirmed* review and the settled
-    // amount differs from what was recorded, the paid transaction's amount
-    // is updated to match through the same shared mark-paid path every other
-    // confirm route uses. A merely pending review needs nothing extra: its
-    // TransactionId never changes, so it already points at the refreshed row.
+    // Mirrors Go's settlePendingTransaction — UPDATE-in-place, never delete+reinsert (issue #67).
     private async Task<bool> SettlePendingTransactionAsync(Guid itemId, PlaidImportedTransaction tx, Transaction existing, bool autoUpdatePlanned, CancellationToken ct)
     {
         Transaction repointed;
@@ -528,9 +477,7 @@ public sealed class PlaidSyncEngine(
 
         try
         {
-            // Re-syncing the amount an already-confirmed bill settled at, not
-            // a fresh payment event — category/payment method were already
-            // handled at the original confirm, so no ObservedPayment override here.
+            // Re-syncing a settled amount, not a fresh payment — no ObservedPayment override.
             await FixedExpensePaymentSync.MarkPaidAsync(
                 transactions, fixedExpenses, matchedTx.Id, matchedPeriodId, repointed.Amount,
                 matchedTx.PaidDate ?? tx.Date, autoUpdatePlanned, default, ct);
@@ -549,9 +496,7 @@ public sealed class PlaidSyncEngine(
 
     private static string? EmptyToNull(string v) => string.IsNullOrEmpty(v) ? null : v;
 
-    // Printing the resolved name unconditionally would make an "unmapped"
-    // transaction — imported with no category — indistinguishable from a
-    // correctly categorized one in the logs.
+    // Distinguishes an "unmapped" import from a correctly categorized one in the logs.
     private static string CategoryLogValue(string categoryKey, int? categoryId) => categoryId is not null
         ? categoryKey
         : categoryKey.Length > 0 ? $"{categoryKey} (unmapped — no matching system category)" : "none";

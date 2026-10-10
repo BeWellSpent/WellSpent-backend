@@ -115,11 +115,7 @@ public sealed class PlaidSyncMatchingTests
     [Fact]
     public void InstallmentPlanFixedExpenseIsNotSkipped_UnlikeTheManualPathScorer()
     {
-        // The deliberate asymmetry this class exists to preserve: Go's
-        // syncScoreBestMatch (what this mirrors) does NOT skip
-        // IsInstallmentPlan fixed expenses, unlike scoreBestMatch (the
-        // manual-match path, TransactionReviews.TransactionMatching in this
-        // port). An installment plan must still be matchable here.
+        // The deliberate asymmetry: unlike the manual-match scorer, this one does not skip installment plans.
         var feId = Guid.NewGuid();
         var fe = Fe(feId, "Card Installment", 50.00m);
         fe.IsInstallmentPlan = true;

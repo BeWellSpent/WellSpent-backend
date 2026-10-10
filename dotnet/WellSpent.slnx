@@ -4,6 +4,7 @@
     <Project Path="src/WellSpent.Application/WellSpent.Application.csproj" />
     <Project Path="src/WellSpent.Domain/WellSpent.Domain.csproj" />
     <Project Path="src/WellSpent.Infrastructure/WellSpent.Infrastructure.csproj" />
+    <Project Path="src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj" />
     <Project Path="src/WellSpent.Migrator/WellSpent.Migrator.csproj" />
   </Folder>
   <Folder Name="/tests/">

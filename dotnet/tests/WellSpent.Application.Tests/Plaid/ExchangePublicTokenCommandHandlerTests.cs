@@ -23,9 +23,7 @@ public sealed class ExchangePublicTokenCommandHandlerTests
     private readonly IPlaidClient _plaid = Substitute.For<IPlaidClient>();
     private readonly ICryptoService _crypto = Substitute.For<ICryptoService>();
 
-    // Unconfigured: CreateScope() returns null, which the real
-    // PlaidBackgroundSync catches and logs internally — fine for these
-    // tests, which only assert on the handler's own synchronous result.
+    // Unconfigured CreateScope() returns null; PlaidBackgroundSync catches and logs it.
     private readonly IServiceScopeFactory _scopeFactory = Substitute.For<IServiceScopeFactory>();
 
     private ExchangePublicTokenCommandHandler CreateHandler() => new(

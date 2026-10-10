@@ -23,8 +23,7 @@ public sealed class PlaidSyncCategoryResolutionTests
     [Fact]
     public void IncomePfcPrimaryResolvesWithoutPayrollInName()
     {
-        // A direct-deposit paycheck whose name never says "payroll" must
-        // still resolve to Income via Plaid's own classification, not just the name check.
+        // Must resolve to Income via Plaid's own classification, not just the name check.
         Assert.Equal("income", PlaidSyncCategoryResolution.ResolveKey("ACME CORP DIRECT DEP", "INCOME", "INCOME_WAGES"));
         Assert.Equal("income", PlaidSyncCategoryResolution.ResolveKey("IRS TREAS 310 TAX REF", "INCOME", "INCOME_TAX_REFUND"));
     }
@@ -42,9 +41,7 @@ public sealed class PlaidSyncCategoryResolutionTests
     [Fact]
     public void ResolveId_UnmappedNameReturnsNullId()
     {
-        // Resolves to Shopping but the system-category map doesn't have it —
-        // this is exactly the scenario that silently drops the category: the
-        // transaction still imports, just with category_id NULL.
+        // Resolves to Shopping but the map doesn't have it — imports with category_id NULL.
         var categoryIds = new Dictionary<string, int> { ["groceries"] = 3 };
         var (key, id) = PlaidSyncCategoryResolution.ResolveId("AMAZON.COM", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES", categoryIds);
 

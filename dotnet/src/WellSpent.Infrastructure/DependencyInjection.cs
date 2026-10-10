@@ -12,10 +12,16 @@ namespace WellSpent.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, AppConfig config)
+    /// <summary>
+    /// applicationName overrides config.ApplicationName's "wellspent-api-{env}"
+    /// default — standalone jobs (e.g. plaid-sync) send their own distinct
+    /// Postgres application_name, matching Go's db.NewPool call sites, so a
+    /// connection is identifiable in pg_stat_activity by which process opened it.
+    /// </summary>
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, AppConfig config, string? applicationName = null)
     {
         services.AddSingleton(config);
-        services.AddWellSpentDbContext(config.DatabaseUrl, config.ApplicationName);
+        services.AddWellSpentDbContext(config.DatabaseUrl, applicationName ?? config.ApplicationName);
 
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IStatusBannerRepository, StatusBannerRepository>();

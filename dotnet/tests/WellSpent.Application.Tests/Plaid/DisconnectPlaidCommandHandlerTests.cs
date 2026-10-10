@@ -58,9 +58,7 @@ public sealed class DisconnectPlaidCommandHandlerTests
     [Fact]
     public async Task FreeTier_StillAllowed()
     {
-        // Disconnect must never be gated by plan — removing access should
-        // always be possible, even for a free-tier user who somehow already
-        // has a connection (e.g. was downgraded after linking while Pro).
+        // Disconnect must never be gated by plan.
         var user = UsUser("free");
         var connId = Guid.NewGuid();
         _users.GetByIdAsync(user.Id, Arg.Any<CancellationToken>()).Returns(user);

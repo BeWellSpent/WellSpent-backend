@@ -2,20 +2,7 @@ using WellSpent.Domain.Entities;
 
 namespace WellSpent.Application.TransactionReviews;
 
-/// <summary>
-/// Pure scoring core for manual-match review (CreateTransaction/
-/// UpdateTransaction/ConfirmTransactionReview) — mirrors Go's scoreBestMatch
-/// in plaid_sync.go exactly. Weights: amount within $3 = 40, name match
-/// (alias or word-overlap) = 20, payment method match = 20, category match =
-/// 20 — so ≥80 needs amount plus two of the other three, or all three
-/// non-amount signals together.
-///
-/// NOT shared with the Plaid sync path: this function skips
-/// IsInstallmentPlan fixed expenses, but Go's sync-path scorer
-/// (syncScoreBestMatch) does not — a real divergence, confirmed by re-reading
-/// plaid_sync.go for B6, not the "will be unified" this comment used to
-/// claim. See Plaid.PlaidSyncMatching for the sync path's own scorer.
-/// </summary>
+/// <summary>Manual-match scorer, mirrors Go's scoreBestMatch. NOT shared with Plaid.PlaidSyncMatching — that one doesn't skip IsInstallmentPlan.</summary>
 public static class TransactionMatching
 {
     private const decimal AmountTolerance = 3.0m;

@@ -9,21 +9,13 @@ using WellSpent.Application.Abstractions;
 
 namespace WellSpent.Infrastructure.ExternalServices;
 
-/// <summary>
-/// Wraps Going.Plaid's PlaidClient, mirroring internal/plaid/client.go's
-/// *client exactly — same 6 operations, same SyncTransactions pagination and
-/// mutation-during-pagination restart behavior. The retry/redaction logging
-/// Go attaches via a custom http.RoundTripper is instead a DelegatingHandler
-/// (<see cref="PlaidLoggingRetryHandler"/>) registered on the named
-/// "PlaidClient" HttpClient that Going.Plaid dispatches through internally.
-/// </summary>
+/// <summary>Wraps Going.Plaid's PlaidClient, mirroring internal/plaid/client.go's *client exactly.</summary>
 public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<GoingPlaidClient> logger) : IPlaidClient
 {
-    // Plaid's documented maximum for /transactions/sync `count` (default is 100 if unset).
+    // Plaid's documented max for /transactions/sync `count` (default 100).
     private const int MaxSyncPageSize = 500;
 
-    // Bounds how many times a full paginated sync restarts after
-    // TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION, Plaid's documented recovery for that error.
+    // Restarts allowed after TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION.
     private const int MaxSyncPaginationRestarts = 3;
 
     private const string MutationDuringPagination = "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION";
@@ -45,8 +37,7 @@ public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<Goin
             request.Update = new LinkTokenCreateRequestUpdate { AccountSelectionEnabled = true };
         }
 
-        // Only native clients (iOS) need this — OAuth institutions must hand
-        // control back to the app via a Plaid-dashboard-registered redirect URI.
+        // Only native clients (iOS) need an OAuth redirect URI.
         if (!string.IsNullOrEmpty(redirectUri))
         {
             request.RedirectUri = redirectUri;
@@ -103,9 +94,7 @@ public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<Goin
         {
             if (attempt > 0)
             {
-                // Plaid data is still mutating — wait before retrying so the
-                // underlying changes have time to settle. Without this pause
-                // the restarts hammer the same in-flux data and fail identically.
+                // Data is still mutating — wait before retrying.
                 var delay = TimeSpan.FromSeconds(attempt * 2);
                 logger.LogWarning(
                     "plaid.sync.mutation_during_pagination attempt={Attempt} maxAttempts={MaxAttempts} delaySeconds={DelaySeconds}",
@@ -126,19 +115,14 @@ public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<Goin
             }
             catch (PlaidMutationDuringPaginationException)
             {
-                // Restart the whole fetch from the original cursor on the next loop iteration.
+                // Restart from the original cursor on the next loop iteration.
             }
         }
 
         throw new InvalidOperationException("plaid: sync transactions retry loop exited without returning or throwing");
     }
 
-    // Drains every page of a single logical sync starting at cursor,
-    // following has_more until Plaid reports no more pages. Persisting an
-    // intermediate (has_more=true) cursor is unsafe — per Plaid's docs, only
-    // the cursor returned once has_more is false is guaranteed stable, and
-    // stopping early both silently drops later-page changes and risks a
-    // MUTATION_DURING_PAGINATION error on the next scheduled sync.
+    // Drains every page; only the final has_more=false cursor is durable.
     private async Task<PlaidSyncResult> SyncTransactionsAllPagesAsync(string accessToken, string cursor, CancellationToken ct)
     {
         var added = new List<PlaidImportedTransaction>();
@@ -152,9 +136,7 @@ public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<Goin
                 AccessToken = accessToken,
                 Cursor = string.IsNullOrEmpty(cursor) ? null : cursor,
                 Count = MaxSyncPageSize,
-                // Obsolete per Plaid's own OpenAPI spec (newer API versions include it by
-                // default) but still required for category resolution on this client's pinned
-                // v20200914 version — mirrors internal/plaid/client.go setting it explicitly.
+                // Obsolete per Plaid's spec but still required on this client's pinned API version.
 #pragma warning disable CS0612
                 Options = new TransactionsSyncRequestOptions { IncludePersonalFinanceCategory = true },
 #pragma warning restore CS0612
@@ -182,18 +164,14 @@ public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<Goin
 
     private static PlaidImportedTransaction? ToImportedTransaction(Transaction t)
     {
-        // Prefer authorized_date (when the purchase was made) over date (when
-        // the bank settled it) — the posted date can lag 1-3 days, which
-        // would mis-route a boundary transaction to the wrong period.
+        // Prefer authorized_date over date — posted date can lag 1-3 days.
         var date = t.AuthorizedDate ?? t.Date;
         if (date is null)
         {
             return null;
         }
 
-        // Prefer the Plaid-enriched merchant name when available — cleaner
-        // and more human-readable than the raw bank string. Name is obsolete
-        // per Plaid's spec but still populated on this client's API version.
+        // Prefer the Plaid-enriched merchant name when available.
 #pragma warning disable CS0612
         var name = !string.IsNullOrEmpty(t.MerchantName) ? t.MerchantName : t.Name ?? "";
 #pragma warning restore CS0612
@@ -211,10 +189,6 @@ public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<Goin
             t.PendingTransactionId ?? "");
     }
 
-    // Going.Plaid's AccountType enum has no "brokerage" member — Plaid's API
-    // itself has deprecated that as a top-level account type in favor of the
-    // investment/brokerage subtype split, so this branch is unreachable in
-    // practice but kept for parity with internal/plaid/account.go's PlaidPaymentTypeID.
     private static string MapAccountType(AccountType type) => type switch
     {
         AccountType.Depository => "depository",
@@ -225,9 +199,7 @@ public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<Goin
         _ => "undefined",
     };
 
-    // Only "savings" and "brokerage" need their exact wire value — every
-    // other subtype falls through PlaidAccountMapping.PaymentTypeId's default
-    // branch regardless of its precise string, so this isn't a full mapping.
+    // Only "savings"/"brokerage" matter to PlaidAccountMapping.PaymentTypeId; others fall through.
     private static string MapAccountSubtype(AccountSubtype? subtype) => subtype switch
     {
         null => "",

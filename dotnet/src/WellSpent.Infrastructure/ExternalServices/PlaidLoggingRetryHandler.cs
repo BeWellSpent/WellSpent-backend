@@ -4,16 +4,7 @@ using WellSpent.Infrastructure.Configuration;
 
 namespace WellSpent.Infrastructure.ExternalServices;
 
-/// <summary>
-/// Mirrors internal/plaid/transport.go's NewLoggingRetryTransport exactly:
-/// structured request/response logging (body capped at 4096 bytes, via
-/// <see cref="PlaidHttpLogFormatting"/>), credential redaction
-/// (Plaid-Client-Id/Plaid-Secret headers always; client_id/secret/
-/// access_token/public_token/link_token body fields when configured), and
-/// retry on network error/429/5xx only — never on a 4xx, which would just
-/// fail identically and burn API quota. Registered on the named "PlaidClient"
-/// HttpClient that Going.Plaid's PlaidClient dispatches through internally.
-/// </summary>
+/// <summary>Mirrors transport.go's NewLoggingRetryTransport — logging, redaction, retry on network error/429/5xx only.</summary>
 public sealed class PlaidLoggingRetryHandler(ILogger<PlaidLoggingRetryHandler> logger, AppConfig config) : DelegatingHandler
 {
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -63,8 +54,7 @@ public sealed class PlaidLoggingRetryHandler(ILogger<PlaidLoggingRetryHandler> l
         throw new InvalidOperationException("plaid: retry loop exhausted with no response or exception");
     }
 
-    // .NET HttpRequestMessage instances can only be sent once, so each retry
-    // attempt needs its own clone built from the buffered body/headers.
+    // HttpRequestMessage can only be sent once, so each retry needs a clone.
     private static HttpRequestMessage CloneRequest(HttpRequestMessage original, byte[]? bodyBytes, HttpContentHeaders? contentHeaders)
     {
         var clone = new HttpRequestMessage(original.Method, original.RequestUri) { Version = original.Version };
