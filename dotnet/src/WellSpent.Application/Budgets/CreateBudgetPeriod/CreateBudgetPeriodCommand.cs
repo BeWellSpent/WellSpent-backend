@@ -6,11 +6,7 @@ using WellSpent.Domain.Abstractions;
 
 namespace WellSpent.Application.Budgets.CreateBudgetPeriod;
 
-/// <summary>
-/// Admin-only. See BudgetPeriodRollover's doc comment for what this
-/// deliberately still does not do (savings-source transaction spawn,
-/// carryover — later B5 batches).
-/// </summary>
+/// <summary>Admin-only.</summary>
 public sealed record CreateBudgetPeriodCommand(Guid UserId, Guid BudgetProfileId) : IRequest<BudgetPeriodDto>;
 
 public sealed class CreateBudgetPeriodCommandHandler(

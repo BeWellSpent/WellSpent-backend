@@ -2,11 +2,7 @@ using WellSpent.Domain.Entities;
 
 namespace WellSpent.Domain.Abstractions;
 
-/// <summary>
-/// Covers BudgetProfile CRUD, BudgetPeriod, and People (B5 batch 1). Income
-/// sources, savings sources, and income entries are added to this same
-/// interface in a later B5 batch rather than introducing a second one.
-/// </summary>
+/// <summary>Covers BudgetProfile CRUD, BudgetPeriod, People, income/savings sources, and income entries.</summary>
 public interface IBudgetProfileRepository
 {
     // ── Profile ──────────────────────────────────────────────────────────────
@@ -46,6 +42,9 @@ public interface IBudgetProfileRepository
     Task<BudgetPeriod?> GetPeriodByDateAsync(Guid profileId, DateOnly date, CancellationToken ct);
 
     Task ArchivePeriodAsync(Guid id, CancellationToken ct);
+
+    /// <summary>Profile ids whose latest period ends on or before cutoff — the cycle-budgets job's daily pick list.</summary>
+    Task<List<Guid>> ListProfileIdsWithExpiredPeriodAsync(DateOnly cutoff, CancellationToken ct);
 
     // ── People ───────────────────────────────────────────────────────────────
     Task<List<BudgetPerson>> ListPeopleAsync(Guid profileId, CancellationToken ct);

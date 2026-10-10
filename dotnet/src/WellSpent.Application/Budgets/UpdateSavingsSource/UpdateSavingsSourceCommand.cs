@@ -1,4 +1,6 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
+using WellSpent.Application.Budgets;
 using WellSpent.Application.Budgets.AddSavingsSource;
 using WellSpent.Application.Common;
 using WellSpent.Domain.Abstractions;
@@ -11,16 +13,10 @@ public sealed record UpdateSavingsSourceCommand(
     Guid UserId, int Id, Guid BudgetProfileId, string Name, Money Amount, Guid? PaymentMethodId, int[] PaymentDays)
     : IRequest<SavingsSourceDto>;
 
-/// <summary>
-/// Mirrors Go's UpdateSavingsSource, including its own quirk: when
-/// PaymentDays is empty, Go's comment says "preserve existing frequency" but
-/// the SQL it builds (UpdateSavingsSourceParams.Frequency = "") actually
-/// overwrites the column with an empty string — the comment and the code
-/// disagree, and this mirrors the code. Deferred, same as AddSavingsSource:
-/// deleting the old auto-created transaction and spawning a new one
-/// (B5 batch 4/5) — the row itself is fully functional today.
-/// </summary>
-public sealed class UpdateSavingsSourceCommandHandler(BudgetAccessGuard access, IBudgetProfileRepository profiles)
+/// <summary>Mirrors Go's UpdateSavingsSource, including its quirk: empty PaymentDays writes an empty-string frequency, not "preserve existing" as Go's own comment claims.</summary>
+public sealed class UpdateSavingsSourceCommandHandler(
+    BudgetAccessGuard access, IBudgetProfileRepository profiles, ITransactionRepository transactions,
+    ILogger<UpdateSavingsSourceCommandHandler> logger)
     : IRequestHandler<UpdateSavingsSourceCommand, SavingsSourceDto>
 {
     public async Task<SavingsSourceDto> Handle(UpdateSavingsSourceCommand request, CancellationToken ct)
@@ -33,10 +29,7 @@ public sealed class UpdateSavingsSourceCommandHandler(BudgetAccessGuard access, 
             throw new AppValidationException("payment_days must have 1, 2, or 4 entries");
         }
 
-        // Throws NotFoundException if missing — not otherwise used; Go reads
-        // it only to find the old payment method for the deferred
-        // transaction-cleanup hook.
-        await profiles.GetSavingsSourceAsync(request.Id, request.BudgetProfileId, ct);
+        var old = await profiles.GetSavingsSourceAsync(request.Id, request.BudgetProfileId, ct);
 
         int? personId = null;
         if (request.PaymentMethodId is { } pmId)
@@ -58,8 +51,14 @@ public sealed class UpdateSavingsSourceCommandHandler(BudgetAccessGuard access, 
             PaymentDays = request.PaymentDays,
         }, ct);
 
-        // HOOK: delete the old auto-created transaction and spawn a new one
-        // reflecting the updated values (B5 batch 4/5).
+        if (old.PaymentMethodId is not null)
+        {
+            await SavingsTransactionSpawning.DeleteExistingTransactionsAsync(transactions, logger, request.BudgetProfileId, old, ct);
+        }
+        if (updated.PaymentMethodId is not null && updated.PaymentDays.Length > 0)
+        {
+            await SavingsTransactionSpawning.SpawnAsync(profiles, transactions, logger, request.BudgetProfileId, updated, ct);
+        }
 
         return SavingsSourceMapping.ToDto(updated);
     }

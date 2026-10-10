@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using WellSpent.Application.Budgets.AddSavingsSource;
 using WellSpent.Application.Budgets.DeleteSavingsSource;
@@ -14,7 +15,12 @@ namespace WellSpent.Application.Tests.Budgets;
 public sealed class SavingsSourceTests
 {
     private readonly IBudgetProfileRepository _profiles = Substitute.For<IBudgetProfileRepository>();
+    private readonly ITransactionRepository _transactions = Substitute.For<ITransactionRepository>();
     private BudgetAccessGuard Access => new(_profiles);
+
+    private AddSavingsSourceCommandHandler AddHandler => new(Access, _profiles, _transactions, NullLogger<AddSavingsSourceCommandHandler>.Instance);
+    private UpdateSavingsSourceCommandHandler UpdateHandler => new(Access, _profiles, _transactions, NullLogger<UpdateSavingsSourceCommandHandler>.Instance);
+    private DeleteSavingsSourceCommandHandler DeleteHandler => new(Access, _profiles, _transactions, NullLogger<DeleteSavingsSourceCommandHandler>.Instance);
 
     private (Guid AdminId, Guid ProfileId) SetUpOwner()
     {
@@ -22,6 +28,9 @@ public sealed class SavingsSourceTests
         var adminId = Guid.NewGuid();
         _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
             .Returns(new BudgetProfile { Id = profileId, UserId = adminId, Name = "x" });
+        // Savings-transaction spawn/cleanup is best-effort and swallows a missing period — not under test here.
+        _profiles.GetLatestPeriodAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<BudgetPeriod>(new NotFoundException("budget_period", "latest")));
         return (adminId, profileId);
     }
 
@@ -34,7 +43,7 @@ public sealed class SavingsSourceTests
         var (adminId, profileId) = SetUpOwner();
         var days = Enumerable.Range(1, count).ToArray();
 
-        await Assert.ThrowsAsync<AppValidationException>(() => new AddSavingsSourceCommandHandler(Access, _profiles)
+        await Assert.ThrowsAsync<AppValidationException>(() => AddHandler
             .Handle(new AddSavingsSourceCommand(adminId, profileId, "Emergency fund", new Money(200, 0), null, days), CancellationToken.None));
     }
 
@@ -48,7 +57,7 @@ public sealed class SavingsSourceTests
         var days = Enumerable.Range(1, count).ToArray();
         _profiles.AddSavingsSourceAsync(Arg.Any<SavingsSource>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<SavingsSource>());
 
-        var result = await new AddSavingsSourceCommandHandler(Access, _profiles)
+        var result = await AddHandler
             .Handle(new AddSavingsSourceCommand(adminId, profileId, "Emergency fund", new Money(200, 0), null, days), CancellationToken.None);
 
         Assert.Equal(expectedFrequency, result.Frequency);
@@ -64,7 +73,7 @@ public sealed class SavingsSourceTests
         _profiles.AddSavingsSourceAsync(Arg.Any<SavingsSource>(), Arg.Any<CancellationToken>())
             .Returns(ci => { captured = ci.Arg<SavingsSource>(); return captured; });
 
-        await new AddSavingsSourceCommandHandler(Access, _profiles)
+        await AddHandler
             .Handle(new AddSavingsSourceCommand(adminId, profileId, "Emergency fund", new Money(200, 0), pmId, [1]), CancellationToken.None);
 
         Assert.Equal(42, captured!.BudgetPersonId);
@@ -78,7 +87,7 @@ public sealed class SavingsSourceTests
         _profiles.GetPaymentMethodBudgetPersonIdAsync(pmId, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<int?>(new NotFoundException("payment_method", pmId.ToString())));
 
-        await Assert.ThrowsAsync<NotFoundException>(() => new AddSavingsSourceCommandHandler(Access, _profiles)
+        await Assert.ThrowsAsync<NotFoundException>(() => AddHandler
             .Handle(new AddSavingsSourceCommand(adminId, profileId, "Emergency fund", new Money(200, 0), pmId, [1]), CancellationToken.None));
     }
 
@@ -95,7 +104,7 @@ public sealed class SavingsSourceTests
         _profiles.UpdateSavingsSourceAsync(Arg.Any<SavingsSource>(), Arg.Any<CancellationToken>())
             .Returns(ci => { captured = ci.Arg<SavingsSource>(); return captured; });
 
-        await new UpdateSavingsSourceCommandHandler(Access, _profiles)
+        await UpdateHandler
             .Handle(new UpdateSavingsSourceCommand(adminId, 1, profileId, "x", new Money(200, 0), null, []), CancellationToken.None);
 
         Assert.Equal("", captured!.Frequency);
@@ -108,7 +117,7 @@ public sealed class SavingsSourceTests
         _profiles.GetSavingsSourceAsync(99, profileId, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<SavingsSource>(new NotFoundException("savings_source", "99")));
 
-        await Assert.ThrowsAsync<NotFoundException>(() => new UpdateSavingsSourceCommandHandler(Access, _profiles)
+        await Assert.ThrowsAsync<NotFoundException>(() => UpdateHandler
             .Handle(new UpdateSavingsSourceCommand(adminId, 99, profileId, "x", new Money(200, 0), null, [1]), CancellationToken.None));
     }
 
@@ -135,7 +144,7 @@ public sealed class SavingsSourceTests
         _profiles.GetPersonByUserIdAsync(profileId, viewerId, Arg.Any<CancellationToken>())
             .Returns(new BudgetPerson { Id = 1, BudgetProfileId = profileId, UserId = viewerId, Role = "viewer" });
 
-        await Assert.ThrowsAsync<ForbiddenException>(() => new DeleteSavingsSourceCommandHandler(Access, _profiles)
+        await Assert.ThrowsAsync<ForbiddenException>(() => DeleteHandler
             .Handle(new DeleteSavingsSourceCommand(viewerId, 1, profileId), CancellationToken.None));
     }
 
@@ -146,7 +155,7 @@ public sealed class SavingsSourceTests
         _profiles.GetSavingsSourceAsync(1, profileId, Arg.Any<CancellationToken>())
             .Returns(new SavingsSource { Id = 1, BudgetProfileId = profileId, Name = "x" });
 
-        await new DeleteSavingsSourceCommandHandler(Access, _profiles)
+        await DeleteHandler
             .Handle(new DeleteSavingsSourceCommand(adminId, 1, profileId), CancellationToken.None);
 
         await _profiles.Received(1).DeleteSavingsSourceAsync(1, profileId, Arg.Any<CancellationToken>());

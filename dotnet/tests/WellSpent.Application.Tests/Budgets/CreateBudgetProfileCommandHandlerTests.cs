@@ -25,6 +25,7 @@ public sealed class CreateBudgetProfileCommandHandlerTests
     {
         _fixedExpenses.ListAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
         _transactions.ListPaymentMethodsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
+        _profiles.ListSavingsSourcesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
     }
 
     private CreateBudgetProfileCommandHandler CreateHandler() =>

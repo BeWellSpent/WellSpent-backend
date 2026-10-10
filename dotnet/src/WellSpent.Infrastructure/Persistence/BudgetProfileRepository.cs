@@ -255,6 +255,12 @@ public sealed class BudgetProfileRepository(WellSpentDbContext db) : IBudgetProf
             s => s.SetProperty(p => p.IsArchived, true), ct);
     }
 
+    public async Task<List<Guid>> ListProfileIdsWithExpiredPeriodAsync(DateOnly cutoff, CancellationToken ct) =>
+        await db.BudgetPeriods
+            .Where(bp => bp.EndDate <= cutoff && !db.BudgetPeriods.Any(bp2 => bp2.BudgetProfileId == bp.BudgetProfileId && bp2.StartDate > bp.StartDate))
+            .Select(bp => bp.BudgetProfileId)
+            .ToListAsync(ct);
+
     // ── People ───────────────────────────────────────────────────────────────
 
     public async Task<List<BudgetPerson>> ListPeopleAsync(Guid profileId, CancellationToken ct) =>

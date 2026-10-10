@@ -1,4 +1,6 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
+using WellSpent.Application.Budgets;
 using WellSpent.Application.Common;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
@@ -10,15 +12,10 @@ public sealed record AddSavingsSourceCommand(
     Guid UserId, Guid BudgetProfileId, string Name, Money Amount, Guid? PaymentMethodId, int[] PaymentDays)
     : IRequest<SavingsSourceDto>;
 
-/// <summary>
-/// Mirrors Go's AddSavingsSource. One deliberate omission: Go also spawns a
-/// Transaction (Fixed, Savings category) for the source's current period
-/// immediately after creating it (createSavingsTransactions) — deferred here,
-/// since Transaction/Category aren't ported yet (B5 batches 3/4). The
-/// savings_source row itself, and its budget_person_id inference from the
-/// payment method, work today.
-/// </summary>
-public sealed class AddSavingsSourceCommandHandler(BudgetAccessGuard access, IBudgetProfileRepository profiles)
+/// <summary>Mirrors Go's AddSavingsSource, including the Fixed/Savings transaction it spawns in the current period via createSavingsTransactions.</summary>
+public sealed class AddSavingsSourceCommandHandler(
+    BudgetAccessGuard access, IBudgetProfileRepository profiles, ITransactionRepository transactions,
+    ILogger<AddSavingsSourceCommandHandler> logger)
     : IRequestHandler<AddSavingsSourceCommand, SavingsSourceDto>
 {
     public async Task<SavingsSourceDto> Handle(AddSavingsSourceCommand request, CancellationToken ct)
@@ -48,7 +45,7 @@ public sealed class AddSavingsSourceCommandHandler(BudgetAccessGuard access, IBu
             PaymentDays = request.PaymentDays,
         }, ct);
 
-        // HOOK: spawn the current period's savings transaction (B5 batch 4/5).
+        await SavingsTransactionSpawning.SpawnAsync(profiles, transactions, logger, request.BudgetProfileId, source, ct);
 
         return SavingsSourceMapping.ToDto(source);
     }

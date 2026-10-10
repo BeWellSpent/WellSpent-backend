@@ -2,13 +2,7 @@ using WellSpent.Domain.Entities;
 
 namespace WellSpent.Domain.Abstractions;
 
-/// <summary>
-/// Covers Transaction, Category, and PaymentMethod — mirroring Go's single
-/// transactionRepository grouping all three. Batch 5 (Installment plans +
-/// Fixed expenses) adds the installment-plan link methods; batch 7
-/// (Transaction review) stays its own interface, matching Go's separate
-/// TransactionReviewRepository.
-/// </summary>
+/// <summary>Covers Transaction, Category, and PaymentMethod — mirroring Go's single transactionRepository grouping all three.</summary>
 public interface ITransactionRepository
 {
     // ── Transactions ─────────────────────────────────────────────────────────
@@ -49,6 +43,12 @@ public interface ITransactionRepository
     Task<Transaction> RepointTransactionPlaidIdAsync(string oldPlaidTransactionId, string newPlaidTransactionId, string name, decimal amount, DateOnly date, CancellationToken ct);
 
     Task<Transaction> MarkTransactionAsPaidAsync(Guid id, Guid budgetPeriodId, decimal amount, DateOnly paidDate, CancellationToken ct);
+
+    /// <summary>How many rows already carry this period's ending balance into the next one — the carryover idempotency check.</summary>
+    Task<int> CountCarriedAsync(Guid budgetPeriodId, Guid carriedFromBudgetPeriodId, CancellationToken ct);
+
+    /// <summary>Deletes a savings source's auto-created transactions in non-archived periods, matched by name/payment method/category (no FK links a transaction back to its savings_source).</summary>
+    Task DeleteSavingsSourceTransactionsAsync(Guid budgetProfileId, string name, Guid paymentMethodId, int categoryId, CancellationToken ct);
 
     /// <summary>Resets Amount back to PlannedAmount, matching Go's SQL exactly.</summary>
     Task<Transaction> UnmarkTransactionAsPaidAsync(Guid id, Guid budgetPeriodId, CancellationToken ct);

@@ -6,20 +6,7 @@ using WellSpent.Domain.Exceptions;
 
 namespace WellSpent.Application.Budgets;
 
-/// <summary>
-/// Shared period-rollover core used by CreateBudgetProfile (first period) and
-/// CreateBudgetPeriod (every period after). Ports Go's createNextPeriod
-/// (budget_profile_service.go) incrementally as each dependency lands:
-/// date/archive mechanics, income pre-fill + tax-reserve recalc, and
-/// fixed-expense spawn are done (B5 batches 1/2/5); the rest is deliberately
-/// deferred since it depends on entities that don't exist in this backend
-/// yet:
-///   - savings-source transaction spawn → B5 batch 5/6
-///   - carryover → B5 batch 5/6
-///   - period-created notification → wired once those land
-/// Each hook point is marked below. The live Go backend keeps serving every
-/// actual period rollover in the meantime.
-/// </summary>
+/// <summary>Shared period-rollover core (createNextPeriod) used by CreateBudgetProfile and CreateBudgetPeriod. Period-created notification stays deferred — Notification dispatch isn't wired anywhere in this port yet.</summary>
 public static class BudgetPeriodRollover
 {
     public static async Task<BudgetPeriod> CreateNextPeriodAsync(
@@ -164,8 +151,18 @@ public static class BudgetPeriodRollover
             }
         }
 
-        // HOOK: savings-source transaction spawn (B5 batch 5/6).
-        // HOOK: carryover (B5 batch 5/6).
+        // Spawn savings-source transactions for the new period.
+        var savingsSources = await profiles.ListSavingsSourcesAsync(profile.Id, ct);
+        foreach (var src in savingsSources.Where(s => s.PaymentMethodId is not null && s.PaymentDays.Length > 0))
+        {
+            await SavingsTransactionSpawning.SpawnAsync(profiles, transactions, logger, profile.Id, src, ct);
+        }
+
+        if (latest is not null)
+        {
+            await PeriodCarryover.ApplyAsync(profiles, transactions, logger, profile, latest, period, ct);
+        }
+
         // HOOK: period-created notification.
 
         return period;
