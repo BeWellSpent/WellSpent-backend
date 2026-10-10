@@ -40,6 +40,7 @@ using WellSpent.Application.FixedExpenses.DeleteFixedExpense;
 using WellSpent.Application.FixedExpenses.ListFixedExpenses;
 using WellSpent.Application.FixedExpenses.UpdateFixedExpense;
 using WellSpent.Application.PaymentMethods.ListPaymentMethods;
+using WellSpent.Application.TransactionReviews.ListTransactionReviews;
 
 namespace WellSpent.Api.Endpoints;
 
@@ -268,6 +269,13 @@ public static class BudgetEndpoints
         {
             await sender.Send(new DeleteExpenseAllocationCommand(CurrentUser.GetId(ctx), allocationId, id), ct);
             return Results.Ok();
+        });
+
+        // ── Transaction reviews (list only — mark/confirm/dismiss/create-from-tx live under /rest/v1/transactions, see TransactionEndpoints) ──
+        group.MapGet("/{id:guid}/transaction-reviews", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var reviews = await sender.Send(new ListTransactionReviewsQuery(CurrentUser.GetId(ctx), id), ct);
+            return Results.Ok(new { reviews });
         });
 
         // Separate namespace — GET /rest/v1/budgets/{id}/periods is the

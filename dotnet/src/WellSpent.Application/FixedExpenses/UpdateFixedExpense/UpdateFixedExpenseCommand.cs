@@ -1,5 +1,7 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using WellSpent.Application.Common;
+using WellSpent.Application.TransactionReviews;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 using WellSpent.Domain.Exceptions;
@@ -18,13 +20,14 @@ public sealed record UpdateFixedExpenseCommand(Guid UserId, Guid Id, Guid Budget
 /// entirely: a period can hold several of their occurrences, so there's no
 /// single "the current period's transaction" to reconcile.
 ///
-/// Deferred via HOOK: Go also re-scores any pending TransactionReview
-/// against the reconciled transaction — not possible yet (TransactionReview
-/// is B5 batch 7). That refresh is itself nil-safe/best-effort in Go, so its
-/// absence changes nothing about whether the reconciliation above succeeds.
+/// Completes its own deferred HOOK (B5 batch 7): after a successful sync
+/// onto the paid or still-unpaid branch, re-scores any pending
+/// TransactionReview against that reconciled transaction — not run on the
+/// spawn branch, since a brand-new transaction has no prior review to refresh.
 /// </summary>
 public sealed class UpdateFixedExpenseCommandHandler(
-    BudgetAccessGuard access, IFixedExpenseRepository fixedExpenses, IBudgetProfileRepository profiles, ITransactionRepository transactions)
+    BudgetAccessGuard access, IFixedExpenseRepository fixedExpenses, IBudgetProfileRepository profiles,
+    ITransactionRepository transactions, ITransactionReviewRepository reviews, ILogger<UpdateFixedExpenseCommandHandler> logger)
     : IRequestHandler<UpdateFixedExpenseCommand, FixedExpenseDto>
 {
     public async Task<FixedExpenseDto> Handle(UpdateFixedExpenseCommand request, CancellationToken ct)
@@ -105,6 +108,7 @@ public sealed class UpdateFixedExpenseCommandHandler(
             {
                 await fixedExpenses.UpdatePaidTransactionFromFixedExpenseAsync(
                     fe.Id, request.BudgetProfileId, fe.Name, fe.CategoryId, fe.PaymentMethodId, ct);
+                await FixedExpenseReviewRefresh.RefreshForMatchedTransactionAsync(reviews, transactions, existing.Id, fe, logger, ct);
             }
             catch (Exception)
             {
@@ -117,6 +121,7 @@ public sealed class UpdateFixedExpenseCommandHandler(
             {
                 await fixedExpenses.UpdateTransactionFromFixedExpenseAsync(
                     fe.Id, request.BudgetProfileId, fe.Name, fe.PlannedAmount, fe.CategoryId, fe.PaymentMethodId, txDate, ct);
+                await FixedExpenseReviewRefresh.RefreshForMatchedTransactionAsync(reviews, transactions, existing.Id, fe, logger, ct);
             }
             catch (Exception)
             {

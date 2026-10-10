@@ -29,6 +29,8 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<FixedExpense> FixedExpenses => Set<FixedExpense>();
     public DbSet<ExpenseAllocation> ExpenseAllocations => Set<ExpenseAllocation>();
+    public DbSet<TransactionReview> TransactionReviews => Set<TransactionReview>();
+    public DbSet<FixedExpenseAlias> FixedExpenseAliases => Set<FixedExpenseAlias>();
     public DbSet<AlertSubscription> AlertSubscriptions => Set<AlertSubscription>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
@@ -52,6 +54,8 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
         modelBuilder.ApplyConfiguration(new TransactionEntityConfiguration());
         modelBuilder.ApplyConfiguration(new FixedExpenseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ExpenseAllocationEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TransactionReviewEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new FixedExpenseAliasEntityConfiguration());
         modelBuilder.ApplyConfiguration(new AlertSubscriptionEntityConfiguration());
         modelBuilder.ApplyConfiguration(new NotificationEntityConfiguration());
         modelBuilder.ApplyConfiguration(new DeviceTokenEntityConfiguration());

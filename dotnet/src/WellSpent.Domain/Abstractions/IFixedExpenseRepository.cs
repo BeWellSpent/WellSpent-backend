@@ -41,4 +41,13 @@ public interface IFixedExpenseRepository
     /// <summary>Propagates a template edit onto an already-paid transaction — name/category/payment method only, never the amount or paid state.</summary>
     Task UpdatePaidTransactionFromFixedExpenseAsync(
         Guid fixedExpenseId, Guid budgetProfileId, string name, int? categoryId, Guid? paymentMethodId, CancellationToken ct);
+
+    /// <summary>
+    /// This fixed expense's unpaid transaction in a specific period — null
+    /// when none exists. Unlike GetTransactionAsync (any live period,
+    /// preferring unpaid), this is period-scoped and unpaid-only, used by
+    /// manual-match scoring to find the same-period bill a newly
+    /// added/edited transaction might duplicate.
+    /// </summary>
+    Task<Transaction?> GetUnpaidTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, CancellationToken ct);
 }

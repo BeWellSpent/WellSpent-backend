@@ -25,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<ITransactionRepository, TransactionRepository>();
         services.AddScoped<IFixedExpenseRepository, FixedExpenseRepository>();
         services.AddScoped<IExpenseAllocationRepository, ExpenseAllocationRepository>();
+        services.AddScoped<ITransactionReviewRepository, TransactionReviewRepository>();
 
         services.AddSingleton<IJwtService, JwtService>();
         services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();

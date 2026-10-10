@@ -1,5 +1,7 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using WellSpent.Application.Common;
+using WellSpent.Application.TransactionReviews;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 using WellSpent.Domain.Exceptions;
@@ -14,13 +16,20 @@ namespace WellSpent.Application.Transactions.UpdateTransaction;
 /// so the archived case can still go through the category-only path. If the
 /// transaction has no BudgetPeriodId at all, Go skips every access check
 /// entirely; mirrored as-is, not treated as a bug to close here.
+///
+/// Completes batch 4's own deferred manual-match HOOK (B5 batch 7): editing
+/// a Variable transaction re-scores it against active fixed expenses, which
+/// can both queue a new review and remove a now-stale pending one.
 /// </summary>
 public sealed record UpdateTransactionCommand(
     Guid UserId, Guid Id, string? Name, Money Amount, Money PlannedAmount, DateOnly? Date,
     int? CategoryId, Guid? PaymentMethodId, string? TransactionFrequency, string? TransactionType)
     : IRequest<TransactionDto>;
 
-public sealed class UpdateTransactionCommandHandler(BudgetAccessGuard access, ITransactionRepository transactions)
+public sealed class UpdateTransactionCommandHandler(
+    BudgetAccessGuard access, ITransactionRepository transactions, IBudgetProfileRepository profiles,
+    IFixedExpenseRepository fixedExpenses, ITransactionReviewRepository reviews, IUserRepository users,
+    ILogger<UpdateTransactionCommandHandler> logger)
     : IRequestHandler<UpdateTransactionCommand, TransactionDto>
 {
     public async Task<TransactionDto> Handle(UpdateTransactionCommand request, CancellationToken ct)
@@ -60,7 +69,11 @@ public sealed class UpdateTransactionCommandHandler(BudgetAccessGuard access, IT
 
         var updated = await transactions.UpdateTransactionAsync(edit, ct);
 
-        // HOOK: maybeQueueReview — Plaid-match re-scoring (B5 batches 5/7).
+        if (transactionTypeId == 2 && updated.BudgetPeriodId is { } updatedPeriodId)
+        {
+            await ManualMatchReview.MaybeQueueReviewAsync(
+                updated, updatedPeriodId, request.UserId, profiles, fixedExpenses, reviews, users, logger, ct);
+        }
 
         return TransactionMapping.ToDto(updated);
     }

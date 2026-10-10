@@ -1,25 +1,30 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using WellSpent.Application.Common;
+using WellSpent.Application.TransactionReviews;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 
 namespace WellSpent.Application.Transactions.CreateTransaction;
 
 /// <summary>
-/// Mirrors Go's Create, with two side effects deferred via HOOK comments
-/// below rather than attempted now: queuing a Plaid-match review (needs
-/// FixedExpense — B5 batch 5 — and TransactionReview — B5 batch 7) and
-/// notifying other subscribed budget members of a new transaction (needs the
-/// Notification domain's internal dispatch, not yet wired to this trigger).
-/// Both are explicitly best-effort/non-fatal in Go, so their absence changes
-/// nothing about whether this transaction itself gets created correctly.
+/// Mirrors Go's Create. Completes batch 4's own deferred manual-match HOOK
+/// now that FixedExpense and TransactionReview both exist: a newly created
+/// Variable transaction (with a period) is scored against active fixed
+/// expenses, queuing a review at >=80 — best-effort, per Go's own posture.
+/// One side effect remains deferred: notifying other subscribed budget
+/// members of a new transaction needs the Notification domain's internal
+/// dispatch wiring, not yet done for any domain.
 /// </summary>
 public sealed record CreateTransactionCommand(
     Guid UserId, string? Name, Money Amount, Money PlannedAmount, DateOnly? Date, DateOnly? RenewalDate,
     Guid? BudgetPeriodId, int? CategoryId, Guid? PaymentMethodId, string? TransactionFrequency, string? TransactionType)
     : IRequest<TransactionDto>;
 
-public sealed class CreateTransactionCommandHandler(BudgetAccessGuard access, ITransactionRepository transactions)
+public sealed class CreateTransactionCommandHandler(
+    BudgetAccessGuard access, ITransactionRepository transactions, IBudgetProfileRepository profiles,
+    IFixedExpenseRepository fixedExpenses, ITransactionReviewRepository reviews, IUserRepository users,
+    ILogger<CreateTransactionCommandHandler> logger)
     : IRequestHandler<CreateTransactionCommand, TransactionDto>
 {
     public async Task<TransactionDto> Handle(CreateTransactionCommand request, CancellationToken ct)
@@ -46,7 +51,11 @@ public sealed class CreateTransactionCommandHandler(BudgetAccessGuard access, IT
             TransactionTypeId = transactionTypeId,
         }, ct);
 
-        // HOOK: maybeQueueReview — Plaid-match scoring against fixed expenses (B5 batches 5/7).
+        if (transactionTypeId == 2 && request.BudgetPeriodId is { } createdPeriodId)
+        {
+            await ManualMatchReview.MaybeQueueReviewAsync(
+                created, createdPeriodId, request.UserId, profiles, fixedExpenses, reviews, users, logger, ct);
+        }
         // HOOK: notify other subscribed budget members of a new transaction.
 
         return TransactionMapping.ToDto(created);

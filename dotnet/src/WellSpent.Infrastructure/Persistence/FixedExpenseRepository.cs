@@ -117,4 +117,10 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         tx.PaymentMethodId = paymentMethodId;
         await db.SaveChangesAsync(ct);
     }
+
+    public async Task<Transaction?> GetUnpaidTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, CancellationToken ct) =>
+        await db.Transactions
+            .Where(t => t.FixedExpenseId == fixedExpenseId && !t.IsPaid && t.BudgetPeriodId == budgetPeriodId)
+            .OrderByDescending(t => t.Date)
+            .FirstOrDefaultAsync(ct);
 }

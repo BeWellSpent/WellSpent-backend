@@ -50,6 +50,33 @@ public sealed class BudgetAccessGuard(IBudgetProfileRepository profiles)
         return profile;
     }
 
+    /// <summary>
+    /// Mirrors TransactionService's own assertProfileMember/getUserRoleForProfile
+    /// — a non-member always gets ForbiddenException here, never
+    /// NotFoundException. This is the TransactionService-flavored member
+    /// check (used by ListTransactionReviews); it is a genuinely different
+    /// behavior from EnsureMemberAsync above (BudgetProfileService's own
+    /// assertMember, which lets a non-member's NotFoundException propagate
+    /// as a 404) — both exist in Go on different services and neither is
+    /// "the bug", so neither is unified here.
+    /// </summary>
+    public async Task<BudgetProfile> EnsureMemberForbiddenAsync(Guid profileId, Guid callerId, CancellationToken ct)
+    {
+        var profile = await profiles.GetByIdAsync(profileId, ct);
+        if (profile.UserId != callerId)
+        {
+            try
+            {
+                await profiles.GetPersonByUserIdAsync(profileId, callerId, ct);
+            }
+            catch (NotFoundException)
+            {
+                throw new ForbiddenException("access denied");
+            }
+        }
+        return profile;
+    }
+
     /// <summary>Mirrors Go's assertCollaboratorOrAbove — same 404-vs-403 collapse as EnsureAdminAsync, just a wider role set (admin or collaborator).</summary>
     public async Task<BudgetProfile> EnsureCollaboratorOrAboveAsync(Guid profileId, Guid callerId, CancellationToken ct)
     {

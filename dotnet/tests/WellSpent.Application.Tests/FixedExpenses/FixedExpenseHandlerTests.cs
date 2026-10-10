@@ -1,7 +1,9 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using WellSpent.Application.Common;
 using WellSpent.Application.FixedExpenses;
 using WellSpent.Application.FixedExpenses.CreateFixedExpense;
+using WellSpent.Application.FixedExpenses.CreateFixedExpenseFromTransaction;
 using WellSpent.Application.FixedExpenses.CreateInstallmentPlan;
 using WellSpent.Application.FixedExpenses.DeleteFixedExpense;
 using WellSpent.Application.FixedExpenses.DeleteInstallmentPlan;
@@ -19,7 +21,11 @@ public sealed class FixedExpenseHandlerTests
     private readonly IBudgetProfileRepository _profiles = Substitute.For<IBudgetProfileRepository>();
     private readonly ITransactionRepository _transactions = Substitute.For<ITransactionRepository>();
     private readonly IFixedExpenseRepository _fixedExpenses = Substitute.For<IFixedExpenseRepository>();
+    private readonly ITransactionReviewRepository _reviews = Substitute.For<ITransactionReviewRepository>();
     private BudgetAccessGuard Access => new(_profiles);
+
+    private UpdateFixedExpenseCommandHandler CreateUpdateFixedExpenseHandler() => new(
+        Access, _fixedExpenses, _profiles, _transactions, _reviews, NullLogger<UpdateFixedExpenseCommandHandler>.Instance);
 
     private (Guid AdminId, Guid ProfileId) SetUpProfile()
     {
@@ -167,7 +173,7 @@ public sealed class FixedExpenseHandlerTests
         _fixedExpenses.UpdateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>())
             .Returns(ci => ci.Arg<FixedExpense>());
 
-        await new UpdateFixedExpenseCommandHandler(Access, _fixedExpenses, _profiles, _transactions)
+        await CreateUpdateFixedExpenseHandler()
             .Handle(new UpdateFixedExpenseCommand(adminId, feId, profileId, Fields(anchorDate: farFutureAnchor)), CancellationToken.None);
 
         await _fixedExpenses.Received(1).DeleteUnpaidTransactionsAsync(feId, profileId, Arg.Any<CancellationToken>());
@@ -186,7 +192,7 @@ public sealed class FixedExpenseHandlerTests
             .Returns(ci => ci.Arg<FixedExpense>());
         _fixedExpenses.GetTransactionAsync(feId, profileId, Arg.Any<CancellationToken>()).Returns((Transaction?)null);
 
-        await new UpdateFixedExpenseCommandHandler(Access, _fixedExpenses, _profiles, _transactions)
+        await CreateUpdateFixedExpenseHandler()
             .Handle(new UpdateFixedExpenseCommand(adminId, feId, profileId, Fields(dayOfMonth: 15)), CancellationToken.None);
 
         await _transactions.Received(1).CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>());
@@ -205,7 +211,7 @@ public sealed class FixedExpenseHandlerTests
         _fixedExpenses.GetTransactionAsync(feId, profileId, Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = Guid.NewGuid(), IsPaid = true });
 
-        await new UpdateFixedExpenseCommandHandler(Access, _fixedExpenses, _profiles, _transactions)
+        await CreateUpdateFixedExpenseHandler()
             .Handle(new UpdateFixedExpenseCommand(adminId, feId, profileId, Fields(dayOfMonth: 15)), CancellationToken.None);
 
         await _fixedExpenses.Received(1).UpdatePaidTransactionFromFixedExpenseAsync(
@@ -226,7 +232,7 @@ public sealed class FixedExpenseHandlerTests
         _fixedExpenses.GetTransactionAsync(feId, profileId, Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = Guid.NewGuid(), IsPaid = false });
 
-        await new UpdateFixedExpenseCommandHandler(Access, _fixedExpenses, _profiles, _transactions)
+        await CreateUpdateFixedExpenseHandler()
             .Handle(new UpdateFixedExpenseCommand(adminId, feId, profileId, Fields(amount: 70m, dayOfMonth: 15)), CancellationToken.None);
 
         await _fixedExpenses.Received(1).UpdateTransactionFromFixedExpenseAsync(
@@ -241,7 +247,7 @@ public sealed class FixedExpenseHandlerTests
         _fixedExpenses.UpdateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>())
             .Returns(ci => ci.Arg<FixedExpense>());
 
-        await new UpdateFixedExpenseCommandHandler(Access, _fixedExpenses, _profiles, _transactions)
+        await CreateUpdateFixedExpenseHandler()
             .Handle(new UpdateFixedExpenseCommand(adminId, feId, profileId, Fields(dayOfMonth: 0, frequencyUnit: "week")), CancellationToken.None);
 
         await _profiles.DidNotReceive().GetLatestPeriodAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
@@ -482,5 +488,190 @@ public sealed class FixedExpenseHandlerTests
             .Handle(new DeleteInstallmentPlanCommand(adminId, txId, periodId), CancellationToken.None);
 
         await _fixedExpenses.Received(1).DeactivateAsync(feId, profileId, Arg.Any<CancellationToken>());
+    }
+
+    // ── CreateFixedExpenseFromTransaction (deferred from B5 batch 5 to batch 7) ──
+
+    private (Guid UserId, Guid ProfileId, Guid PeriodId, Guid TxId, Guid FeId, Guid SpawnedId) SetUpFixedFromTxFixture(
+        bool archived = false, decimal amount = 15.00m, int transactionTypeId = 2, TransactionReview? existingReview = null)
+    {
+        var (userId, profileId) = SetUpProfile();
+        var periodId = Guid.NewGuid();
+        var txId = Guid.NewGuid();
+        var feId = Guid.NewGuid();
+        var spawnedId = Guid.NewGuid();
+        var period = new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = archived, StartDate = new DateOnly(2026, 9, 1), EndDate = new DateOnly(2026, 9, 30) };
+
+        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>()).Returns(period);
+        _profiles.GetLatestPeriodAsync(profileId, Arg.Any<CancellationToken>()).Returns(period);
+        // IsExcluded=true here reflects the state after SetTransactionExcludedAsync
+        // runs during the confirm flow — NSubstitute doesn't simulate the
+        // transition, and the handler re-fetches this same row afterward to
+        // build its response, so the mock needs to already reflect the
+        // post-confirm state for that final read.
+        _transactions.GetTransactionAsync(txId, Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = txId, Name = "Netflix", Amount = amount, BudgetPeriodId = periodId, TransactionTypeId = transactionTypeId, IsExcluded = true });
+        _fixedExpenses.CreateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { var fe = ci.Arg<FixedExpense>(); fe.Id = feId; return fe; });
+        var spawnedTx = new Transaction { Id = spawnedId, Name = "Netflix", Amount = amount, PlannedAmount = amount, BudgetPeriodId = periodId, TransactionTypeId = 1, FixedExpenseId = feId };
+        _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>()).Returns(spawnedTx);
+        _transactions.GetTransactionAsync(spawnedId, Arg.Any<CancellationToken>()).Returns(spawnedTx);
+        _reviews.GetByTransactionIdAsync(txId, Arg.Any<CancellationToken>()).Returns(existingReview);
+        _reviews.UpsertAsync(periodId, txId, spawnedId, 100.0m, Arg.Any<CancellationToken>())
+            .Returns(new TransactionReview { Id = Guid.NewGuid(), BudgetPeriodId = periodId, TransactionId = txId, MatchedTransactionId = spawnedId, MatchScore = 100.0m, Status = "pending" });
+        _transactions.MarkTransactionAsPaidAsync(spawnedId, periodId, amount, Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = spawnedId, FixedExpenseId = feId, IsPaid = true, BudgetPeriodId = periodId });
+        _fixedExpenses.GetByIdAsync(feId, Arg.Any<CancellationToken>())
+            .Returns(new FixedExpense { Id = feId, BudgetProfileId = profileId, Name = "Netflix", PlannedAmount = amount });
+        _reviews.ListByMatchedTransactionIdAsync(spawnedId, Arg.Any<CancellationToken>()).Returns([]);
+        _transactions.SetTransactionExcludedAsync(txId, periodId, true, Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = txId, IsExcluded = true });
+
+        return (userId, profileId, periodId, txId, feId, spawnedId);
+    }
+
+    private CreateFixedExpenseFromTransactionCommandHandler CreateFixedFromTxHandler() => new(
+        Access, _profiles, _transactions, _fixedExpenses, _reviews, NullLogger<CreateFixedExpenseFromTransactionCommandHandler>.Instance);
+
+    [Fact]
+    public async Task CreateFromTransaction_CreatesAndAutoConfirmsMatch()
+    {
+        var (userId, _, periodId, txId, feId, spawnedId) = SetUpFixedFromTxFixture();
+
+        var result = await CreateFixedFromTxHandler().Handle(
+            new CreateFixedExpenseFromTransactionCommand(userId, txId, periodId, "", null, "month", 1, 1, 1), CancellationToken.None);
+
+        Assert.Equal(feId, result.Expense.Id);
+        Assert.True(result.Transaction.IsExcluded);
+        await _reviews.Received(1).UpsertAsync(periodId, txId, spawnedId, 100.0m, Arg.Any<CancellationToken>());
+        await _transactions.Received(1).MarkTransactionAsPaidAsync(spawnedId, periodId, 15.00m, Arg.Any<DateOnly>(), Arg.Any<CancellationToken>());
+        await _transactions.Received(1).SetTransactionExcludedAsync(txId, periodId, true, Arg.Any<CancellationToken>());
+        await _reviews.Received(1).UpdateStatusAsync(Arg.Any<Guid>(), "confirmed", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateFromTransaction_HonoursNameOverride()
+    {
+        var (userId, _, periodId, txId, _, _) = SetUpFixedFromTxFixture();
+        FixedExpense? created = null;
+        _fixedExpenses.CreateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { created = ci.Arg<FixedExpense>(); created.Id = Guid.NewGuid(); return created; });
+
+        await CreateFixedFromTxHandler().Handle(
+            new CreateFixedExpenseFromTransactionCommand(userId, txId, periodId, "Streaming", null, "month", 1, 1, 1), CancellationToken.None);
+
+        Assert.Equal("Streaming", created!.Name);
+    }
+
+    [Fact]
+    public async Task CreateFromTransaction_RejectsFixedTransaction()
+    {
+        var (userId, _, periodId, txId, _, _) = SetUpFixedFromTxFixture(transactionTypeId: 1);
+
+        await Assert.ThrowsAsync<AppValidationException>(() => CreateFixedFromTxHandler().Handle(
+            new CreateFixedExpenseFromTransactionCommand(userId, txId, periodId, "", null, "month", 1, 1, 1), CancellationToken.None));
+
+        await _fixedExpenses.DidNotReceive().CreateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateFromTransaction_RejectsReceivedAmount()
+    {
+        var (userId, _, periodId, txId, _, _) = SetUpFixedFromTxFixture(amount: -15.00m);
+
+        await Assert.ThrowsAsync<AppValidationException>(() => CreateFixedFromTxHandler().Handle(
+            new CreateFixedExpenseFromTransactionCommand(userId, txId, periodId, "", null, "month", 1, 1, 1), CancellationToken.None));
+
+        await _fixedExpenses.DidNotReceive().CreateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateFromTransaction_RejectsArchivedPeriod()
+    {
+        var (userId, _, periodId, txId, _, _) = SetUpFixedFromTxFixture(archived: true);
+
+        await Assert.ThrowsAsync<AppValidationException>(() => CreateFixedFromTxHandler().Handle(
+            new CreateFixedExpenseFromTransactionCommand(userId, txId, periodId, "", null, "month", 1, 1, 1), CancellationToken.None));
+
+        await _fixedExpenses.DidNotReceive().CreateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateFromTransaction_RejectsAlreadyMatchedTransaction()
+    {
+        var existing = new TransactionReview { Id = Guid.NewGuid(), Status = "confirmed" };
+        var (userId, _, periodId, txId, _, _) = SetUpFixedFromTxFixture(existingReview: existing);
+
+        await Assert.ThrowsAsync<AppValidationException>(() => CreateFixedFromTxHandler().Handle(
+            new CreateFixedExpenseFromTransactionCommand(userId, txId, periodId, "", null, "month", 1, 1, 1), CancellationToken.None));
+
+        await _fixedExpenses.DidNotReceive().CreateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateFromTransaction_AllowsPreviouslyDismissedTransaction()
+    {
+        var existing = new TransactionReview { Id = Guid.NewGuid(), Status = "dismissed" };
+        var (userId, _, periodId, txId, feId, _) = SetUpFixedFromTxFixture(existingReview: existing);
+
+        var result = await CreateFixedFromTxHandler().Handle(
+            new CreateFixedExpenseFromTransactionCommand(userId, txId, periodId, "", null, "month", 1, 1, 1), CancellationToken.None);
+
+        Assert.Equal(feId, result.Expense.Id);
+    }
+
+    // ── UpdateFixedExpense review-refresh (HOOK completed B5 batch 7) ───────
+
+    [Fact]
+    public async Task Update_StillDue_RefreshesPendingReview_WhenStillMatches()
+    {
+        var (adminId, profileId) = SetUpProfile();
+        var feId = Guid.NewGuid();
+        var periodId = Guid.NewGuid();
+        var existingTxId = Guid.NewGuid();
+        var reviewId = Guid.NewGuid();
+        _profiles.GetLatestPeriodAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, StartDate = new DateOnly(2026, 2, 1), EndDate = new DateOnly(2026, 2, 28) });
+        _fixedExpenses.UpdateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<FixedExpense>());
+        _fixedExpenses.GetTransactionAsync(feId, profileId, Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = existingTxId, IsPaid = false });
+        _reviews.ListByMatchedTransactionIdAsync(existingTxId, Arg.Any<CancellationToken>())
+            .Returns([new TransactionReview { Id = reviewId, TransactionId = Guid.NewGuid(), MatchedTransactionId = existingTxId, Status = "pending" }]);
+        _transactions.GetTransactionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = Guid.NewGuid(), Name = "Rent", Amount = 60m, CategoryId = 3 });
+        _reviews.ListAliasesAsync(feId, Arg.Any<CancellationToken>()).Returns([]);
+
+        await CreateUpdateFixedExpenseHandler().Handle(
+            new UpdateFixedExpenseCommand(adminId, feId, profileId, Fields(amount: 60m, dayOfMonth: 15)), CancellationToken.None);
+
+        await _reviews.Received(1).UpdateScoreIfPendingAsync(reviewId, Arg.Any<decimal>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_StillDue_RemovesStaleReview_WhenNoLongerMatches()
+    {
+        var (adminId, profileId) = SetUpProfile();
+        var feId = Guid.NewGuid();
+        var periodId = Guid.NewGuid();
+        var existingTxId = Guid.NewGuid();
+        var reviewId = Guid.NewGuid();
+        _profiles.GetLatestPeriodAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, StartDate = new DateOnly(2026, 2, 1), EndDate = new DateOnly(2026, 2, 28) });
+        _fixedExpenses.UpdateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<FixedExpense>());
+        _fixedExpenses.GetTransactionAsync(feId, profileId, Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = existingTxId, IsPaid = false });
+        _reviews.ListByMatchedTransactionIdAsync(existingTxId, Arg.Any<CancellationToken>())
+            .Returns([new TransactionReview { Id = reviewId, TransactionId = Guid.NewGuid(), MatchedTransactionId = existingTxId, Status = "pending" }]);
+        // The pending review's own variable transaction no longer resembles the edited template at all.
+        _transactions.GetTransactionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = Guid.NewGuid(), Name = "Coffee Shop", Amount = 4m });
+        _reviews.ListAliasesAsync(feId, Arg.Any<CancellationToken>()).Returns([]);
+
+        await CreateUpdateFixedExpenseHandler().Handle(
+            new UpdateFixedExpenseCommand(adminId, feId, profileId, Fields(amount: 1500m, dayOfMonth: 15)), CancellationToken.None);
+
+        await _reviews.Received(1).DeleteIfPendingAsync(reviewId, Arg.Any<CancellationToken>());
     }
 }
