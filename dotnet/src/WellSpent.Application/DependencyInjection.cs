@@ -24,6 +24,8 @@ public static class DependencyInjection
         services.AddScoped<Common.SuperuserGuard>();
         services.AddScoped<Common.BudgetAccessGuard>();
         services.AddScoped<Budgets.TaxReserveRecalculator>();
+        services.AddScoped<Plaid.PlaidAccessGuard>();
+        services.AddScoped<Plaid.PlaidPaymentMethodSync>();
 
         return services;
     }

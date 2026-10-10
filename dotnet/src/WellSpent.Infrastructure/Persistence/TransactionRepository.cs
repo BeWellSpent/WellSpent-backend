@@ -261,4 +261,33 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
             $"UPDATE payment_methods SET is_active = FALSE WHERE id = {id}", ct);
         await tx.CommitAsync(ct);
     }
+
+    public async Task<PaymentMethod?> GetPaymentMethodByPlaidAccountIdAsync(string plaidAccountId, CancellationToken ct) =>
+        await db.PaymentMethods.FirstOrDefaultAsync(m => m.PlaidAccountId == plaidAccountId && m.IsActive, ct);
+
+    public async Task<PaymentMethod?> GetPaymentMethodByUserAndNameAsync(Guid userId, string name, CancellationToken ct) =>
+        await db.PaymentMethods.FirstOrDefaultAsync(m => m.UserId == userId && m.Name == name && m.IsActive, ct);
+
+    public async Task UpdatePaymentMethodPlaidAccountIdAsync(Guid id, string plaidAccountId, CancellationToken ct)
+    {
+        var method = await db.PaymentMethods.FirstOrDefaultAsync(m => m.Id == id, ct);
+        if (method is null) return;
+        method.PlaidAccountId = plaidAccountId;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<List<PaymentMethod>> ListActivePaymentMethodsByPlaidItemIdAsync(Guid plaidItemId, CancellationToken ct) =>
+        await db.PaymentMethods.Where(m => m.PlaidItemId == plaidItemId && m.IsActive).ToListAsync(ct);
+
+    public async Task DeactivatePaymentMethodAsync(Guid id, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE fixed_expense SET payment_method_id = NULL WHERE payment_method_id = {id}", ct);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE savings_source SET payment_method_id = NULL WHERE payment_method_id = {id}", ct);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE payment_methods SET is_active = FALSE WHERE id = {id}", ct);
+        await tx.CommitAsync(ct);
+    }
 }

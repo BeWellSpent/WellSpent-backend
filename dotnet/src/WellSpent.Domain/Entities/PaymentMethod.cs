@@ -1,10 +1,6 @@
 namespace WellSpent.Domain.Entities;
 
-/// <summary>
-/// Named instance of a payment type, attributed to a BudgetPerson. Deliberately
-/// minimal slice for B5 batch 3 — Plaid linkage columns (plaid_account_id,
-/// plaid_item_id) are added when B6 (Plaid domain) needs them, rather than now.
-/// </summary>
+/// <summary>Named instance of a payment type, attributed to a BudgetPerson.</summary>
 public sealed class PaymentMethod
 {
     public Guid Id { get; set; }
@@ -18,4 +14,10 @@ public sealed class PaymentMethod
     public string? Alias { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Plaid's own account id — dedup key across reconnects. Null for a manually-created method.</summary>
+    public string? PlaidAccountId { get; set; }
+
+    /// <summary>The PlaidItem this method was created from. Null for a manually-created method.</summary>
+    public Guid? PlaidItemId { get; set; }
 }

@@ -35,6 +35,7 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
     public DbSet<BudgetInvite> BudgetInvites => Set<BudgetInvite>();
+    public DbSet<PlaidItem> PlaidItems => Set<PlaidItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,5 +61,6 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
         modelBuilder.ApplyConfiguration(new NotificationEntityConfiguration());
         modelBuilder.ApplyConfiguration(new DeviceTokenEntityConfiguration());
         modelBuilder.ApplyConfiguration(new BudgetInviteEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new PlaidItemEntityConfiguration());
     }
 }

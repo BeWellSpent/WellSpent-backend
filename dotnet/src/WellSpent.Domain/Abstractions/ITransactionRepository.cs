@@ -84,10 +84,31 @@ public interface ITransactionRepository
 
     Task<List<PaymentMethod>> ListPaymentMethodsAsync(Guid budgetProfileId, CancellationToken ct);
 
+    /// <summary>Also used to create a method from a linked Plaid account (PlaidAccountId/PlaidItemId set on the entity) — Go has a separate named SQL query for this, but the INSERT itself is identical either way.</summary>
     Task<PaymentMethod> CreatePaymentMethodAsync(PaymentMethod method, CancellationToken ct);
 
     /// <summary>Name/color/alias only — PaymentType can't be changed after creation. Null alias clears it.</summary>
     Task<PaymentMethod> UpdatePaymentMethodAsync(Guid id, string name, string color, string? alias, CancellationToken ct);
+
+    /// <summary>Null when no active method has this Plaid account id — a normal case (the account is new), not an error.</summary>
+    Task<PaymentMethod?> GetPaymentMethodByPlaidAccountIdAsync(string plaidAccountId, CancellationToken ct);
+
+    /// <summary>Null when the user has no active method with this exact name — a normal case, not an error.</summary>
+    Task<PaymentMethod?> GetPaymentMethodByUserAndNameAsync(Guid userId, string name, CancellationToken ct);
+
+    Task UpdatePaymentMethodPlaidAccountIdAsync(Guid id, string plaidAccountId, CancellationToken ct);
+
+    Task<List<PaymentMethod>> ListActivePaymentMethodsByPlaidItemIdAsync(Guid plaidItemId, CancellationToken ct);
+
+    /// <summary>
+    /// Deactivates without reassigning transactions — used when an account is
+    /// removed from a Plaid connection via update mode. Existing transactions
+    /// keep pointing at the now-inactive method (correct: they record what
+    /// really happened), but FixedExpense/SavingsSource templates pointing
+    /// here are cleared first, atomically, so a recurring bill doesn't keep
+    /// respawning onto a dead account forever.
+    /// </summary>
+    Task DeactivatePaymentMethodAsync(Guid id, CancellationToken ct);
 
     /// <summary>
     /// Reassigns every transaction, savings source, and fixed-expense template

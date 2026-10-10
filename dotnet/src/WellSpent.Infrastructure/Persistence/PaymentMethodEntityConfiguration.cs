@@ -20,5 +20,7 @@ public sealed class PaymentMethodEntityConfiguration : IEntityTypeConfiguration<
         b.Property(x => x.Color).HasColumnName("color");
         b.Property(x => x.Alias).HasColumnName("alias");
         b.Property(x => x.IsActive).HasColumnName("is_active");
+        b.Property(x => x.PlaidAccountId).HasColumnName("plaid_account_id");
+        b.Property(x => x.PlaidItemId).HasColumnName("plaid_item_id");
     }
 }
