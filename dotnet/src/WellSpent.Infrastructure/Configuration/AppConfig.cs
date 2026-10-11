@@ -31,6 +31,9 @@ public sealed class AppConfig
     public string TurnstileSecretKey { get; init; } = "";
     public bool CaptchaEnforcementEnabled { get; init; }
 
+    /// <summary>Comma-separated, same env var and default as the Go backend's CORSAllowedOrigins.</summary>
+    public string[] CorsAllowedOrigins { get; init; } = [];
+
     public string PlaidClientId { get; init; } = "";
     public string PlaidSecret { get; init; } = "";
     public string PlaidEnv { get; init; } = "sandbox";
@@ -75,6 +78,9 @@ public sealed class AppConfig
 
             TurnstileSecretKey = OptionalEnv("TURNSTILE_SECRET_KEY", ""),
             CaptchaEnforcementEnabled = OptionalEnv("CAPTCHA_ENFORCEMENT_ENABLED", "false") == "true",
+
+            CorsAllowedOrigins = OptionalEnv("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
 
             PlaidClientId = OptionalEnv("PLAID_CLIENT_ID", ""),
             PlaidSecret = OptionalEnv("PLAID_SECRET", ""),

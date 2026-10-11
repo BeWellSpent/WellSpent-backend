@@ -56,10 +56,20 @@ try
         });
     builder.Services.AddAuthorization();
 
+    // Mirrors the Go backend's CORS policy exactly, so a browser cutting a domain over mid-transition sees the same cross-origin behavior either way.
+    const string corsPolicy = "default";
+    builder.Services.AddCors(options => options.AddPolicy(corsPolicy, policy => policy
+        .WithOrigins(config.CorsAllowedOrigins)
+        .WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+        .WithHeaders("Authorization", "Content-Type", "If-None-Match")
+        .WithExposedHeaders("ETag")
+        .AllowCredentials()));
+
     var app = builder.Build();
 
     app.UseMiddleware<ErrorHandlingMiddleware>();
     app.UseSerilogRequestLogging();
+    app.UseCors(corsPolicy);
     app.UseAuthentication();
     app.UseAuthorization();
 
