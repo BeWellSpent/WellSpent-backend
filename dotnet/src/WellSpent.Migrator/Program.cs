@@ -2,6 +2,7 @@ using DbUp;
 using DbUp.Engine;
 using DotNetEnv;
 using WellSpent.Infrastructure;
+using WellSpent.Migrator;
 
 var cmd = args.Length > 0 ? args[0] : "up";
 var env = args.Length > 1 ? args[1] : "dev";
@@ -27,11 +28,7 @@ if (cmd != "up")
 {
     // DbUp is forward-only by design (no down-migration tracking equivalent
     // to goose's). Rollback during the transition still goes through the Go
-    // runner (`make migrate-down`), which keeps owning goose's own
-    // goose_db_version bookkeeping. Reconciling that bookkeeping with DbUp's
-    // own SchemaVersions table — so the two runners can safely interleave
-    // against the same database — is explicit follow-up work (sub-issue B7),
-    // not solved here.
+    // runner: make migrate-down ENV=<env>.
     Console.Error.WriteLine($"'{cmd}' is not supported — this runner only applies migrations forward (use 'up'). " +
         "For rollback during the transition, use the Go runner: make migrate-down ENV=" + env);
     return 1;
@@ -53,9 +50,13 @@ var scripts = Directory.GetFiles(migrationsDir, "*.sql")
 
 var npgsqlConnectionString = PostgresConnectionString.FromDatabaseUrl(connectionString).ConnectionString;
 
+// GooseCompatibleJournal reads/writes goose's own goose_db_version table
+// instead of DbUp's default SchemaVersions, so this runner and the Go
+// backend's cmd/migrate can safely interleave against the same database.
 var upgrader = DeployChanges.To
     .PostgresqlDatabase(npgsqlConnectionString)
     .WithScripts(scripts)
+    .JournalTo(new GooseCompatibleJournal(npgsqlConnectionString, scripts, Console.WriteLine))
     .LogToConsole()
     .Build();
 

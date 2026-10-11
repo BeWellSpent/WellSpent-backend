@@ -41,17 +41,17 @@ in this repo — `WellSpent.Infrastructure.PostgresConnectionString` converts it
 Npgsql keyword=value format Npgsql itself requires, since Npgsql (unlike Go's
 `pgxpool.ParseConfig`) doesn't parse the URI form directly.
 
-## Migration runner caveat
+## Migration runner
 
-`WellSpent.Migrator` has only been verified against a **fresh, empty** database — it
-replays all 59 existing migration files correctly there (confirmed: 30 tables, 25 system
-categories with `system_key` backfilled). It does **not** yet reconcile with goose's own
-bookkeeping table (`goose_db_version`) on a database goose has already migrated — DbUp
-tracks applied scripts in its own `schemaversions` table, so pointing it at an
-already-migrated database today would try to re-run every script from scratch. Making the
-two runners interoperate safely against the *same* already-migrated database is explicit
-follow-up work (sub-issue B7), not solved here. Until then: only run this against a
-disposable/fresh database, never against the shared LAN dev Postgres or prod Neon.
+`WellSpent.Migrator` tracks applied migrations in goose's own `goose_db_version` table
+(`GooseCompatibleJournal`, schema and version-parsing mirrored from goose v3's Postgres
+dialect) instead of DbUp's default `SchemaVersions` table. This is what lets this runner
+and the Go backend's `cmd/migrate` safely interleave against the *same* database during
+the transition — whichever one runs first records what it applied in the one table the
+other already reads, so neither re-applies nor skips a migration the other already
+handled. Verified against all three shapes: a fresh database, a database `cmd/migrate`
+(goose) had already fully migrated, and a mixed sequence where each runner applies one
+new migration and the other correctly recognizes it.
 
 ## Docker
 
