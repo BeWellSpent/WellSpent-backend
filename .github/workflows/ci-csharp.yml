@@ -2,15 +2,15 @@ name: CI — C# rewrite
 
 on:
   push:
-    branches: [rewrite/csharp]
+    branches: [develop, rewrite/csharp]
   pull_request:
-    branches: [rewrite/csharp]
+    branches: [develop, rewrite/csharp]
 
-# Build + test only, on every push/PR. This branch is a long-lived,
-# not-yet-shipped rewrite (see docs/features/refactor-backend-csharp.md) —
-# deploying is a separate, manually-triggered workflow (deploy-csharp.yml),
-# not something that should happen automatically on every push while the
-# rewrite is still in progress.
+# Build + test only. dotnet/ now lives on develop/main (merged from
+# rewrite/csharp); that branch is kept here only in case it's still used for
+# in-progress C#-only work. Deploying is separate: ci-main.yml's own `deploy`
+# job ships the API automatically on push to main, and deploy-csharp.yml is
+# the manual job-only/escape-hatch path — this workflow never deploys.
 
 jobs:
   build-and-test:

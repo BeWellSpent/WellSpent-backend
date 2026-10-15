@@ -6,8 +6,14 @@ on:
 
 env:
   REGION: us-central1
-  SERVICE: wellspent-backend
-  IMAGE: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/wellspent/backend
+  # Go's own API Cloud Run service (wellspent-backend) is no longer deployed
+  # from here — the `deploy` job below now builds and ships the C# image
+  # instead. It stays under its own service name rather than taking over
+  # wellspent-backend: the C# API speaks REST+JWT, not ConnectRPC, so
+  # redeploying under Go's service name would break any client call site
+  # still on the old protocol instead of a clean cutover.
+  SERVICE: wellspent-csharp-backend
+  IMAGE: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/wellspent/csharp-backend
 
 jobs:
   generate:
@@ -59,6 +65,19 @@ jobs:
         run: go build ./...
       - name: Test
         run: go test ./...
+      # Go is kept building and testing here even though it's no longer
+      # deployed below — it isn't decommissioned yet (other iOS call sites
+      # still depend on it), just frozen at whatever revision is already
+      # live. The C# backend is what this pipeline now actually ships.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Restore (C#)
+        run: dotnet restore dotnet/WellSpent.slnx
+      - name: Build (C#)
+        run: dotnet build dotnet/WellSpent.slnx --no-restore -c Release
+      - name: Test (C#)
+        run: dotnet test dotnet/WellSpent.slnx --no-build -c Release
 
   deploy:
     name: Deploy to Cloud Run
@@ -66,14 +85,6 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: actions/download-artifact@v4
-        with:
-          name: gen
-          path: gen/
       - name: Decrypt prod config
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
@@ -124,12 +135,18 @@ jobs:
         run: gcloud auth configure-docker us-central1-docker.pkg.dev
       - name: Build and push image
         run: |
-          docker build -t ${{ env.IMAGE }}:${{ github.sha }} .
+          docker build -f dotnet/Dockerfile -t ${{ env.IMAGE }}:${{ github.sha }} .
           docker push ${{ env.IMAGE }}:${{ github.sha }}
+      # Same schema/DATABASE_URL as Go; idempotent against migrations Go's
+      # own pipeline already applied.
       - name: Migrate prod
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
-        run: go run ./cmd/migrate up
+        run: |
+          docker run --rm \
+            -e DATABASE_URL \
+            --entrypoint dotnet \
+            ${{ env.IMAGE }}:${{ github.sha }} migrator/WellSpent.Migrator.dll up prod
       - name: Deploy API — Cloud Run Service
         uses: google-github-actions/deploy-cloudrun@v2
         with:
@@ -141,8 +158,6 @@ jobs:
             ENV=prod
             CORS_ALLOWED_ORIGINS=https://bewellspent.com
             PLAID_ENV=production
-            RATE_LIMIT_RPS=10
-            RATE_LIMIT_BURST=30
             FRONTEND_URL=${{ env.FRONTEND_URL }}
             GOOGLE_REDIRECT_URI=${{ env.GOOGLE_REDIRECT_URI }}
             GOOGLE_CLIENT_ID=${{ env.GOOGLE_CLIENT_ID }}
