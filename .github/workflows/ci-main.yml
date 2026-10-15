@@ -96,18 +96,12 @@ jobs:
           printf 'GOOGLE_CLIENT_ID=%s\n'       "${GOOGLE_CLIENT_ID}"       >> $GITHUB_ENV
           printf 'PLAID_CLIENT_ID=%s\n'        "${PLAID_CLIENT_ID}"        >> $GITHUB_ENV
           printf 'RESEND_FROM_EMAIL=%s\n'      "${RESEND_FROM_EMAIL}"      >> $GITHUB_ENV
-          printf 'PLAID_SYNC_ALERT_EMAIL=%s\n' "${PLAID_SYNC_ALERT_EMAIL}" >> $GITHUB_ENV
           printf 'APNS_KEY_ID=%s\n'            "${APNS_KEY_ID}"            >> $GITHUB_ENV
           printf 'APNS_TEAM_ID=%s\n'           "${APNS_TEAM_ID}"           >> $GITHUB_ENV
           printf 'APNS_ENVIRONMENT=%s\n'       "${APNS_ENVIRONMENT}"       >> $GITHUB_ENV
           # deploy-cloudrun's env_vars parser strips single backslashes; double them so \n survives intact.
           APNS_AUTH_KEY_ESCAPED=$(printf '%s' "${APNS_AUTH_KEY}" | sed 's/\\/\\\\/g')
           printf 'APNS_AUTH_KEY=%s\n'          "${APNS_AUTH_KEY_ESCAPED}"  >> $GITHUB_ENV
-          # Raw (non-double-escaped) form for the two `gcloud run jobs deploy`
-          # steps below — those go straight through the gcloud CLI, not
-          # deploy-cloudrun's own env_vars parser, so they need the literal
-          # \n form the app's own config.NormalizePEMKey expects.
-          printf 'APNS_AUTH_KEY_RAW=%s\n'      "${APNS_AUTH_KEY}"          >> $GITHUB_ENV
           # Sign in with Apple. Deliberately plain env vars sourced from
           # .env.prod.enc rather than Secret Manager entries: the free tier
           # allows 6 active secrets and all 6 are already spoken for
@@ -168,31 +162,12 @@ jobs:
             PLAID_SECRET=PLAID_SECRET:latest
             ENCRYPTION_KEY=ENCRYPTION_KEY:latest
 
-      - name: Deploy cycle-budgets — Cloud Run Job
-        # --set-env-vars is quoted: APNS_AUTH_KEY_RAW's PEM header/footer
-        # text ("BEGIN PRIVATE KEY" / "END PRIVATE KEY") contains spaces,
-        # which would otherwise be word-split by the shell before gcloud
-        # ever sees them.
-        run: |
-          gcloud run jobs deploy cycle-budgets \
-            --image=${{ env.IMAGE }}:${{ github.sha }} \
-            --region=${{ env.REGION }} \
-            --command=./cycle-budgets \
-            --set-env-vars="ENV=prod,FRONTEND_URL=${{ env.FRONTEND_URL }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }},PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }}" \
-            --set-secrets=DATABASE_URL=DATABASE_URL:latest,RESEND_API_KEY=RESEND_API_KEY:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest \
-            --max-retries=1 \
-            --project=${{ secrets.GCP_PROJECT_ID }}
-
-      - name: Deploy plaid-sync — Cloud Run Job
-        run: |
-          gcloud run jobs deploy plaid-sync \
-            --image=${{ env.IMAGE }}:${{ github.sha }} \
-            --region=${{ env.REGION }} \
-            --command=./plaid-sync \
-            --set-env-vars="ENV=prod,PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},PLAID_SYNC_ALERT_EMAIL=${{ env.PLAID_SYNC_ALERT_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }}" \
-            --set-secrets=DATABASE_URL=DATABASE_URL:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest \
-            --max-retries=1 \
-            --project=${{ secrets.GCP_PROJECT_ID }}
+      # cycle-budgets and plaid-sync are no longer deployed from here — both
+      # Cloud Run Jobs now run the C# image, deployed via WellSpent-backend's
+      # deploy-csharp.yml. The jobs kept their names, so these schedule steps
+      # still point at the right targets; only the "redeploy with Go's image"
+      # steps that used to live here were removed, so a Go-only merge can't
+      # silently revert the cutover.
 
       - name: Schedule cycle-budgets — 1st of each month
         run: |
