@@ -6,12 +6,13 @@ name: Deploy C# backend to Cloud Run
 # from the Actions tab (or `gh workflow run deploy-csharp.yml --ref
 # rewrite/csharp`) once the commit on that branch is the one you want live.
 #
-# Scope: the API service only. The background jobs (cycle-budgets,
-# plaid-sync) are NOT deployed here — Go's versions of both are still
-# actively scheduled against the same prod database, and running a second
-# copy on its own schedule would double-process (duplicate period creation,
-# a clobbered Plaid sync cursor). Cutting those over needs its own explicit
-# decision about which copy owns the schedule, not a silent add here.
+# Covers the API service and both background jobs (cycle-budgets,
+# plaid-sync) — the jobs redeploy onto the *same* Cloud Run Job names Go
+# already uses, reusing the existing Cloud Scheduler triggers rather than
+# creating new ones, so there is exactly one schedule per job, never two.
+# This is a real cutover, not an addition: ci-main.yml's own
+# "Deploy cycle-budgets/plaid-sync" steps were removed in the same change
+# that added this, so a future Go-only merge can't silently revert it.
 
 on:
   workflow_dispatch:
@@ -115,3 +116,31 @@ jobs:
             RESEND_API_KEY=RESEND_API_KEY:latest
             PLAID_SECRET=PLAID_SECRET:latest
             ENCRYPTION_KEY=ENCRYPTION_KEY:latest
+
+      # Same job name Go's own pipeline used — this replaces that job's
+      # definition (image/command/env/secrets), it doesn't add a second one.
+      # AppConfig.Load() requires JWT_SECRET even though this job never
+      # checks a bearer token; omitted APNS_*/PLAID_SYNC_ALERT_EMAIL — the
+      # C# Notification domain doesn't have push/ops-alert config yet, so
+      # passing them would be inert.
+      - name: Deploy cycle-budgets — Cloud Run Job
+        run: |
+          gcloud run jobs deploy cycle-budgets \
+            --image=${{ env.IMAGE }}:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --command=./cycle-budgets/WellSpent.Jobs.CycleBudgets \
+            --set-env-vars="ENV=prod,FRONTEND_URL=${{ env.FRONTEND_URL }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }}" \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,RESEND_API_KEY=RESEND_API_KEY:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest \
+            --max-retries=1 \
+            --project=${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Deploy plaid-sync — Cloud Run Job
+        run: |
+          gcloud run jobs deploy plaid-sync \
+            --image=${{ env.IMAGE }}:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --command=./plaid-sync/WellSpent.Jobs.PlaidSync \
+            --set-env-vars="ENV=prod,PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }}" \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest \
+            --max-retries=1 \
+            --project=${{ secrets.GCP_PROJECT_ID }}
