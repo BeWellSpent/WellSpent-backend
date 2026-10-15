@@ -1,0 +1,27 @@
+name: Run a C# Cloud Run Job on demand
+
+# Manual, one-shot execution of an already-deployed Cloud Run Job (cycle-budgets
+# or plaid-sync) — for confirming a job actually runs correctly after a
+# redeploy, without waiting for its natural cron trigger. Does not deploy or
+# change anything; the job runs exactly as it would on its real schedule,
+# against the real prod database.
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run"
+        required: true
+        type: choice
+        options: [cycle-budgets, plaid-sync]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Execute job
+        run: gcloud run jobs execute ${{ inputs.job }} --region us-central1 --wait --project=${{ secrets.GCP_PROJECT_ID }}
