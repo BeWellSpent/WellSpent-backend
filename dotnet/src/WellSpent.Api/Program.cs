@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
+using Serilog.Events;
 using WellSpent.Api.Endpoints;
 using WellSpent.Api.Errors;
 using WellSpent.Application;
@@ -12,6 +13,9 @@ using WellSpent.Infrastructure.Configuration;
 var config = AppConfig.Load();
 
 Log.Logger = new LoggerConfiguration()
+    // EF Core logs every executed SQL command (with parameters) at
+    // Information by default - useful in dev, too noisy/sensitive for prod.
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", config.Env == "prod" ? LogEventLevel.Warning : LogEventLevel.Information)
     .Enrich.WithProperty("application", config.ApplicationName)
     .WriteTo.Console()
     .CreateLogger();
