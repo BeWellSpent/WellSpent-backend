@@ -7,6 +7,7 @@ import (
 	"github.com/BeWellSpent/wellspent-backend/internal/service"
 	db "github.com/BeWellSpent/wellspent-backend/internal/sqlc"
 	"github.com/jackc/pgx/v5/pgtype"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // This file is internal/handler/convert.go's opposite number: it maps database
@@ -55,6 +56,36 @@ func toRESTStatusBanner(banner db.StatusBanner) restgen.StatusBanner {
 		StartsAt:  timestamp(banner.StartsAt),
 		EndsAt:    timestamp(banner.EndsAt),
 		CreatedAt: timestamp(banner.CreatedAt),
+	}
+}
+
+func toRESTInvite(inv db.BudgetInvite, budgetName, inviterName string) restgen.BudgetInvite {
+	return restgen.BudgetInvite{
+		Id:              inv.ID,
+		BudgetProfileId: inv.BudgetProfileID,
+		BudgetName:      budgetName,
+		InviterName:     inviterName,
+		Email:           openapi_types.Email(inv.Email),
+		Role:            restgen.BudgetInviteRole(inv.Role),
+		Status:          restgen.InviteStatus(inv.Status),
+		ExpiresAt:       timestamp(inv.ExpiresAt),
+		CreatedAt:       timestamp(inv.CreatedAt),
+		BudgetPersonId:  inv.BudgetPersonID,
+	}
+}
+
+func toRESTInviteFromRow(row db.GetInviteByTokenRow) restgen.BudgetInvite {
+	return restgen.BudgetInvite{
+		Id:              row.ID,
+		BudgetProfileId: row.BudgetProfileID,
+		BudgetName:      row.BudgetName,
+		InviterName:     row.InviterName,
+		Email:           openapi_types.Email(row.Email),
+		Role:            restgen.BudgetInviteRole(row.Role),
+		Status:          restgen.InviteStatus(row.Status),
+		ExpiresAt:       timestamp(row.ExpiresAt),
+		CreatedAt:       timestamp(row.CreatedAt),
+		BudgetPersonId:  row.BudgetPersonID,
 	}
 }
 

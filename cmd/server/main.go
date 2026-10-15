@@ -138,6 +138,7 @@ func main() {
 		Users:         userSvc,
 		StatusBanners: statusBannerSvc,
 		Changelog:     changelogSvc,
+		Invites:       inviteSvc,
 		JWT:           jwtSvc,
 		Logger:        logger,
 		ServerVersion: version.Current,
