@@ -15,6 +15,8 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
 {
     public DbSet<User> Users => Set<User>();
     public DbSet<OAuthAccount> OAuthAccounts => Set<OAuthAccount>();
+    public DbSet<Country> Countries => Set<Country>();
+    public DbSet<CountryFeature> CountryFeatures => Set<CountryFeature>();
     public DbSet<StatusBanner> StatusBanners => Set<StatusBanner>();
     public DbSet<ChangelogRelease> ChangelogReleases => Set<ChangelogRelease>();
     public DbSet<ChangelogItem> ChangelogItems => Set<ChangelogItem>();
@@ -41,6 +43,8 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
     {
         modelBuilder.ApplyConfiguration(new UserEntityConfiguration());
         modelBuilder.ApplyConfiguration(new OAuthAccountEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new CountryEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new CountryFeatureEntityConfiguration());
         modelBuilder.ApplyConfiguration(new StatusBannerEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ChangelogReleaseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ChangelogItemEntityConfiguration());

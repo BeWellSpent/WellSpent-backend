@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddWellSpentDbContext(config.DatabaseUrl, applicationName ?? config.ApplicationName);
 
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<ICountryRepository, CountryRepository>();
         services.AddScoped<IStatusBannerRepository, StatusBannerRepository>();
         services.AddScoped<IChangelogRepository, ChangelogRepository>();
         services.AddScoped<IBudgetProfileRepository, BudgetProfileRepository>();

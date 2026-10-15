@@ -87,6 +87,7 @@ try
 
     app.MapAuthEndpoints();
     app.MapUserEndpoints();
+    app.MapCountryEndpoints();
     app.MapStatusEndpoints();
     app.MapChangelogEndpoints();
     app.MapNotificationEndpoints();
