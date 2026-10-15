@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using NSubstitute;
 using WellSpent.Application.Abstractions;
 using WellSpent.Application.Configuration;
+using WellSpent.Application.Notifications;
 using WellSpent.Application.Plaid;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
@@ -21,8 +22,13 @@ public sealed class PlaidSyncEngineTests
     private readonly IPlaidClient _plaid = Substitute.For<IPlaidClient>();
     private readonly ICryptoService _crypto = Substitute.For<ICryptoService>();
 
+    private NotificationDispatcher Notifications => new(
+        Substitute.For<INotificationRepository>(), _budgets, _users, _transactions,
+        Substitute.For<IExpenseAllocationRepository>(), Substitute.For<IEmailSender>(),
+        Options.Create(new AuthOptions()), NullLogger<NotificationDispatcher>.Instance);
+
     private PlaidSyncEngine CreateEngine() => new(
-        _items, _users, _budgets, _transactions, _fixedExpenses, _reviews, _plaid, _crypto,
+        _items, _users, _budgets, _transactions, _fixedExpenses, _reviews, _plaid, _crypto, Notifications,
         Options.Create(new AuthOptions { EncryptionKey = "test-key" }),
         NullLogger<PlaidSyncEngine>.Instance);
 

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using WellSpent.Application.Abstractions;
 using WellSpent.Application.Configuration;
 using WellSpent.Application.FixedExpenses;
+using WellSpent.Application.Notifications;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 
@@ -18,6 +19,7 @@ public sealed class PlaidSyncEngine(
     ITransactionReviewRepository reviews,
     IPlaidClient plaid,
     ICryptoService crypto,
+    NotificationDispatcher notifications,
     IOptions<AuthOptions> options,
     ILogger<PlaidSyncEngine> logger)
 {
@@ -74,10 +76,29 @@ public sealed class PlaidSyncEngine(
         return result;
     }
 
-    private Task NotifyProfileAsync(ProfileSyncResult profile, CancellationToken ct)
+    /// <summary>Sends the per-budget summaries for one profile's run. Mirrors Go's notifyProfile: flattens every item's per-account counts into one aggregate, plus the total queued-for-review count.</summary>
+    private async Task NotifyProfileAsync(ProfileSyncResult profile, CancellationToken ct)
     {
-        // HOOK: notify budget members (Notification domain's event-dispatch wiring isn't done yet).
-        return Task.CompletedTask;
+        var totals = new Dictionary<string, int>();
+        var queued = 0;
+        foreach (var item in profile.Items)
+        {
+            foreach (var acct in item.ByAccount)
+            {
+                totals[acct.Account] = totals.GetValueOrDefault(acct.Account) + acct.Count;
+            }
+            queued += item.Queued;
+        }
+
+        var imports = SortedAccountImports(totals);
+        if (imports.Count > 0)
+        {
+            await notifications.HandlePlaidTransactionsImportedAsync(profile.ProfileId, imports, ct);
+        }
+        if (queued > 0)
+        {
+            await notifications.HandleReviewPendingBatchAsync(profile.ProfileId, queued, ct);
+        }
     }
 
     private async Task<ItemSyncResult> SyncItemCoreAsync(PlaidItem item, CancellationToken ct)

@@ -3,13 +3,11 @@ using WellSpent.Domain.Entities;
 namespace WellSpent.Domain.Abstractions;
 
 /// <summary>
-/// Covers the 7 client-facing NotificationService RPCs only. The Go
-/// service's fan-out/delivery methods (GetBudgetSubscribers, Create,
-/// ListDeviceTokensForUser used by push, email sending) exist to fire
-/// notifications when *other* domains' events happen (a transaction is
-/// created, a period starts, a Plaid import needs review) — none of which
-/// are ported yet. Those arrive with whichever sub-issue ports the
-/// triggering domain (B5 for transactions/periods, B6 for Plaid), not here.
+/// Covers the 7 client-facing NotificationService RPCs plus the two methods
+/// NotificationDispatcher needs (GetBudgetSubscribersAsync, CreateAsync) to
+/// fire notifications when other domains' events happen. Push
+/// (ListDeviceTokensForUser + APNs sending) stays unported — no AppConfig
+/// fields or APNs client exist yet; email and in-app are the only channels.
 /// </summary>
 public interface INotificationRepository
 {
@@ -35,4 +33,9 @@ public interface INotificationRepository
 
     /// <summary>Upserts by token — mirrors the DB's ON CONFLICT (token) DO UPDATE.</summary>
     Task<DeviceToken> UpsertDeviceTokenAsync(Guid userId, string platform, string token, CancellationToken ct);
+
+    /// <summary>Every subscription on this budget for this alert type, regardless of subscriber.</summary>
+    Task<List<AlertSubscription>> GetBudgetSubscribersAsync(Guid budgetProfileId, string alertType, CancellationToken ct);
+
+    Task<Notification> CreateAsync(Notification notification, CancellationToken ct);
 }

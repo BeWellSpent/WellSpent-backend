@@ -2,6 +2,7 @@ using AutoMapper;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using WellSpent.Application.Common;
+using WellSpent.Application.Notifications;
 using WellSpent.Domain.Abstractions;
 
 namespace WellSpent.Application.Budgets.CreateBudgetPeriod;
@@ -11,7 +12,7 @@ public sealed record CreateBudgetPeriodCommand(Guid UserId, Guid BudgetProfileId
 
 public sealed class CreateBudgetPeriodCommandHandler(
     BudgetAccessGuard access, IBudgetProfileRepository profiles, ITransactionRepository transactions,
-    IFixedExpenseRepository fixedExpenses, TaxReserveRecalculator taxReserve,
+    IFixedExpenseRepository fixedExpenses, TaxReserveRecalculator taxReserve, NotificationDispatcher notifications,
     IMapper mapper, ILogger<CreateBudgetPeriodCommandHandler> logger)
     : IRequestHandler<CreateBudgetPeriodCommand, BudgetPeriodDto>
 {
@@ -19,6 +20,7 @@ public sealed class CreateBudgetPeriodCommandHandler(
     {
         var profile = await access.EnsureAdminAsync(request.BudgetProfileId, request.UserId, ct);
         var period = await BudgetPeriodRollover.CreateNextPeriodAsync(profiles, transactions, fixedExpenses, taxReserve, logger, profile, ct);
+        await notifications.HandlePeriodCreatedAsync(period, ct);
         return mapper.Map<BudgetPeriodDto>(period);
     }
 }

@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using WellSpent.Application.Common;
+using WellSpent.Application.Notifications;
 using WellSpent.Application.TransactionReviews;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
@@ -29,7 +30,7 @@ public sealed record UpdateTransactionCommand(
 public sealed class UpdateTransactionCommandHandler(
     BudgetAccessGuard access, ITransactionRepository transactions, IBudgetProfileRepository profiles,
     IFixedExpenseRepository fixedExpenses, ITransactionReviewRepository reviews, IUserRepository users,
-    ILogger<UpdateTransactionCommandHandler> logger)
+    NotificationDispatcher notifications, ILogger<UpdateTransactionCommandHandler> logger)
     : IRequestHandler<UpdateTransactionCommand, TransactionDto>
 {
     public async Task<TransactionDto> Handle(UpdateTransactionCommand request, CancellationToken ct)
@@ -72,7 +73,7 @@ public sealed class UpdateTransactionCommandHandler(
         if (transactionTypeId == 2 && updated.BudgetPeriodId is { } updatedPeriodId)
         {
             await ManualMatchReview.MaybeQueueReviewAsync(
-                updated, updatedPeriodId, request.UserId, profiles, fixedExpenses, reviews, users, logger, ct);
+                updated, updatedPeriodId, request.UserId, profiles, fixedExpenses, reviews, users, notifications, logger, ct);
         }
 
         return TransactionMapping.ToDto(updated);

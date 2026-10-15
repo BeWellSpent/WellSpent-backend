@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using WellSpent.Application.Notifications;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 
@@ -18,7 +19,8 @@ public static class ManualMatchReview
     public static async Task MaybeQueueReviewAsync(
         Transaction tx, Guid periodId, Guid userId,
         IBudgetProfileRepository profiles, IFixedExpenseRepository fixedExpenses,
-        ITransactionReviewRepository reviews, IUserRepository users, ILogger logger, CancellationToken ct)
+        ITransactionReviewRepository reviews, IUserRepository users, NotificationDispatcher notifications,
+        ILogger logger, CancellationToken ct)
     {
         if (tx.Name is null) return;
 
@@ -154,6 +156,6 @@ public static class ManualMatchReview
         logger.LogInformation("transaction.match: tx {TransactionId} {Name}: queued review against fixed expense {FixedExpenseName} (score={Score})",
             tx.Id, tx.Name, bestFe.Name, bestScore);
 
-        // HOOK: notify budget members of a pending review (Notification domain's event-dispatch wiring isn't done yet).
+        await notifications.HandleReviewPendingAsync(period.BudgetProfileId, tx.Name, ct);
     }
 }

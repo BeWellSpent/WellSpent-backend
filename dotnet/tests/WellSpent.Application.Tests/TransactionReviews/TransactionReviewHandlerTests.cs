@@ -1,6 +1,10 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
+using WellSpent.Application.Abstractions;
 using WellSpent.Application.Common;
+using WellSpent.Application.Configuration;
+using WellSpent.Application.Notifications;
 using WellSpent.Application.TransactionReviews.ConfirmTransactionReview;
 using WellSpent.Application.TransactionReviews.DismissTransactionReview;
 using WellSpent.Application.TransactionReviews.ListTransactionReviews;
@@ -19,6 +23,11 @@ public sealed class TransactionReviewHandlerTests
     private readonly IFixedExpenseRepository _fixedExpenses = Substitute.For<IFixedExpenseRepository>();
     private readonly ITransactionReviewRepository _reviews = Substitute.For<ITransactionReviewRepository>();
     private BudgetAccessGuard Access => new(_profiles);
+
+    private NotificationDispatcher Notifications => new(
+        Substitute.For<INotificationRepository>(), _profiles, Substitute.For<IUserRepository>(), _transactions,
+        Substitute.For<IExpenseAllocationRepository>(), Substitute.For<IEmailSender>(),
+        Options.Create(new AuthOptions()), NullLogger<NotificationDispatcher>.Instance);
 
     private (Guid AdminId, Guid ProfileId) SetUpProfile()
     {
@@ -76,7 +85,7 @@ public sealed class TransactionReviewHandlerTests
         _reviews.UpsertAsync(periodId, txId, matchedId, 100.0m, Arg.Any<CancellationToken>())
             .Returns(new TransactionReview { Id = Guid.NewGuid(), BudgetPeriodId = periodId, TransactionId = txId, MatchedTransactionId = matchedId, MatchScore = 100.0m, Status = "pending" });
 
-        var result = await new MarkTransactionForReviewCommandHandler(Access, _transactions, _profiles, _reviews)
+        var result = await new MarkTransactionForReviewCommandHandler(Access, _transactions, _profiles, _reviews, Notifications)
             .Handle(new MarkTransactionForReviewCommand(adminId, txId, matchedId, profileId), CancellationToken.None);
 
         Assert.Equal(100, result.MatchScore);
@@ -91,7 +100,7 @@ public sealed class TransactionReviewHandlerTests
         _profiles.GetPersonByUserIdAsync(profileId, viewerId, Arg.Any<CancellationToken>())
             .Returns(new BudgetPerson { Id = 1, BudgetProfileId = profileId, UserId = viewerId, Role = "viewer" });
 
-        await Assert.ThrowsAsync<ForbiddenException>(() => new MarkTransactionForReviewCommandHandler(Access, _transactions, _profiles, _reviews)
+        await Assert.ThrowsAsync<ForbiddenException>(() => new MarkTransactionForReviewCommandHandler(Access, _transactions, _profiles, _reviews, Notifications)
             .Handle(new MarkTransactionForReviewCommand(viewerId, Guid.NewGuid(), Guid.NewGuid(), profileId), CancellationToken.None));
     }
 
@@ -103,7 +112,7 @@ public sealed class TransactionReviewHandlerTests
         _transactions.GetTransactionAsync(txId, Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = txId, TransactionTypeId = 1, BudgetPeriodId = Guid.NewGuid() });
 
-        await Assert.ThrowsAsync<AppValidationException>(() => new MarkTransactionForReviewCommandHandler(Access, _transactions, _profiles, _reviews)
+        await Assert.ThrowsAsync<AppValidationException>(() => new MarkTransactionForReviewCommandHandler(Access, _transactions, _profiles, _reviews, Notifications)
             .Handle(new MarkTransactionForReviewCommand(adminId, txId, Guid.NewGuid(), profileId), CancellationToken.None));
     }
 
@@ -122,7 +131,7 @@ public sealed class TransactionReviewHandlerTests
         _transactions.GetTransactionAsync(matchedId, Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = matchedId, TransactionTypeId = 1, BudgetPeriodId = otherPeriodId });
 
-        await Assert.ThrowsAsync<ForbiddenException>(() => new MarkTransactionForReviewCommandHandler(Access, _transactions, _profiles, _reviews)
+        await Assert.ThrowsAsync<ForbiddenException>(() => new MarkTransactionForReviewCommandHandler(Access, _transactions, _profiles, _reviews, Notifications)
             .Handle(new MarkTransactionForReviewCommand(adminId, txId, matchedId, profileId), CancellationToken.None));
     }
 

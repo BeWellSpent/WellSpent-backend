@@ -1,6 +1,10 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
+using WellSpent.Application.Abstractions;
 using WellSpent.Application.Common;
+using WellSpent.Application.Configuration;
+using WellSpent.Application.Notifications;
 using WellSpent.Application.Transactions.CreateTransaction;
 using WellSpent.Application.Transactions.DeleteTransaction;
 using WellSpent.Application.Transactions.ListTransactions;
@@ -24,11 +28,16 @@ public sealed class TransactionHandlerTests
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private BudgetAccessGuard Access => new(_profiles);
 
+    private NotificationDispatcher Notifications => new(
+        Substitute.For<INotificationRepository>(), _profiles, _users, _transactions,
+        Substitute.For<IExpenseAllocationRepository>(), Substitute.For<IEmailSender>(),
+        Options.Create(new AuthOptions()), NullLogger<NotificationDispatcher>.Instance);
+
     private CreateTransactionCommandHandler CreateCreateHandler() => new(
-        Access, _transactions, _profiles, _fixedExpenses, _reviews, _users, NullLogger<CreateTransactionCommandHandler>.Instance);
+        Access, _transactions, _profiles, _fixedExpenses, _reviews, _users, Notifications, NullLogger<CreateTransactionCommandHandler>.Instance);
 
     private UpdateTransactionCommandHandler CreateUpdateHandler() => new(
-        Access, _transactions, _profiles, _fixedExpenses, _reviews, _users, NullLogger<UpdateTransactionCommandHandler>.Instance);
+        Access, _transactions, _profiles, _fixedExpenses, _reviews, _users, Notifications, NullLogger<UpdateTransactionCommandHandler>.Instance);
 
     private UnmarkTransactionAsPaidCommandHandler CreateUnmarkHandler() => new(
         Access, _transactions, _reviews, NullLogger<UnmarkTransactionAsPaidCommandHandler>.Instance);

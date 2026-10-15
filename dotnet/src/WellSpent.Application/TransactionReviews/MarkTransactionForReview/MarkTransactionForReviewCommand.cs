@@ -1,5 +1,6 @@
 using MediatR;
 using WellSpent.Application.Common;
+using WellSpent.Application.Notifications;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Exceptions;
 
@@ -18,7 +19,9 @@ public sealed record MarkTransactionForReviewCommand(Guid UserId, Guid Transacti
 /// budgetProfileId first; only afterward do the subsequent checks verify the
 /// transaction/matched transaction actually belong to it.
 /// </summary>
-public sealed class MarkTransactionForReviewCommandHandler(BudgetAccessGuard access, ITransactionRepository transactions, IBudgetProfileRepository profiles, ITransactionReviewRepository reviews)
+public sealed class MarkTransactionForReviewCommandHandler(
+    BudgetAccessGuard access, ITransactionRepository transactions, IBudgetProfileRepository profiles,
+    ITransactionReviewRepository reviews, NotificationDispatcher notifications)
     : IRequestHandler<MarkTransactionForReviewCommand, TransactionReviewDto>
 {
     public async Task<TransactionReviewDto> Handle(MarkTransactionForReviewCommand request, CancellationToken ct)
@@ -52,7 +55,7 @@ public sealed class MarkTransactionForReviewCommandHandler(BudgetAccessGuard acc
 
         var review = await reviews.UpsertAsync(periodId, request.TransactionId, request.MatchedTransactionId, 100.0m, ct);
 
-        // HOOK: notify budget members of a pending review (Notification domain's event-dispatch wiring isn't done yet).
+        await notifications.HandleReviewPendingAsync(request.BudgetProfileId, tx.Name ?? "(unnamed)", ct);
 
         return TransactionReviewMapping.ToDto(review);
     }

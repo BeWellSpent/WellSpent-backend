@@ -1,11 +1,15 @@
 using AutoMapper;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
+using WellSpent.Application.Abstractions;
 using WellSpent.Application.Budgets;
 using WellSpent.Application.Budgets.CreateBudgetPeriod;
 using WellSpent.Application.Budgets.GetBudgetPeriod;
 using WellSpent.Application.Budgets.ListBudgetPeriods;
 using WellSpent.Application.Common;
+using WellSpent.Application.Configuration;
+using WellSpent.Application.Notifications;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 using WellSpent.Domain.Exceptions;
@@ -217,9 +221,13 @@ public sealed class CreateBudgetPeriodCommandHandlerTests
             .Returns(new BudgetPerson { Id = 1, BudgetProfileId = profileId, UserId = viewerId, Role = "viewer" });
         var mapper = new MapperConfiguration(cfg => cfg.AddProfile<BudgetMappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
         var taxReserve = new TaxReserveRecalculator(profiles, users, NullLogger<TaxReserveRecalculator>.Instance);
+        var notifications = new NotificationDispatcher(
+            Substitute.For<INotificationRepository>(), profiles, users, transactions,
+            Substitute.For<IExpenseAllocationRepository>(), Substitute.For<IEmailSender>(),
+            Options.Create(new AuthOptions()), NullLogger<NotificationDispatcher>.Instance);
 
         await Assert.ThrowsAsync<ForbiddenException>(() => new CreateBudgetPeriodCommandHandler(
-            new BudgetAccessGuard(profiles), profiles, transactions, fixedExpenses, taxReserve, mapper, NullLogger<CreateBudgetPeriodCommandHandler>.Instance)
+            new BudgetAccessGuard(profiles), profiles, transactions, fixedExpenses, taxReserve, notifications, mapper, NullLogger<CreateBudgetPeriodCommandHandler>.Instance)
             .Handle(new CreateBudgetPeriodCommand(viewerId, profileId), CancellationToken.None));
     }
 }

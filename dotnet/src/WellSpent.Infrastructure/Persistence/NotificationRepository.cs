@@ -88,4 +88,16 @@ public sealed class NotificationRepository(WellSpentDbContext db) : INotificatio
         await db.SaveChangesAsync(ct);
         return existing;
     }
+
+    public Task<List<AlertSubscription>> GetBudgetSubscribersAsync(Guid budgetProfileId, string alertType, CancellationToken ct) =>
+        db.AlertSubscriptions
+            .Where(s => s.BudgetProfileId == budgetProfileId && s.AlertType == alertType)
+            .ToListAsync(ct);
+
+    public async Task<Notification> CreateAsync(Notification notification, CancellationToken ct)
+    {
+        db.Notifications.Add(notification);
+        await db.SaveChangesAsync(ct);
+        return notification;
+    }
 }
