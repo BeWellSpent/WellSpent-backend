@@ -1,0 +1,117 @@
+name: Deploy C# backend to Cloud Run
+
+# Manual only, by design — unlike ci-main.yml's deploy job (gated by merging
+# to main), the C# rewrite isn't on main yet and still ships mid-cutover
+# fixes on its own branch. A deploy here is deliberate every time: run it
+# from the Actions tab (or `gh workflow run deploy-csharp.yml --ref
+# rewrite/csharp`) once the commit on that branch is the one you want live.
+#
+# Scope: the API service only. The background jobs (cycle-budgets,
+# plaid-sync) are NOT deployed here — Go's versions of both are still
+# actively scheduled against the same prod database, and running a second
+# copy on its own schedule would double-process (duplicate period creation,
+# a clobbered Plaid sync cursor). Cutting those over needs its own explicit
+# decision about which copy owns the schedule, not a silent add here.
+
+on:
+  workflow_dispatch:
+
+env:
+  REGION: us-central1
+  SERVICE: wellspent-csharp-backend
+  IMAGE: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/wellspent/csharp-backend
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Restore
+        run: dotnet restore dotnet/WellSpent.slnx
+      - name: Build
+        run: dotnet build dotnet/WellSpent.slnx --no-restore -c Release
+      - name: Test
+        run: dotnet test dotnet/WellSpent.slnx --no-build -c Release
+
+  deploy:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v5
+      # Same secret, same JWT_SECRET/DATABASE_URL — the C# API reads the
+      # identical env var names as the Go backend (AppConfig.cs mirrors
+      # config.go field-for-field), so the existing prod secrets file covers
+      # it with no new encrypted values to manage.
+      - name: Decrypt prod config
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          SOPS_VERSION=3.9.4
+          curl -fsSL -o /tmp/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          sudo install -m 755 /tmp/sops /usr/local/bin/sops
+          mkdir -p ~/.config/sops/age
+          printf '%s\n' "${SOPS_AGE_KEY}" > ~/.config/sops/age/keys.txt
+          sops --decrypt .env.prod.enc > .env.prod
+          sed -i 's/\r$//' .env.prod
+          set -a; source .env.prod; set +a
+          printf 'FRONTEND_URL=%s\n'        "${FRONTEND_URL}"        >> $GITHUB_ENV
+          printf 'GOOGLE_REDIRECT_URI=%s\n' "${GOOGLE_REDIRECT_URI}" >> $GITHUB_ENV
+          printf 'GOOGLE_CLIENT_ID=%s\n'    "${GOOGLE_CLIENT_ID}"    >> $GITHUB_ENV
+          printf 'PLAID_CLIENT_ID=%s\n'     "${PLAID_CLIENT_ID}"     >> $GITHUB_ENV
+          printf 'RESEND_FROM_EMAIL=%s\n'   "${RESEND_FROM_EMAIL}"   >> $GITHUB_ENV
+          printf 'APPLE_KEY_ID=%s\n'        "${APPLE_KEY_ID}"        >> $GITHUB_ENV
+          # deploy-cloudrun's env_vars parser strips single backslashes; double
+          # them so the literal \n sequence survives for NormalizePemKey.
+          APPLE_PRIVATE_KEY_ESCAPED=$(printf '%s' "${APPLE_PRIVATE_KEY}" | sed 's/\\/\\\\/g')
+          printf 'APPLE_PRIVATE_KEY=%s\n'   "${APPLE_PRIVATE_KEY_ESCAPED}" >> $GITHUB_ENV
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Configure Docker
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev
+      - name: Build and push image
+        run: |
+          docker build -f dotnet/Dockerfile -t ${{ env.IMAGE }}:${{ github.sha }} .
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+      # Same schema, same DATABASE_URL as Go — idempotent against migrations
+      # Go's own pipeline has already applied; included so this pipeline
+      # doesn't depend on Go's having run first.
+      - name: Migrate prod
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
+        run: |
+          docker run --rm \
+            -e DATABASE_URL \
+            --entrypoint dotnet \
+            ${{ env.IMAGE }}:${{ github.sha }} migrator/WellSpent.Migrator.dll up prod
+      - name: Deploy API — Cloud Run Service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}:${{ github.sha }}
+          flags: --allow-unauthenticated
+          env_vars: |
+            ENV=prod
+            CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
+            PLAID_ENV=production
+            FRONTEND_URL=${{ env.FRONTEND_URL }}
+            GOOGLE_REDIRECT_URI=${{ env.GOOGLE_REDIRECT_URI }}
+            GOOGLE_CLIENT_ID=${{ env.GOOGLE_CLIENT_ID }}
+            PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }}
+            RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }}
+            APPLE_KEY_ID=${{ env.APPLE_KEY_ID }}
+            APPLE_PRIVATE_KEY=${{ env.APPLE_PRIVATE_KEY }}
+          secrets: |
+            DATABASE_URL=DATABASE_URL:latest
+            JWT_SECRET=JWT_SECRET:latest
+            GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
+            RESEND_API_KEY=RESEND_API_KEY:latest
+            PLAID_SECRET=PLAID_SECRET:latest
+            ENCRYPTION_KEY=ENCRYPTION_KEY:latest
