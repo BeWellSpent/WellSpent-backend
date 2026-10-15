@@ -6,6 +6,10 @@ tmp/
 # Go build cache
 *.test
 
+# .NET build artifacts (dotnet/ — the C# rewrite, see issue #78)
+obj/
+*.user
+
 # Environment — plaintext files are never committed
 # Commit the .enc equivalents instead (encrypted with SOPS + age)
 .env.dev
