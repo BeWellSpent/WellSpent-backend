@@ -18,6 +18,7 @@ const (
 	codeInvalidArgument errorCode = "invalid_argument"
 	codeUnauthenticated errorCode = "unauthenticated"
 	codeInternal        errorCode = "internal"
+	codeNotImplemented  errorCode = "not_implemented"
 )
 
 // errorBody is the JSON shape of every non-2xx response.

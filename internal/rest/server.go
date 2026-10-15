@@ -29,6 +29,7 @@ type Deps struct {
 	Users         *service.UserService
 	StatusBanners *service.StatusBannerService
 	Changelog     *service.ChangelogService
+	Invites       *service.InviteService
 	JWT           *auth.JWTService
 	Logger        *zap.Logger
 	ServerVersion string
