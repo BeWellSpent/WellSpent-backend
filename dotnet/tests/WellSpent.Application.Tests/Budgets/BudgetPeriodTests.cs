@@ -222,7 +222,7 @@ public sealed class CreateBudgetPeriodCommandHandlerTests
         var mapper = new MapperConfiguration(cfg => cfg.AddProfile<BudgetMappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
         var taxReserve = new TaxReserveRecalculator(profiles, users, NullLogger<TaxReserveRecalculator>.Instance);
         var notifications = new NotificationDispatcher(
-            Substitute.For<INotificationRepository>(), profiles, users, transactions,
+            Substitute.For<INotificationRepository>(), profiles, users, Substitute.For<IPushSender>(), transactions,
             Substitute.For<IExpenseAllocationRepository>(), Substitute.For<IEmailSender>(),
             Options.Create(new AuthOptions()), NullLogger<NotificationDispatcher>.Instance);
 

@@ -16,12 +16,13 @@ public sealed class NotificationDispatcherTests
     private readonly INotificationRepository _notifications = Substitute.For<INotificationRepository>();
     private readonly IBudgetProfileRepository _profiles = Substitute.For<IBudgetProfileRepository>();
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
+    private readonly IPushSender _pushSender = Substitute.For<IPushSender>();
     private readonly ITransactionRepository _transactions = Substitute.For<ITransactionRepository>();
     private readonly IExpenseAllocationRepository _allocations = Substitute.For<IExpenseAllocationRepository>();
     private readonly IEmailSender _emailSender = Substitute.For<IEmailSender>();
 
     private NotificationDispatcher CreateDispatcher() => new(
-        _notifications, _profiles, _users, _transactions, _allocations, _emailSender,
+        _notifications, _profiles, _users, _pushSender, _transactions, _allocations, _emailSender,
         Options.Create(new AuthOptions { FrontendUrl = "https://bewellspent.com" }),
         NullLogger<NotificationDispatcher>.Instance);
 
@@ -72,6 +73,28 @@ public sealed class NotificationDispatcherTests
         await _notifications.Received(1).CreateAsync(Arg.Is<Notification>(n => n.UserId == memberA), Arg.Any<CancellationToken>());
         await _notifications.Received(1).CreateAsync(Arg.Is<Notification>(n => n.UserId == memberB), Arg.Any<CancellationToken>());
         await _notifications.Received(2).CreateAsync(Arg.Any<Notification>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Deliver_SendsPush_ForEveryRegisteredDevice()
+    {
+        var profileId = Guid.NewGuid();
+        var periodId = Guid.NewGuid();
+        var subscriberId = Guid.NewGuid();
+        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, StartDate = new DateOnly(2026, 1, 1), EndDate = new DateOnly(2026, 1, 31) });
+        _notifications.GetBudgetSubscribersAsync(profileId, "new_transaction", Arg.Any<CancellationToken>())
+            .Returns([Sub(subscriberId, profileId, "new_transaction")]);
+        _notifications.ListDeviceTokensForUserAsync(subscriberId, Arg.Any<CancellationToken>()).Returns([
+            new DeviceToken { Id = Guid.NewGuid(), UserId = subscriberId, Platform = "ios", Token = "token-a" },
+            new DeviceToken { Id = Guid.NewGuid(), UserId = subscriberId, Platform = "ios", Token = "token-b" },
+        ]);
+
+        var tx = new Transaction { Id = Guid.NewGuid(), Name = "Coffee", Amount = 5m, PlannedAmount = 5m, BudgetPeriodId = periodId, TransactionTypeId = 2 };
+        await CreateDispatcher().HandleNewTransactionAsync(tx, periodId, Guid.NewGuid(), CancellationToken.None);
+
+        await _pushSender.Received(1).SendAsync("token-a", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _pushSender.Received(1).SendAsync("token-b", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

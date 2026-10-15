@@ -3,11 +3,10 @@ using WellSpent.Domain.Entities;
 namespace WellSpent.Domain.Abstractions;
 
 /// <summary>
-/// Covers the 7 client-facing NotificationService RPCs plus the two methods
-/// NotificationDispatcher needs (GetBudgetSubscribersAsync, CreateAsync) to
-/// fire notifications when other domains' events happen. Push
-/// (ListDeviceTokensForUser + APNs sending) stays unported — no AppConfig
-/// fields or APNs client exist yet; email and in-app are the only channels.
+/// Covers the 7 client-facing NotificationService RPCs plus the methods
+/// NotificationDispatcher needs (GetBudgetSubscribersAsync, CreateAsync,
+/// ListDeviceTokensForUserAsync) to fire notifications when other domains'
+/// events happen.
 /// </summary>
 public interface INotificationRepository
 {
@@ -38,4 +37,6 @@ public interface INotificationRepository
     Task<List<AlertSubscription>> GetBudgetSubscribersAsync(Guid budgetProfileId, string alertType, CancellationToken ct);
 
     Task<Notification> CreateAsync(Notification notification, CancellationToken ct);
+
+    Task<List<DeviceToken>> ListDeviceTokensForUserAsync(Guid userId, CancellationToken ct);
 }

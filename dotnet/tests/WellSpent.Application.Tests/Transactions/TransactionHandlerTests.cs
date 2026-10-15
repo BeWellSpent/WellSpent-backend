@@ -29,7 +29,7 @@ public sealed class TransactionHandlerTests
     private BudgetAccessGuard Access => new(_profiles);
 
     private NotificationDispatcher Notifications => new(
-        Substitute.For<INotificationRepository>(), _profiles, _users, _transactions,
+        Substitute.For<INotificationRepository>(), _profiles, _users, Substitute.For<IPushSender>(), _transactions,
         Substitute.For<IExpenseAllocationRepository>(), Substitute.For<IEmailSender>(),
         Options.Create(new AuthOptions()), NullLogger<NotificationDispatcher>.Instance);
 

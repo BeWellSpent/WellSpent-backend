@@ -23,7 +23,7 @@ public sealed class PlaidSyncEngineTests
     private readonly ICryptoService _crypto = Substitute.For<ICryptoService>();
 
     private NotificationDispatcher Notifications => new(
-        Substitute.For<INotificationRepository>(), _budgets, _users, _transactions,
+        Substitute.For<INotificationRepository>(), _budgets, _users, Substitute.For<IPushSender>(), _transactions,
         Substitute.For<IExpenseAllocationRepository>(), Substitute.For<IEmailSender>(),
         Options.Create(new AuthOptions()), NullLogger<NotificationDispatcher>.Instance);
 

@@ -74,6 +74,16 @@ public static class DependencyInjection
             services.AddScoped<IEmailSender, ResendEmailSender>();
         }
 
+        if (string.IsNullOrEmpty(config.ApnsAuthKey))
+        {
+            // Mirrors Go: no APNS_AUTH_KEY means every send logs a warning and no-ops.
+            services.AddSingleton<IPushSender, NoOpPushSender>();
+        }
+        else
+        {
+            services.AddHttpClient<IPushSender, ApnsPushSender>();
+        }
+
         return services;
     }
 }

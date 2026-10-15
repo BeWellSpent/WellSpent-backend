@@ -100,4 +100,7 @@ public sealed class NotificationRepository(WellSpentDbContext db) : INotificatio
         await db.SaveChangesAsync(ct);
         return notification;
     }
+
+    public Task<List<DeviceToken>> ListDeviceTokensForUserAsync(Guid userId, CancellationToken ct) =>
+        db.DeviceTokens.Where(t => t.UserId == userId).ToListAsync(ct);
 }

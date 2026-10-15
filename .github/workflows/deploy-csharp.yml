@@ -70,6 +70,16 @@ jobs:
           # them so the literal \n sequence survives for NormalizePemKey.
           APPLE_PRIVATE_KEY_ESCAPED=$(printf '%s' "${APPLE_PRIVATE_KEY}" | sed 's/\\/\\\\/g')
           printf 'APPLE_PRIVATE_KEY=%s\n'   "${APPLE_PRIVATE_KEY_ESCAPED}" >> $GITHUB_ENV
+          printf 'APNS_KEY_ID=%s\n'         "${APNS_KEY_ID}"         >> $GITHUB_ENV
+          printf 'APNS_TEAM_ID=%s\n'        "${APNS_TEAM_ID}"        >> $GITHUB_ENV
+          printf 'APNS_ENVIRONMENT=%s\n'    "${APNS_ENVIRONMENT}"    >> $GITHUB_ENV
+          APNS_AUTH_KEY_ESCAPED=$(printf '%s' "${APNS_AUTH_KEY}" | sed 's/\\/\\\\/g')
+          printf 'APNS_AUTH_KEY=%s\n'       "${APNS_AUTH_KEY_ESCAPED}" >> $GITHUB_ENV
+          # Raw (non-double-escaped) form for the two `gcloud run jobs deploy`
+          # steps below — those go straight through the gcloud CLI, not
+          # deploy-cloudrun's own env_vars parser, so they need the literal
+          # \n form AppConfig's NormalizePemKey expects.
+          printf 'APNS_AUTH_KEY_RAW=%s\n'   "${APNS_AUTH_KEY}"       >> $GITHUB_ENV
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -109,6 +119,10 @@ jobs:
             RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }}
             APPLE_KEY_ID=${{ env.APPLE_KEY_ID }}
             APPLE_PRIVATE_KEY=${{ env.APPLE_PRIVATE_KEY }}
+            APNS_KEY_ID=${{ env.APNS_KEY_ID }}
+            APNS_TEAM_ID=${{ env.APNS_TEAM_ID }}
+            APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }}
+            APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY }}
           secrets: |
             DATABASE_URL=DATABASE_URL:latest
             JWT_SECRET=JWT_SECRET:latest
@@ -120,16 +134,19 @@ jobs:
       # Same job name Go's own pipeline used — this replaces that job's
       # definition (image/command/env/secrets), it doesn't add a second one.
       # AppConfig.Load() requires JWT_SECRET even though this job never
-      # checks a bearer token; omitted APNS_*/PLAID_SYNC_ALERT_EMAIL — the
-      # C# Notification domain doesn't have push/ops-alert config yet, so
-      # passing them would be inert.
+      # checks a bearer token. Both jobs reach NotificationDispatcher
+      # (cycle-budgets via CreateBudgetPeriodCommand's period_created alert,
+      # plaid-sync via its own imported/review-pending alerts) so both need
+      # the full APNS_* set, not just the API service. --set-env-vars is
+      # quoted: APNS_AUTH_KEY_RAW's PEM header/footer text contains spaces,
+      # which would otherwise be word-split by the shell before gcloud sees it.
       - name: Deploy cycle-budgets — Cloud Run Job
         run: |
           gcloud run jobs deploy cycle-budgets \
             --image=${{ env.IMAGE }}:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --command=./cycle-budgets/WellSpent.Jobs.CycleBudgets \
-            --set-env-vars="ENV=prod,FRONTEND_URL=${{ env.FRONTEND_URL }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }}" \
+            --set-env-vars="ENV=prod,FRONTEND_URL=${{ env.FRONTEND_URL }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }}" \
             --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,RESEND_API_KEY=RESEND_API_KEY:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest \
             --max-retries=1 \
             --project=${{ secrets.GCP_PROJECT_ID }}
@@ -140,7 +157,7 @@ jobs:
             --image=${{ env.IMAGE }}:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --command=./plaid-sync/WellSpent.Jobs.PlaidSync \
-            --set-env-vars="ENV=prod,PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }}" \
+            --set-env-vars="ENV=prod,PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }}" \
             --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest \
             --max-retries=1 \
             --project=${{ secrets.GCP_PROJECT_ID }}

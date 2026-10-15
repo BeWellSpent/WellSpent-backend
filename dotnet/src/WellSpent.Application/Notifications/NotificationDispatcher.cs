@@ -11,10 +11,7 @@ namespace WellSpent.Application.Notifications;
 /// <summary>
 /// Mirrors Go's NotificationService "trigger hooks" + delivery section
 /// exactly: one Handle* method per event other domains fire, fanning out
-/// through the same deliver()/sendInApp()/sendEmail() pipeline. Push (APNs)
-/// is deliberately not ported — no AppConfig fields or APNs client exist
-/// yet; every subscriber still gets in-app + (if subscribed) email, the same
-/// as Go's deliver() does unconditionally before its optional push step.
+/// through the same deliver()/sendInApp()/sendEmail()/sendPush() pipeline.
 /// Every failure here is logged and swallowed, same posture as Go: the
 /// triggering action (a transaction, a period, a sync) already succeeded
 /// and must not be undone by a notification failure.
@@ -23,6 +20,7 @@ public sealed class NotificationDispatcher(
     INotificationRepository notifications,
     IBudgetProfileRepository profiles,
     IUserRepository users,
+    IPushSender pushSender,
     ITransactionRepository transactions,
     IExpenseAllocationRepository allocations,
     IEmailSender emailSender,
@@ -260,9 +258,22 @@ public sealed class NotificationDispatcher(
         catch (Exception ex)
         {
             logger.LogError(ex, "notification.send_in_app_failed user_id={UserId}", userId);
+            return;
         }
-        // Push rides along with every in-app notification in Go, for users
-        // with a registered device. Not ported — see this class's doc comment.
+
+        // Push rides along with every in-app notification, for every device the user has registered.
+        try
+        {
+            var tokens = await notifications.ListDeviceTokensForUserAsync(userId, ct) ?? [];
+            foreach (var token in tokens)
+            {
+                await pushSender.SendAsync(token.Token, title, body, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "notification.send_push_list_tokens_failed user_id={UserId}", userId);
+        }
     }
 
     private async Task SendEmailAsync(Guid userId, string subject, string body, CancellationToken ct)

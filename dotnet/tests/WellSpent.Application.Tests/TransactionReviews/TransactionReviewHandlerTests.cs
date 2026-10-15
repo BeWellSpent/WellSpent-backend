@@ -25,7 +25,7 @@ public sealed class TransactionReviewHandlerTests
     private BudgetAccessGuard Access => new(_profiles);
 
     private NotificationDispatcher Notifications => new(
-        Substitute.For<INotificationRepository>(), _profiles, Substitute.For<IUserRepository>(), _transactions,
+        Substitute.For<INotificationRepository>(), _profiles, Substitute.For<IUserRepository>(), Substitute.For<IPushSender>(), _transactions,
         Substitute.For<IExpenseAllocationRepository>(), Substitute.For<IEmailSender>(),
         Options.Create(new AuthOptions()), NullLogger<NotificationDispatcher>.Instance);
 

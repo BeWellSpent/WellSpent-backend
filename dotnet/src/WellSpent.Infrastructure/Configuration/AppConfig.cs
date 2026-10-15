@@ -22,6 +22,15 @@ public sealed class AppConfig
     public string AppleKeyId { get; init; } = "";
     public string ApplePrivateKey { get; init; } = "";
 
+    /// <summary>JWT provider token auth (not certificate-based) — same APNS_AUTH_KEY .p8 file Go's apns2 client reads.</summary>
+    public string ApnsKeyId { get; init; } = "";
+    public string ApnsTeamId { get; init; } = "";
+    public string ApnsAuthKey { get; init; } = "";
+    public string ApnsBundleId { get; init; } = "com.bewellspent.WellSpent";
+
+    /// <summary>"sandbox" (Debug builds, TestFlight) or "production".</summary>
+    public string ApnsEnvironment { get; init; } = "sandbox";
+
     public string EncryptionKey { get; init; } = "";
 
     public string ResendApiKey { get; init; } = "";
@@ -69,6 +78,12 @@ public sealed class AppConfig
             AppleTeamId = OptionalEnv("APPLE_TEAM_ID", "76FQ7V92H5"),
             AppleKeyId = OptionalEnv("APPLE_KEY_ID", ""),
             ApplePrivateKey = NormalizePemKey(OptionalEnv("APPLE_PRIVATE_KEY", "")),
+
+            ApnsKeyId = OptionalEnv("APNS_KEY_ID", ""),
+            ApnsTeamId = OptionalEnv("APNS_TEAM_ID", ""),
+            ApnsAuthKey = NormalizePemKey(OptionalEnv("APNS_AUTH_KEY", "")),
+            ApnsBundleId = OptionalEnv("APNS_BUNDLE_ID", "com.bewellspent.WellSpent"),
+            ApnsEnvironment = OptionalEnv("APNS_ENVIRONMENT", "sandbox"),
 
             EncryptionKey = OptionalEnv("ENCRYPTION_KEY", ""),
 
