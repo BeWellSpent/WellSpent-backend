@@ -6,11 +6,11 @@ on:
   pull_request:
     branches: [rewrite/csharp]
 
-# Build + test only. This branch is a long-lived, not-yet-shipped rewrite
-# (see docs/features/refactor-backend-csharp.md) — no deploy job exists here
-# on purpose. Wiring an actual Cloud Run deployment is a deliberate later
-# step, not something that should happen automatically on every push to this
-# branch while the rewrite is still in progress.
+# Build + test only, on every push/PR. This branch is a long-lived,
+# not-yet-shipped rewrite (see docs/features/refactor-backend-csharp.md) —
+# deploying is a separate, manually-triggered workflow (deploy-csharp.yml),
+# not something that should happen automatically on every push while the
+# rewrite is still in progress.
 
 jobs:
   build-and-test:
