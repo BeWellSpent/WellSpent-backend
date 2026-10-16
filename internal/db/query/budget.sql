@@ -1,2 +1,0 @@
--- All budget queries moved to budget_profile.sql (000008 rework).
--- This file is intentionally empty.

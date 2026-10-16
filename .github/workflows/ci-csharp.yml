@@ -2,15 +2,16 @@ name: CI — C# rewrite
 
 on:
   push:
-    branches: [develop, rewrite/csharp]
+    branches: [develop]
   pull_request:
-    branches: [develop, rewrite/csharp]
+    branches: [develop]
 
-# Build + test only. dotnet/ now lives on develop/main (merged from
-# rewrite/csharp); that branch is kept here only in case it's still used for
-# in-progress C#-only work. Deploying is separate: ci-main.yml's own `deploy`
-# job ships the API automatically on push to main, and deploy-csharp.yml is
-# the manual job-only/escape-hatch path — this workflow never deploys.
+# Build + test only. This repo is now C#-only — the Go backend was fully
+# decommissioned and rewrite/csharp (its old dotnet/-nested layout) is dead;
+# this is the required status check (context "Build & Test") gating the
+# develop -> main PR. Deploying is separate: ci-main.yml's own `deploy` job
+# ships the API automatically on push to main, and deploy-csharp.yml is the
+# manual job-only/escape-hatch path — this workflow never deploys.
 
 jobs:
   build-and-test:
@@ -22,8 +23,8 @@ jobs:
         with:
           dotnet-version: "10.0.x"
       - name: Restore
-        run: dotnet restore dotnet/WellSpent.slnx
+        run: dotnet restore WellSpent.slnx
       - name: Build
-        run: dotnet build dotnet/WellSpent.slnx --no-restore -c Release
+        run: dotnet build WellSpent.slnx --no-restore -c Release
       - name: Test
-        run: dotnet test dotnet/WellSpent.slnx --no-build -c Release
+        run: dotnet test WellSpent.slnx --no-build -c Release
