@@ -1,37 +1,18 @@
-.PHONY: generate run cycle test build tidy secrets-encrypt secrets-decrypt migrate migrate-down
+.PHONY: run cycle test build secrets-encrypt secrets-decrypt migrate
 
 export ENV ?= dev
 
-# The OpenAPI contract lives in WellSpent-proto but does not go through BSR —
-# there is no OpenAPI equivalent. That repo is public, so this fetches the raw
-# file. Override OPENAPI_SPEC with a local path to iterate against an unmerged
-# contract change.
-OPENAPI_SPEC ?= https://raw.githubusercontent.com/BeWellSpent/WellSpent-proto/main/openapi/v1/wellspent.yaml
-
-generate: generate-proto generate-rest
-	sqlc generate
-
-generate-proto:
-	buf generate
-
-generate-rest:
-	@mkdir -p gen/rest
-	go tool oapi-codegen -config oapi-codegen.yaml $(OPENAPI_SPEC)
-
 run:
-	go run ./cmd/server
+	cd src/WellSpent.Api && dotnet run
 
 cycle:
-	go run ./cmd/jobs/cycle-budgets
+	dotnet run --project src/WellSpent.Jobs.CycleBudgets
 
 build:
-	go build -o bin/server ./cmd/server
+	dotnet build WellSpent.slnx -c Release
 
 test:
-	go test ./...
-
-tidy:
-	go mod tidy
+	dotnet test WellSpent.slnx -c Release
 
 secrets-encrypt:
 	sops --encrypt --output .env.$(ENV).enc .env.$(ENV)
@@ -40,7 +21,4 @@ secrets-decrypt:
 	sops --decrypt --output .env.$(ENV) .env.$(ENV).enc
 
 migrate:
-	go run ./cmd/migrate up $(ENV)
-
-migrate-down:
-	go run ./cmd/migrate down $(ENV)
+	dotnet run --project src/WellSpent.Migrator up $(ENV)

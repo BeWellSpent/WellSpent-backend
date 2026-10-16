@@ -1,14 +1,8 @@
-# Binaries
+# .NET build artifacts
 bin/
-tmp/
-*.exe
-
-# Go build cache
-*.test
-
-# .NET build artifacts (dotnet/ — the C# rewrite, see issue #78)
 obj/
 *.user
+tmp/
 
 # Environment — plaintext files are never committed
 # Commit the .enc equivalents instead (encrypted with SOPS + age)
@@ -21,9 +15,6 @@ obj/
 # Postgres, not worth the SOPS dance; only needs to exist on the host machine
 .env.db
 !.env.db.example
-
-# Generated code (regenerate with `make generate`)
-gen/
 
 # OS
 .DS_Store

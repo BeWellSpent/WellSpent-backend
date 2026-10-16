@@ -34,7 +34,7 @@ and applied separately.
 
 - `component` — `server` here; `web` and `ios` live in their own repos
 - `version` — must match what the component actually reports. For the server
-  that is `internal/version/version.go`
+  that is `src/WellSpent.Application/Changelog/ChangelogConstants.cs`'s `ServerVersion`
 - `releasedAt` — optional, defaults to now
 - `changeType` — `added`, `fixed` or `changed`
 - `summaryEs` — optional; Spanish readers fall back to the English text

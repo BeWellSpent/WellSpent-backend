@@ -27,8 +27,8 @@
 
 set -euo pipefail
 
-API_PROD="https://wellspent-backend-1065664306856.us-central1.run.app"
-API_LOCAL="http://localhost:8080"
+API_PROD="https://wellspent-csharp-backend-1065664306856.us-central1.run.app"
+API_LOCAL="http://localhost:5021"
 
 TARGET="prod"
 ASSUME_YES=0

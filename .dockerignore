@@ -1,6 +1,6 @@
 .git
 bin/
-dotnet/**/bin/
-dotnet/**/obj/
+**/bin/
+**/obj/
 .env.*
 !.env.*.enc

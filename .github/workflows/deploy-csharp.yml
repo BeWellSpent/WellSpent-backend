@@ -1,17 +1,18 @@
 name: Deploy C# backend to Cloud Run
 
-# dotnet/ now lives on main, and ci-main.yml's own `deploy` job redeploys
-# the API service automatically on every push there — this workflow's API
-# step is now a manual escape hatch for re-running that same deploy without
-# a new push (e.g. after a Secret Manager change). The two background jobs
-# have no equivalent in ci-main.yml and are deployed from here only; run
-# manually from the Actions tab (or `gh workflow run deploy-csharp.yml`)
-# whenever a job-only fix needs to go out without an API/image change.
+# The repo is C#-only now (Go fully decommissioned), and ci-main.yml's own
+# `deploy` job redeploys the API service automatically on every push to
+# main — this workflow's API step is now a manual escape hatch for
+# re-running that same deploy without a new push (e.g. after a Secret
+# Manager change). The two background jobs have no equivalent in
+# ci-main.yml and are deployed from here only; run manually from the
+# Actions tab (or `gh workflow run deploy-csharp.yml`) whenever a job-only
+# fix needs to go out without an API/image change.
 #
 # Covers the API service and both background jobs (cycle-budgets,
-# plaid-sync) — the jobs redeploy onto the *same* Cloud Run Job names Go
-# already uses, reusing the existing Cloud Scheduler triggers rather than
-# creating new ones, so there is exactly one schedule per job, never two.
+# plaid-sync) — the jobs redeploy onto the same Cloud Run Job names Go used
+# to, reusing the existing Cloud Scheduler triggers rather than creating new
+# ones, so there is exactly one schedule per job, never two.
 # This is a real cutover, not an addition: ci-main.yml's own
 # "Deploy cycle-budgets/plaid-sync" steps were removed in the same change
 # that added this, so a future Go-only merge can't silently revert it.
@@ -34,11 +35,11 @@ jobs:
         with:
           dotnet-version: "10.0.x"
       - name: Restore
-        run: dotnet restore dotnet/WellSpent.slnx
+        run: dotnet restore WellSpent.slnx
       - name: Build
-        run: dotnet build dotnet/WellSpent.slnx --no-restore -c Release
+        run: dotnet build WellSpent.slnx --no-restore -c Release
       - name: Test
-        run: dotnet test dotnet/WellSpent.slnx --no-build -c Release
+        run: dotnet test WellSpent.slnx --no-build -c Release
 
   deploy:
     name: Deploy to Cloud Run
@@ -90,7 +91,7 @@ jobs:
         run: gcloud auth configure-docker us-central1-docker.pkg.dev
       - name: Build and push image
         run: |
-          docker build -f dotnet/Dockerfile -t ${{ env.IMAGE }}:${{ github.sha }} .
+          docker build -t ${{ env.IMAGE }}:${{ github.sha }} .
           docker push ${{ env.IMAGE }}:${{ github.sha }}
       # Same schema, same DATABASE_URL as Go — idempotent against migrations
       # Go's own pipeline has already applied; included so this pipeline
