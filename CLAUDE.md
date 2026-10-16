@@ -2,24 +2,30 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+This is the WellSpent backend — ASP.NET Core / .NET 10, REST + JWT. The Go/ConnectRPC
+backend that used to live here was fully decommissioned (all clients had cut over to
+this one) and deleted; `dotnet/` was promoted to the repo root in the same change.
+
 ## Commands
 
 ```bash
-make generate            # buf generate + oapi-codegen + sqlc generate — run after any contract change
-make generate-rest       # REST types only, from WellSpent-proto's OpenAPI contract
-make run                 # start dev server (ENV=dev by default)
-make test                # go test ./...
-make build               # compile to bin/server
-make migrate ENV=dev     # apply pending goose migrations to the local dev DB
-make migrate-down ENV=dev
-make secrets-decrypt ENV=dev   # decrypt .env.dev.enc → .env.dev (gitignored)
-make secrets-encrypt ENV=dev   # encrypt .env.dev → .env.dev.enc (commit this)
+make run                      # start the API host (dotnet run), ENV=dev by default
+make test                     # dotnet test WellSpent.slnx
+make build                    # dotnet build WellSpent.slnx -c Release
+make cycle                    # run the cycle-budgets job locally
+make migrate ENV=dev          # apply pending migrations to the local dev DB
+make secrets-decrypt ENV=dev  # decrypt .env.dev.enc → .env.dev (gitignored)
+make secrets-encrypt ENV=dev  # encrypt .env.dev → .env.dev.enc (commit this)
 ```
 
 Run a single test:
 ```bash
-go test ./internal/service/... -run TestRegister_Success
+dotnet test WellSpent.slnx --filter "FullyQualifiedName~Register_Success"
 ```
+
+There is no `make generate` — nothing here is generated from a contract. The REST
+endpoints are hand-written; the OpenAPI contract in `WellSpent-proto/openapi/v1/` is
+what *clients* generate from, not this repo.
 
 ## Local dev database
 
@@ -58,102 +64,85 @@ machine can reach it regardless of the address used.
 
 ```bash
 make secrets-decrypt ENV=dev                              # once; .env.dev is gitignored
-docker compose -f ../docker-compose.dev.yml up backend    # from the workspace root
+docker build -t wellspent-backend .
+docker run --rm -p 8080:8080 --env-file .env.dev wellspent-backend
 ```
 
-- **Migrations run automatically at container start** (`Dockerfile.dev`'s CMD), and the
-  container fails to start if they fail — a server on a stale schema produces errors a long way
-  from their cause. Adding a migration while it's running needs
-  `docker compose -f ../docker-compose.dev.yml restart backend`, not a rebuild.
-- **`make generate` still runs on the host.** air rebuilds the binary; it does not run
-  `buf`/`sqlc`. But `gen/` and `internal/sqlc/` are watched, so regenerating does trigger a
-  rebuild — they were excluded until 2026-08-18, which made regenerated types silently
-  invisible to the running server and looked like air being broken.
-- **A rebuild (`docker compose ... build backend`) is only needed when `Dockerfile.dev`
-  itself changes.** Source, generated code, and dependencies all come through the volume mounts
-  and the cached module volume.
+`db/migrations` are applied by the separate `migrator` binary baked into the same image
+(`docker run --rm --entrypoint dotnet wellspent-backend migrator/WellSpent.Migrator.dll up dev`),
+not automatically at API container start — run it once after any new migration lands, same
+as the production deploy pipeline does.
 
-## Two transports
+## REST contract
 
-Almost everything is ConnectRPC. A small, deliberately narrow set of endpoints
-is plain REST instead, under `/rest/v1/`, served by `internal/rest/`.
+Everything is plain REST + JWT — there is no second transport to reconcile. The contract
+lives in `WellSpent-proto/openapi/v1/`, hand-authored and PR-reviewed there like any other
+API change; this repo implements it, it doesn't generate from it.
 
-An endpoint qualifies for REST only if it is **both** global (the identical
-response for every caller) **and** rarely-changing. That is currently three
-endpoints plus a probe. Every personalized read and **every mutation without
-exception** stays on Connect — HTTP caching is the only thing the REST
-transport buys, so an endpoint that cannot be cached does not belong there.
-`WellSpent-proto/openapi/README.md` holds the rule and the rejected candidates.
-
-Things worth knowing before touching `internal/rest/`:
-
-- **It owns no business logic.** Each controller calls the same
-  `internal/service` method the Connect handler called. `internal/rest/convert.go`
-  is the REST counterpart of `internal/handler/convert.go` and does nothing else.
-- **Routes mount on the same mux** in `cmd/server/main.go`, which is why they
-  inherit CORS, IP rate limiting and h2c for free. Do not stand up a second
-  server.
-- **Auth is `auth.AuthenticateHeader`**, shared with the Connect interceptor, so
-  the two transports cannot drift on what a valid caller is.
-- **Errors mirror `internal/handler/errors.go` one-for-one** (`internal/rest/errors.go`).
-  The same service error must mean the same thing on both transports.
-- **The OpenAPI contract does not come from BSR** — there is no equivalent
-  channel. `make generate-rest` fetches the raw file from the public
-  `WellSpent-proto` repo. Output lands in `gen/rest/`, gitignored like `gen/`.
+- `src/WellSpent.Api/Endpoints/` — one file per domain, minimal-API route registration
+- `src/WellSpent.Api/Errors/ErrorHandlingMiddleware.cs` — maps application exceptions to
+  the same lowercase error codes (`invalid_argument`/`forbidden`/`already_exists`/
+  `not_found`/`internal`) every client already expects
+- `src/WellSpent.Api/Auth/CurrentUser.cs` — the authenticated user's ID, read from the JWT
+- Auth is JWT-only; RPCs that skip it (register/login/etc.) are the same set the old Go
+  bypass list had — see `src/WellSpent.Api/Program.cs`
 
 ## Architecture
 
 Four layers, in dependency order for new features:
 
-1. **Proto** — define/update RPC in `WellSpent-proto/`, push to BSR, then `make generate`
-2. **Repository** — add SQL to `internal/db/query/*.sql`, run `sqlc generate`, implement interface in `internal/repository/`
-3. **Service** — business logic in `internal/service/`, write unit tests with mock repo
-4. **Handler** — RPC impl in `internal/handler/`, map errors via `toConnectError()` in `errors.go`
+1. **Contract** — add/update the endpoint in `WellSpent-proto/openapi/v1/`
+2. **Domain + Infrastructure** — entity in `src/WellSpent.Domain/Entities/`, repository
+   interface in `src/WellSpent.Domain/Abstractions/`, EF Core implementation + Fluent API
+   mapping in `src/WellSpent.Infrastructure/Persistence/`
+3. **Application** — CQRS command/query + handler in `src/WellSpent.Application/<Domain>/`,
+   business logic + unit tests (mock repo via NSubstitute, no DB)
+4. **Api** — minimal-API endpoint in `src/WellSpent.Api/Endpoints/`, wired to MediatR
 
-Service wiring: `cmd/server/main.go` constructs all repos → services → handlers and registers them on the mux.
+Service wiring: `src/WellSpent.Infrastructure/DependencyInjection.cs` and
+`src/WellSpent.Application/DependencyInjection.cs` register everything; `Program.cs` calls both.
 
 ## Key patterns
 
-**Errors:** use `apperr.NotFound / Forbidden / Duplicate / Invalid` in service layer. Handlers call `toConnectError(err)` in `internal/handler/errors.go` to map these to Connect status codes.
+**CQRS/MediatR:** every write is a `Command`, every read a `Query`, each with its own
+`Handler` class in the same folder. No generic repository-of-everything — one repository
+interface per aggregate, in `WellSpent.Domain.Abstractions`.
 
-**Auth:** `h.currentUserID(ctx)` in any handler returns the authenticated user's UUID. RPCs that skip auth are in the bypass map in `cmd/server/main.go`:
-```go
-bypass := map[string]bool{
-    AuthServiceRegisterProcedure:         true,
-    AuthServiceLoginProcedure:            true,
-    AuthServiceGetGoogleAuthURLProcedure: true,
-    AuthServiceExchangeGoogleCodeProcedure: true,
-}
-```
+**Errors:** throw `NotFoundException`/`ForbiddenException`/`AlreadyExistsException`/
+`AppValidationException` from a handler; `ErrorHandlingMiddleware` maps them to the matching
+REST error code. Never catch-and-swallow — an unhandled exception type falls through to a
+500, which is the signal something new needs a mapping.
 
-**Money:** stored as `pgtype.Numeric` in DB, converted to/from proto `Money` (units + nanos) in `internal/handler/convert.go`.
+**Money:** `{units, nanos, currency}` on the wire, `NUMERIC(15,4)` in Postgres — same shape
+the Go backend used, so no client-side formatting changed. Conversion lives in each DTO's
+mapping code (`*Dto.cs` / `*Mapping*.cs` per domain), not one shared converter.
 
-**Tests:** mock repos use function-field structs (no third-party mock library). See `internal/service/auth_service_test.go` for the pattern — each field is a `func(...)` that the test overrides per case.
+**Tests:** NSubstitute for mocked repositories (`Substitute.For<ISomeRepository>()`), xUnit.
+**NSubstitute returns `null`, not an empty collection, for an unconfigured `Task<List<T>>`
+method** — code reading from a repo result should defensively `?? []` rather than assume a
+real-looking empty list in tests that didn't explicitly configure one.
 
 ## Generated files — do not edit
 
-- `internal/sqlc/` — generated by sqlc from `internal/db/query/*.sql`
-- `gen/` — generated by buf from WellSpent-proto
-- `gen/rest/` — generated by oapi-codegen from WellSpent-proto's `openapi/v1/`
+None. Nothing in this repo is code-generated. `obj/`/`bin/` are build output (gitignored).
 
 ## Database
 
 - **Dev**: a standalone local Postgres in Docker, shared across your LAN — see "Local dev
   database" above. **Prod**: Neon serverless PostgreSQL.
-- Prod only: use the **direct** connection URL (no `-pooler` hostname) — pgx prepared statements
-  are incompatible with Neon's PgBouncer pooler. Not a concern for the local dev DB, which has no
+- Prod only: use the **direct** connection URL (no `-pooler` hostname) — Npgsql's behavior
+  under PgBouncer's transaction pooling mode is the same class of incompatibility the old Go
+  backend hit with pgx prepared statements. Not a concern for the local dev DB, which has no
   pooler in front of it.
-- `MinConns = 0` in pgxpool (`internal/db/conn.go`) was originally to allow Neon scale-to-zero;
-  harmless (just means no pre-warmed idle connections) against the local dev DB too, so it's
-  left as one setting for both rather than branching on environment.
-- Every connection sends a distinct `application_name` (`wellspent-server-dev`,
-  `wellspent-plaid-sync-prod`, …) — see `NewPool` in `internal/db/conn.go`. Useful for telling
-  connections apart in `pg_stat_activity`, which is how the Neon CU investigation above started.
-- Migrations: goose v3 as a library via `cmd/migrate/main.go` (not the goose CLI — Neon's prod
-  connection string requires pgx/v5, which the CLI doesn't use; kept as the one path for both
-  environments rather than a second migration runner for local dev)
-- Schema source of truth: `internal/db/migrations/000001_init_schema.sql`
-- Adding a migration: create `000002_*.sql`, add it to `schema:` in `sqlc.yaml`
+- Every connection sends a distinct `application_name` — see `NewPool`/connection setup in
+  `src/WellSpent.Infrastructure/`. Useful for telling connections apart in `pg_stat_activity`.
+- Migrations: `src/WellSpent.Migrator` (DbUp), not EF Core Migrations — `db/migrations/*.sql`
+  stays the schema source of truth, written by hand, applied forward-only. There is no
+  automated rollback; write a new forward migration or apply the reversal by hand.
+- Schema source of truth: `db/migrations/000001_init_schema.sql` onward
+- Adding a migration: create `db/migrations/000060_*.sql` (next sequential number), following
+  the existing files' `-- +goose Up` / `-- +goose Down` comment markers — the Migrator only
+  runs the Up section; the Down section is there for a human doing a manual rollback
 
 ## Secrets
 
@@ -171,14 +160,13 @@ other one.
 
 ## Version bump (required for every feature)
 
-The server has a version now: `internal/version/version.go`'s `Current`. Bump it
-once per feature, the same way `WellSpent-web`'s `package.json` is bumped —
-patch for fixes, minor for new behaviour, major for a breaking change.
+`src/WellSpent.Application/Changelog/ChangelogConstants.cs`'s `ServerVersion`. Bump it
+once per feature, same convention as every other repo here — patch for fixes, minor for new
+behaviour, major for a breaking change.
 
-It is not decorative. `ListChangelog` reports it so a client can tell which
-server releases are new to it, and a changelog release is keyed on it. If the
-constant doesn't move, the changelog has nothing to hang off and readers never
-see what shipped.
+It is not decorative. `ListChangelog` reports it so a client can tell which server releases
+are new to it, and a changelog release is keyed on it. If the constant doesn't move, the
+changelog has nothing to hang off and readers never see what shipped.
 
 Write the matching release notes in the same change: `changelog/server-<version>.json`
 (see `changelog/README.md`). Authoring is part of the feature; **publishing is
@@ -204,7 +192,7 @@ make test
 make build
 
 # Stage specific files (never git add -A)
-git add internal/... cmd/...
+git add src/... tests/...
 
 # Commit and push
 git commit -m "feat: meaningful description of what changed"
@@ -219,3 +207,7 @@ gh pr merge develop --auto --merge
 - Commit directly to `develop`; never commit directly to `main`
 - `gh pr merge --auto` enables auto-merge — the PR lands once CI passes; no manual merge needed
 - Never merge PRs manually — always let auto-merge handle it after checks pass
+- The `Contribution` ruleset on `main` requires `ci-csharp.yml`'s `Build & Test` check
+  (`.github/workflows/ci-csharp.yml`, runs on push/PR to `develop`) — keep that job name in
+  sync with the ruleset if it's ever renamed, the same way the old Go `Generate`/`Test` names
+  were pinned there before.

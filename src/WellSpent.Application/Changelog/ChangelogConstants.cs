@@ -18,10 +18,8 @@ public static class ChangelogConstants
     public const int DefaultReleasesPerComponent = 20;
 
     /// <summary>
-    /// What this build calls itself. Kept equal to Go's internal/version/version.go
-    /// Current for as long as both backends are live — clients see one logical
-    /// "server" version regardless of which backend answered. Revisit at
-    /// decommission (sub-issue D), when only this one remains.
+    /// What this build calls itself. The Go backend (and its own version
+    /// counter) was decommissioned — this is the only server version now.
     /// </summary>
-    public const string ServerVersion = "1.7.0";
+    public const string ServerVersion = "2.0.0";
 }
