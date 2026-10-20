@@ -92,4 +92,38 @@ public sealed class FixedExpensePaymentSyncTests
             Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<DateOnly?>(), Arg.Any<int?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
         await _fixedExpenses.Received(1).SetPaidOffAsync(feId, Arg.Any<Guid>(), new DateOnly(2026, 6, 1), Arg.Any<CancellationToken>());
     }
+
+    // ── EndDate gates the PlannedAmount rewrite, independent of autoSyncTemplate ──
+
+    [Fact]
+    public async Task MarkPaid_EndDateSet_AutoSyncOn_SkipsPlannedAmountRewrite_ButStillCompletesOffOriginalAmount()
+    {
+        // 2x$20 plan, EndDate set; $20 already paid, this overpayment ($45) must complete off the original $20, never a rewritten amount.
+        var endDate = new DateOnly(2026, 12, 1);
+        var (feId, txId, periodId) = SetUp(plannedAmount: 20m, totalPayments: 2, amount: 45m, paidDate: new DateOnly(2026, 2, 1), endDate: endDate);
+        _fixedExpenses.SumPaidAmountAsync(feId, Arg.Any<CancellationToken>()).Returns(65m); // $20 (payment 1) + $45 (this one)
+
+        var tx = await FixedExpensePaymentSync.MarkPaidAsync(
+            _transactions, _fixedExpenses, txId, periodId, 45m, new DateOnly(2026, 2, 1), autoSyncTemplate: true, default, NullLogger.Instance, CancellationToken.None);
+
+        await _fixedExpenses.DidNotReceive().UpdateFromPaymentAsync(
+            Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<DateOnly?>(), Arg.Any<int?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+        // RemainingBalance = 2*20 - 65 = -25, clamped to 0 -> completes.
+        await _fixedExpenses.Received(1).SetPaidOffAsync(feId, Arg.Any<Guid>(), new DateOnly(2026, 2, 1), Arg.Any<CancellationToken>());
+        Assert.True(tx.FixedExpensePaidOffEarly);
+    }
+
+    [Fact]
+    public async Task MarkPaid_EndDateNull_AutoSyncOn_StillRewritesPlannedAmount()
+    {
+        // No EndDate -> indefinite recurring bill, still gets the normal auto-sync rewrite.
+        var (feId, txId, periodId) = SetUp(plannedAmount: 20m, totalPayments: 0, amount: 25m, paidDate: new DateOnly(2026, 1, 1), endDate: null);
+        _fixedExpenses.SumPaidAmountAsync(feId, Arg.Any<CancellationToken>()).Returns(25m);
+
+        await FixedExpensePaymentSync.MarkPaidAsync(
+            _transactions, _fixedExpenses, txId, periodId, 25m, new DateOnly(2026, 1, 1), autoSyncTemplate: true, default, NullLogger.Instance, CancellationToken.None);
+
+        await _fixedExpenses.Received(1).UpdateFromPaymentAsync(
+            feId, 25m, Arg.Any<int>(), Arg.Any<int>(), Arg.Any<DateOnly?>(), Arg.Any<int?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+    }
 }
