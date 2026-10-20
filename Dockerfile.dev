@@ -1,0 +1,42 @@
+# Local dev only — runs `dotnet watch` against a bind-mounted source tree so
+# a code change takes effect without a manual rebuild. The real Dockerfile is
+# deploy-shaped (publish + slim runtime) and was never meant to pick up
+# source changes without a full `--build`; this is the equivalent of the old
+# Go backend's `air` live-reload, which was Go-specific and removed with it
+# (issue #78's decommission).
+#
+#   docker compose -f docker-compose.dev.yml up --build backend
+#
+FROM mcr.microsoft.com/dotnet/sdk:10.0
+WORKDIR /src
+
+# Restore once at image-build time with just the project files, so the first
+# `dotnet watch run` doesn't restore all over again — real source changes
+# come in later via the bind mount in docker-compose.dev.yml.
+COPY WellSpent.slnx ./
+COPY src/WellSpent.Api/WellSpent.Api.csproj src/WellSpent.Api/
+COPY src/WellSpent.Domain/WellSpent.Domain.csproj src/WellSpent.Domain/
+COPY src/WellSpent.Application/WellSpent.Application.csproj src/WellSpent.Application/
+COPY src/WellSpent.Infrastructure/WellSpent.Infrastructure.csproj src/WellSpent.Infrastructure/
+COPY src/WellSpent.Migrator/WellSpent.Migrator.csproj src/WellSpent.Migrator/
+COPY src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj src/WellSpent.Jobs.PlaidSync/
+COPY src/WellSpent.Jobs.CycleBudgets/WellSpent.Jobs.CycleBudgets.csproj src/WellSpent.Jobs.CycleBudgets/
+COPY tests/WellSpent.Api.Tests/WellSpent.Api.Tests.csproj tests/WellSpent.Api.Tests/
+COPY tests/WellSpent.Application.Tests/WellSpent.Application.Tests.csproj tests/WellSpent.Application.Tests/
+COPY tests/WellSpent.Infrastructure.Tests/WellSpent.Infrastructure.Tests.csproj tests/WellSpent.Infrastructure.Tests/
+RUN dotnet restore WellSpent.slnx
+
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
+# Docker Desktop's bind mounts (macOS/Windows) don't reliably deliver native
+# filesystem change events into the Linux container — dotnet watch falls
+# back to polling with this set, which is slower but actually fires.
+ENV DOTNET_USE_POLLING_FILE_WATCHER=true
+
+# --non-interactive: no TTY in a container, so skip dotnet watch's
+# press-a-key prompts (e.g. "Ctrl+R to restart"). --no-launch-profile: the
+# project's launchSettings.json hardcodes applicationUrl to localhost:5021
+# and launchBrowser — both wrong in a container (no browser to open, and it
+# would override ASPNETCORE_URLS above, binding to a different port than the
+# one docker-compose actually publishes).
+ENTRYPOINT ["dotnet", "watch", "run", "--project", "src/WellSpent.Api/WellSpent.Api.csproj", "--no-launch-profile", "--non-interactive"]
