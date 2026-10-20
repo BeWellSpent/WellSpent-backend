@@ -232,9 +232,9 @@ public static class BudgetEndpoints
             return Results.Ok(new { fixedExpense = result.Expense, transaction = result.Transaction });
         });
 
-        group.MapGet("/{id:guid}/fixed-expenses", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/fixed-expenses", async (Guid id, bool? focusedView, HttpContext ctx, ISender sender, CancellationToken ct) =>
         {
-            var fixedExpenses = await sender.Send(new ListFixedExpensesQuery(CurrentUser.GetId(ctx), id), ct);
+            var fixedExpenses = await sender.Send(new ListFixedExpensesQuery(CurrentUser.GetId(ctx), id, focusedView ?? false), ct);
             return Results.Ok(new { fixedExpenses });
         });
 

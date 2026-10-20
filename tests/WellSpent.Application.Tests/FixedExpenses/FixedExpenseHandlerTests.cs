@@ -51,7 +51,7 @@ public sealed class FixedExpenseHandlerTests
 
         // EnsureMemberAsync (unlike EnsureAdmin/EnsureCollaboratorOrAbove) does not
         // collapse a non-member's lookup failure into Forbidden — it propagates as-is.
-        await Assert.ThrowsAsync<NotFoundException>(() => new ListFixedExpensesQueryHandler(Access, _fixedExpenses)
+        await Assert.ThrowsAsync<NotFoundException>(() => new ListFixedExpensesQueryHandler(Access, _fixedExpenses, _profiles)
             .Handle(new ListFixedExpensesQuery(strangerId, profileId), CancellationToken.None));
     }
 
@@ -63,11 +63,38 @@ public sealed class FixedExpenseHandlerTests
             new FixedExpense { Id = Guid.NewGuid(), BudgetProfileId = profileId, Name = "Rent", PlannedAmount = 60m, DayOfMonth = 15, CreatedAt = new DateTime(2026, 1, 15), IntervalMonths = 1, TotalPayments = 12 },
         ]);
 
-        var result = await new ListFixedExpensesQueryHandler(Access, _fixedExpenses)
+        var result = await new ListFixedExpensesQueryHandler(Access, _fixedExpenses, _profiles)
             .Handle(new ListFixedExpensesQuery(adminId, profileId), CancellationToken.None);
 
         Assert.Single(result);
         Assert.Equal("Rent", result[0].Name);
+    }
+
+    [Fact]
+    public async Task List_FocusedView_ResolvesCallerPersonId()
+    {
+        var (adminId, profileId) = SetUpProfile();
+        _profiles.GetPersonByUserIdAsync(profileId, adminId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPerson { Id = 5, BudgetProfileId = profileId, UserId = adminId, Role = "admin" });
+        _fixedExpenses.ListAsync(profileId, Arg.Any<CancellationToken>(), 5).Returns([]);
+
+        await new ListFixedExpensesQueryHandler(Access, _fixedExpenses, _profiles)
+            .Handle(new ListFixedExpensesQuery(adminId, profileId, FocusedView: true), CancellationToken.None);
+
+        await _fixedExpenses.Received(1).ListAsync(profileId, Arg.Any<CancellationToken>(), 5);
+    }
+
+    [Fact]
+    public async Task List_NoFocusedView_PassesNullPersonId()
+    {
+        var (adminId, profileId) = SetUpProfile();
+        _fixedExpenses.ListAsync(profileId, Arg.Any<CancellationToken>()).Returns([]);
+
+        await new ListFixedExpensesQueryHandler(Access, _fixedExpenses, _profiles)
+            .Handle(new ListFixedExpensesQuery(adminId, profileId, FocusedView: false), CancellationToken.None);
+
+        await _fixedExpenses.Received(1).ListAsync(profileId, Arg.Any<CancellationToken>(), null);
+        await _profiles.DidNotReceive().GetPersonByUserIdAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     // ── CreateFixedExpense ────────────────────────────────────────────────

@@ -18,9 +18,17 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         await db.FixedExpenses.FirstOrDefaultAsync(f => f.Id == id, ct)
             ?? throw new NotFoundException("fixed_expense", id.ToString());
 
-    public async Task<List<FixedExpense>> ListAsync(Guid budgetProfileId, CancellationToken ct) =>
-        await db.FixedExpenses.Where(f => f.BudgetProfileId == budgetProfileId && f.IsActive)
-            .OrderBy(f => f.Name).ToListAsync(ct);
+    public async Task<List<FixedExpense>> ListAsync(Guid budgetProfileId, CancellationToken ct, int? focusedPersonId = null)
+    {
+        var query = db.FixedExpenses.Where(f => f.BudgetProfileId == budgetProfileId && f.IsActive);
+        if (focusedPersonId is { } personId)
+        {
+            query = query.Where(f =>
+                f.PaymentMethodId == null ||
+                db.PaymentMethods.Any(pm => pm.Id == f.PaymentMethodId && (pm.BudgetPersonId == null || pm.BudgetPersonId == personId)));
+        }
+        return await query.OrderBy(f => f.Name).ToListAsync(ct);
+    }
 
     public async Task<FixedExpense> UpdateAsync(FixedExpense fixedExpense, CancellationToken ct)
     {
