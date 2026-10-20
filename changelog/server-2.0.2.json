@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "2.0.2",
+  "items": [
+    {
+      "changeType": "added",
+      "summaryEn": "Push notifications now carry enough information for the app to refresh automatically instead of polling.",
+      "summaryEs": "Las notificaciones push ahora llevan suficiente información para que la app se actualice automáticamente en lugar de consultar por sondeo."
+    }
+  ]
+}

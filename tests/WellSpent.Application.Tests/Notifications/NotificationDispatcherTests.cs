@@ -93,8 +93,8 @@ public sealed class NotificationDispatcherTests
         var tx = new Transaction { Id = Guid.NewGuid(), Name = "Coffee", Amount = 5m, PlannedAmount = 5m, BudgetPeriodId = periodId, TransactionTypeId = 2 };
         await CreateDispatcher().HandleNewTransactionAsync(tx, periodId, Guid.NewGuid(), CancellationToken.None);
 
-        await _pushSender.Received(1).SendAsync("token-a", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _pushSender.Received(1).SendAsync("token-b", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _pushSender.Received(1).SendAsync("token-a", Arg.Any<string>(), Arg.Any<string>(), "new_transaction", profileId, Arg.Any<CancellationToken>());
+        await _pushSender.Received(1).SendAsync("token-b", Arg.Any<string>(), Arg.Any<string>(), "new_transaction", profileId, Arg.Any<CancellationToken>());
     }
 
     [Fact]
