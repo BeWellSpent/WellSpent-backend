@@ -382,7 +382,7 @@ public sealed class TransactionHandlerTests
         _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
             .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = true });
 
-        await Assert.ThrowsAsync<ForbiddenException>(() => new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles)
+        await Assert.ThrowsAsync<ForbiddenException>(() => new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles, NullLogger<MarkTransactionAsPaidCommandHandler>.Instance)
             .Handle(new MarkTransactionAsPaidCommand(adminId, Guid.NewGuid(), periodId, new Money(50, 0), new DateOnly(2026, 2, 10)), CancellationToken.None));
     }
 
@@ -394,7 +394,7 @@ public sealed class TransactionHandlerTests
         _transactions.MarkTransactionAsPaidAsync(txId, periodId, 50m, new DateOnly(2026, 2, 10), Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = txId, Amount = 50m, PlannedAmount = 60m, IsPaid = true, PaidDate = new DateOnly(2026, 2, 10) });
 
-        var result = await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles)
+        var result = await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles, NullLogger<MarkTransactionAsPaidCommandHandler>.Instance)
             .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(50, 0), new DateOnly(2026, 2, 10)), CancellationToken.None);
 
         Assert.True(result.IsPaid);
@@ -419,7 +419,7 @@ public sealed class TransactionHandlerTests
         _fixedExpenses.GetByIdAsync(feId, Arg.Any<CancellationToken>())
             .Returns(new FixedExpense { Id = feId, BudgetProfileId = profileId, Name = "Rent", PlannedAmount = 60m });
 
-        await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles)
+        await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles, NullLogger<MarkTransactionAsPaidCommandHandler>.Instance)
             .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(65, 0), new DateOnly(2026, 2, 12)), CancellationToken.None);
 
         await _fixedExpenses.Received(1).UpdateFromPaymentAsync(
@@ -436,8 +436,11 @@ public sealed class TransactionHandlerTests
             .Returns(new BudgetProfile { Id = profileId, UserId = adminId, Name = "B", Cycle = "monthly", AutoUpdatePlannedAmount = false });
         _transactions.MarkTransactionAsPaidAsync(txId, periodId, 65m, new DateOnly(2026, 2, 12), Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = txId, Amount = 65m, IsPaid = true, FixedExpenseId = feId });
+        // Completion detection runs regardless of autoSyncTemplate, so the template is still fetched.
+        _fixedExpenses.GetByIdAsync(feId, Arg.Any<CancellationToken>())
+            .Returns(new FixedExpense { Id = feId, BudgetProfileId = profileId, Name = "Rent", PlannedAmount = 65m });
 
-        await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles)
+        await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles, NullLogger<MarkTransactionAsPaidCommandHandler>.Instance)
             .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(65, 0), new DateOnly(2026, 2, 12)), CancellationToken.None);
 
         await _fixedExpenses.DidNotReceive().UpdateFromPaymentAsync(
@@ -457,7 +460,7 @@ public sealed class TransactionHandlerTests
         _fixedExpenses.GetByIdAsync(feId, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<FixedExpense>(new NotFoundException("fixed_expense", feId.ToString())));
 
-        var result = await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles)
+        var result = await new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles, NullLogger<MarkTransactionAsPaidCommandHandler>.Instance)
             .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(65, 0), new DateOnly(2026, 2, 12)), CancellationToken.None);
 
         Assert.True(result.IsPaid);

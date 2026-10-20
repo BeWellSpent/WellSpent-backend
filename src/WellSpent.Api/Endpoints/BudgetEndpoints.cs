@@ -38,6 +38,7 @@ using WellSpent.Application.FixedExpenses;
 using WellSpent.Application.FixedExpenses.CreateFixedExpense;
 using WellSpent.Application.FixedExpenses.DeleteFixedExpense;
 using WellSpent.Application.FixedExpenses.ListFixedExpenses;
+using WellSpent.Application.FixedExpenses.PayFixedExpenseInFull;
 using WellSpent.Application.FixedExpenses.UpdateFixedExpense;
 using WellSpent.Application.PaymentMethods.ListPaymentMethods;
 using WellSpent.Application.TransactionReviews.ListTransactionReviews;
@@ -251,6 +252,14 @@ public static class BudgetEndpoints
             return Results.Ok();
         });
 
+        group.MapPost("/{id:guid}/fixed-expenses/{feId:guid}/pay-in-full", async (
+            Guid id, Guid feId, PayFixedExpenseInFullRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var result = await sender.Send(
+                new PayFixedExpenseInFullCommand(CurrentUser.GetId(ctx), id, feId, body.Amount.ToDecimal(), body.PaidDate), ct);
+            return Results.Ok(new { transaction = result.Transaction, fixedExpense = result.Expense });
+        });
+
         // ── Expense allocations ──────────────────────────────────────────
         group.MapGet("/{id:guid}/expense-allocations", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
         {
@@ -333,6 +342,8 @@ public static class BudgetEndpoints
             Name, PlannedAmount, CategoryId, PaymentMethodId, DayOfMonth, IntervalMonths,
             AnchorDate, FrequencyUnit, IntervalWeeks, DayOfWeek, EndDate, TotalPayments);
     }
+
+    private sealed record PayFixedExpenseInFullRequestBody(Money Amount, DateOnly PaidDate);
 
     private sealed record UpdateIncomeEntryRequestBody(Money Amount);
 

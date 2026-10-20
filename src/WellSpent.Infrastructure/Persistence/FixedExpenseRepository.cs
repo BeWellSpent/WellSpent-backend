@@ -72,6 +72,18 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
             .ExecuteUpdateAsync(s => s.SetProperty(f => f.IsActive, false), ct);
     }
 
+    public async Task SetPaidOffAsync(Guid id, Guid budgetProfileId, DateOnly paidOffDate, CancellationToken ct)
+    {
+        await db.FixedExpenses.Where(f => f.Id == id && f.BudgetProfileId == budgetProfileId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(f => f.IsActive, false)
+                .SetProperty(f => f.PaidOffDate, paidOffDate), ct);
+    }
+
+    public async Task<decimal> SumPaidAmountAsync(Guid fixedExpenseId, CancellationToken ct) =>
+        await db.Transactions.Where(t => t.FixedExpenseId == fixedExpenseId && t.IsPaid)
+            .SumAsync(t => (decimal?)t.Amount, ct) ?? 0m;
+
     public async Task<bool> HasTransactionInMonthAsync(Guid fixedExpenseId, DateOnly monthStart, DateOnly monthEnd, CancellationToken ct) =>
         await db.Transactions.AnyAsync(t =>
             t.FixedExpenseId == fixedExpenseId && t.Date >= monthStart && t.Date < monthEnd, ct);

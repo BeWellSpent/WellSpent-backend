@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using WellSpent.Application.Common;
 using WellSpent.Application.FixedExpenses;
 using WellSpent.Domain.Abstractions;
@@ -17,7 +18,8 @@ public sealed record MarkTransactionAsPaidCommand(Guid UserId, Guid Id, Guid Bud
     : IRequest<TransactionDto>;
 
 public sealed class MarkTransactionAsPaidCommandHandler(
-    BudgetAccessGuard access, ITransactionRepository transactions, IFixedExpenseRepository fixedExpenses, IBudgetProfileRepository profiles)
+    BudgetAccessGuard access, ITransactionRepository transactions, IFixedExpenseRepository fixedExpenses,
+    IBudgetProfileRepository profiles, ILogger<MarkTransactionAsPaidCommandHandler> logger)
     : IRequestHandler<MarkTransactionAsPaidCommand, TransactionDto>
 {
     public async Task<TransactionDto> Handle(MarkTransactionAsPaidCommand request, CancellationToken ct)
@@ -27,7 +29,7 @@ public sealed class MarkTransactionAsPaidCommandHandler(
         var autoSync = await FixedExpensePaymentSync.AutoUpdatePlannedAmountForAsync(profiles, period.BudgetProfileId, ct);
         var tx = await FixedExpensePaymentSync.MarkPaidAsync(
             transactions, fixedExpenses, request.Id, request.BudgetPeriodId, request.PaidAmount.ToDecimal(), request.PaidDate,
-            autoSync, default, ct);
+            autoSync, default, logger, ct);
 
         return TransactionMapping.ToDto(tx);
     }

@@ -39,10 +39,11 @@ public sealed class UpdateFixedExpenseCommandHandler(
         entity.BudgetProfileId = request.BudgetProfileId;
         var fe = await fixedExpenses.UpdateAsync(entity, ct);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var amountPaid = await FixedExpensePayoff.AmountPaidAsync(fixedExpenses, fe, ct);
 
         if (FixedExpenseScheduling.IsWeekUnit(fe))
         {
-            return FixedExpenseMapping.ToDto(fe, today);
+            return FixedExpenseMapping.ToDto(fe, today, amountPaid);
         }
 
         BudgetPeriod period;
@@ -52,7 +53,7 @@ public sealed class UpdateFixedExpenseCommandHandler(
         }
         catch (NotFoundException)
         {
-            return FixedExpenseMapping.ToDto(fe, today);
+            return FixedExpenseMapping.ToDto(fe, today, amountPaid);
         }
 
         var startDate = period.StartDate;
@@ -67,7 +68,7 @@ public sealed class UpdateFixedExpenseCommandHandler(
             {
                 // A stale unpaid bill outlives the template change that should have replaced it.
             }
-            return FixedExpenseMapping.ToDto(fe, today);
+            return FixedExpenseMapping.ToDto(fe, today, amountPaid);
         }
 
         var txDate = FixedExpenseScheduling.DateInMonth(fe, startDate);
@@ -129,6 +130,6 @@ public sealed class UpdateFixedExpenseCommandHandler(
             }
         }
 
-        return FixedExpenseMapping.ToDto(fe, today);
+        return FixedExpenseMapping.ToDto(fe, today, amountPaid);
     }
 }

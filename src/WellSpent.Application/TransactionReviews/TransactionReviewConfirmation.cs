@@ -90,7 +90,7 @@ public static class TransactionReviewConfirmation
                     // unpaid. Nothing has been excluded and the review is
                     // still pending, so the user can retry.
                     await FixedExpensePaymentSync.MarkPaidAsync(
-                        transactions, fixedExpenses, matchedTx.Id, matchedPeriodId, paidAmount, paidDate, autoSync, observed, ct);
+                        transactions, fixedExpenses, matchedTx.Id, matchedPeriodId, paidAmount, paidDate, autoSync, observed, logger, ct);
                 }
             }
         }

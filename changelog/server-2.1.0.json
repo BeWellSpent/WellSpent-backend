@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "2.1.0",
+  "items": [
+    {
+      "changeType": "added",
+      "summaryEn": "A payment plan (car loan, phone installment, a purchase split into installments) can now be paid off in full in one payment, stopping it early instead of letting it keep spawning scheduled payments.",
+      "summaryEs": "Ahora un plan de pagos (préstamo de auto, cuotas de un teléfono, una compra dividida en cuotas) puede liquidarse por completo en un solo pago, deteniéndolo antes de tiempo en lugar de seguir generando pagos programados."
+    }
+  ]
+}

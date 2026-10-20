@@ -21,5 +21,5 @@ public static class ChangelogConstants
     /// What this build calls itself. The Go backend (and its own version
     /// counter) was decommissioned — this is the only server version now.
     /// </summary>
-    public const string ServerVersion = "2.0.2";
+    public const string ServerVersion = "2.1.0";
 }

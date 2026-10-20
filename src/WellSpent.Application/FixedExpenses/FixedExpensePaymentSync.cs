@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 using WellSpent.Domain.Exceptions;
@@ -30,11 +31,11 @@ public static class FixedExpensePaymentSync
     public static async Task<Transaction> MarkPaidAsync(
         ITransactionRepository transactions, IFixedExpenseRepository fixedExpenses,
         Guid id, Guid budgetPeriodId, decimal amount, DateOnly paidDate,
-        bool autoSyncTemplate, ObservedPayment observed, CancellationToken ct)
+        bool autoSyncTemplate, ObservedPayment observed, ILogger logger, CancellationToken ct)
     {
         var tx = await transactions.MarkTransactionAsPaidAsync(id, budgetPeriodId, amount, paidDate, ct);
 
-        if (!autoSyncTemplate || tx.FixedExpenseId is not { } feId)
+        if (tx.FixedExpenseId is not { } feId)
         {
             return tx;
         }
@@ -44,29 +45,39 @@ public static class FixedExpensePaymentSync
         {
             fe = await fixedExpenses.GetByIdAsync(feId, ct);
         }
-        catch (NotFoundException)
+        catch (NotFoundException ex)
         {
             // Not fatal: the payment is recorded and correct. Only the
             // template missed the update — a wrong template, not a wrong
             // payment, and the user can edit it by hand.
+            logger.LogError(ex, "fixed_expense.payment_sync_template_missing fixed_expense_id={FixedExpenseId} transaction_id={TransactionId}", feId, tx.Id);
             return tx;
         }
 
-        // Prefer what was actually observed; otherwise whatever the
-        // just-paid transaction itself carries; otherwise leave the
-        // template's existing value rather than clearing a real one.
-        var categoryId = observed.CategoryId ?? tx.CategoryId ?? fe.CategoryId;
-        var paymentMethodId = observed.PaymentMethodId ?? tx.PaymentMethodId ?? fe.PaymentMethodId;
-        var (dayOfMonth, dayOfWeek, anchorDate) = FixedExpenseScheduling.ScheduleFromAnchor(paidDate);
+        if (autoSyncTemplate)
+        {
+            // Prefer what was actually observed; otherwise whatever the
+            // just-paid transaction itself carries; otherwise leave the
+            // template's existing value rather than clearing a real one.
+            var categoryId = observed.CategoryId ?? tx.CategoryId ?? fe.CategoryId;
+            var paymentMethodId = observed.PaymentMethodId ?? tx.PaymentMethodId ?? fe.PaymentMethodId;
+            var (dayOfMonth, dayOfWeek, anchorDate) = FixedExpenseScheduling.ScheduleFromAnchor(paidDate);
 
-        try
-        {
-            await fixedExpenses.UpdateFromPaymentAsync(feId, amount, dayOfMonth, dayOfWeek, anchorDate, categoryId, paymentMethodId, ct);
+            try
+            {
+                await fixedExpenses.UpdateFromPaymentAsync(feId, amount, dayOfMonth, dayOfWeek, anchorDate, categoryId, paymentMethodId, ct);
+            }
+            catch (Exception ex)
+            {
+                // The template keeps its old plan/date/category/payment method while this period's payment stands regardless.
+                logger.LogError(ex, "fixed_expense.payment_sync_template_update_failed fixed_expense_id={FixedExpenseId} transaction_id={TransactionId}", feId, tx.Id);
+            }
         }
-        catch (Exception)
-        {
-            // The template keeps its old plan/date/category/payment method while this period's payment stands regardless.
-        }
+
+        // Runs regardless of autoSyncTemplate: a payoff amount must never
+        // rewrite PlannedAmount, but completion still has to be detected no
+        // matter which mark-paid path crossed the threshold.
+        await FixedExpensePayoff.CheckAndApplyAsync(fixedExpenses, transactions, tx, fe, paidDate, logger, ct);
 
         return tx;
     }
