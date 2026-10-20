@@ -54,7 +54,8 @@ public static class FixedExpensePaymentSync
             return tx;
         }
 
-        if (autoSyncTemplate)
+        // EndDate means a payment plan (same signal createNextPeriod uses) — an overpayment there is credit toward a fixed principal, never a new PlannedAmount.
+        if (autoSyncTemplate && fe.EndDate is null)
         {
             // Prefer what was actually observed; otherwise whatever the
             // just-paid transaction itself carries; otherwise leave the
@@ -74,9 +75,7 @@ public static class FixedExpensePaymentSync
             }
         }
 
-        // Runs regardless of autoSyncTemplate: a payoff amount must never
-        // rewrite PlannedAmount, but completion still has to be detected no
-        // matter which mark-paid path crossed the threshold.
+        // Runs regardless of autoSyncTemplate — completion is detected no matter which mark-paid path crossed the threshold.
         await FixedExpensePayoff.CheckAndApplyAsync(fixedExpenses, transactions, tx, fe, paidDate, logger, ct);
 
         return tx;
