@@ -7,7 +7,9 @@ public interface IFixedExpenseRepository
 {
     Task<FixedExpense> CreateAsync(FixedExpense fixedExpense, CancellationToken ct);
     Task<FixedExpense> GetByIdAsync(Guid id, CancellationToken ct);
-    Task<List<FixedExpense>> ListAsync(Guid budgetProfileId, CancellationToken ct);
+
+    /// <summary>focusedPersonId, when set, restricts to templates attributed (via payment method) to that person plus unattributed ones — same rule as ITransactionRepository.ListTransactionsAsync. Defaults to unfiltered for every other caller (rollover, Plaid sync, manual-match, expense summary).</summary>
+    Task<List<FixedExpense>> ListAsync(Guid budgetProfileId, CancellationToken ct, int? focusedPersonId = null);
 
     /// <summary>Full replace, scoped by (id, budgetProfileId).</summary>
     Task<FixedExpense> UpdateAsync(FixedExpense fixedExpense, CancellationToken ct);

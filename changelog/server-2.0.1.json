@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "2.0.1",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summaryEn": "Focused View on the Fixed expenses tab no longer shows upcoming bills that belong to another person on the budget.",
+      "summaryEs": "La Vista enfocada en la pestaña de gastos fijos ya no muestra próximas facturas que pertenecen a otra persona del presupuesto."
+    }
+  ]
+}
