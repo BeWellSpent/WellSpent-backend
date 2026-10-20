@@ -27,10 +27,17 @@ COPY tests/WellSpent.Infrastructure.Tests/WellSpent.Infrastructure.Tests.csproj 
 RUN dotnet restore WellSpent.slnx
 
 COPY src/ src/
-RUN dotnet publish src/WellSpent.Api/WellSpent.Api.csproj -c Release -o /app/api --no-restore
-RUN dotnet publish src/WellSpent.Migrator/WellSpent.Migrator.csproj -c Release -o /app/migrator --no-restore
-RUN dotnet publish src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj -c Release -o /app/plaid-sync --no-restore
-RUN dotnet publish src/WellSpent.Jobs.CycleBudgets/WellSpent.Jobs.CycleBudgets.csproj -c Release -o /app/cycle-budgets --no-restore
+# -r linux-x64 --self-contained false -p:PublishReadyToRun=true: precompiles
+# IL to native code ahead of time instead of JIT-ing cold on every container
+# start — Cloud Run scale-to-zero means every first request after idle pays
+# full JIT cost, which .NET has and Go (the prior backend) never did. Still
+# framework-dependent (small image, shares the runtime base layer); R2R only
+# changes how the app's own IL is packaged. No RID was restored above, so
+# these need their own restore first.
+RUN dotnet publish src/WellSpent.Api/WellSpent.Api.csproj -c Release -o /app/api -r linux-x64 --self-contained false -p:PublishReadyToRun=true
+RUN dotnet publish src/WellSpent.Migrator/WellSpent.Migrator.csproj -c Release -o /app/migrator -r linux-x64 --self-contained false -p:PublishReadyToRun=true
+RUN dotnet publish src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj -c Release -o /app/plaid-sync -r linux-x64 --self-contained false -p:PublishReadyToRun=true
+RUN dotnet publish src/WellSpent.Jobs.CycleBudgets/WellSpent.Jobs.CycleBudgets.csproj -c Release -o /app/cycle-budgets -r linux-x64 --self-contained false -p:PublishReadyToRun=true
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
