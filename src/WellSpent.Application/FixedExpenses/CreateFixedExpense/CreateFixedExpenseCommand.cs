@@ -23,7 +23,8 @@ public sealed class CreateFixedExpenseCommandHandler(
             fixedExpenses, profiles, transactions, request.BudgetProfileId, request.Fields, ct);
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var amountPaid = await FixedExpensePayoff.AmountPaidAsync(fixedExpenses, fe, ct);
         return new CreateFixedExpenseResult(
-            FixedExpenseMapping.ToDto(fe, today), tx is null ? null : TransactionMapping.ToDto(tx));
+            FixedExpenseMapping.ToDto(fe, today, amountPaid), tx is null ? null : TransactionMapping.ToDto(tx));
     }
 }

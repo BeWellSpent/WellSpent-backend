@@ -30,5 +30,6 @@ public sealed class FixedExpenseEntityConfiguration : IEntityTypeConfiguration<F
         b.Property(x => x.EndDate).HasColumnName("end_date");
         b.Property(x => x.TotalPayments).HasColumnName("total_payments");
         b.Property(x => x.IsInstallmentPlan).HasColumnName("is_installment_plan");
+        b.Property(x => x.PaidOffDate).HasColumnName("paid_off_date");
     }
 }

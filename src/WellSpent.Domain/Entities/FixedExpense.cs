@@ -38,4 +38,7 @@ public sealed class FixedExpense
 
     /// <summary>True when created by CreateInstallmentPlan — excluded from Plaid review auto-matching.</summary>
     public bool IsInstallmentPlan { get; set; }
+
+    /// <summary>Set the moment a payment brings the amount-based remaining balance to zero. Independent of EndDate, which never moves.</summary>
+    public DateOnly? PaidOffDate { get; set; }
 }

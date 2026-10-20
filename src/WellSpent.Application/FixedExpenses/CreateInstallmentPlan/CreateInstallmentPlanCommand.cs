@@ -70,6 +70,8 @@ public sealed class CreateInstallmentPlanCommandHandler(
 
         var updated = await transactions.SetInstallmentPlanAsync(request.TransactionId, request.BudgetPeriodId, fe.Id, ct);
 
-        return new CreateInstallmentPlanResult(FixedExpenseMapping.ToDto(fe, DateOnly.FromDateTime(DateTime.UtcNow)), TransactionMapping.ToDto(updated));
+        var amountPaid = await FixedExpensePayoff.AmountPaidAsync(fixedExpenses, fe, ct);
+        return new CreateInstallmentPlanResult(
+            FixedExpenseMapping.ToDto(fe, DateOnly.FromDateTime(DateTime.UtcNow), amountPaid), TransactionMapping.ToDto(updated));
     }
 }

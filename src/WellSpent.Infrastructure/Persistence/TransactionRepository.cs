@@ -161,6 +161,10 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         return tx;
     }
 
+    public async Task SetFixedExpensePaidOffEarlyAsync(Guid id, CancellationToken ct) =>
+        await db.Transactions.Where(t => t.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.FixedExpensePaidOffEarly, true), ct);
+
     // ── Categories ───────────────────────────────────────────────────────────
 
     public async Task<Category> GetCategoryAsync(int id, CancellationToken ct) =>

@@ -32,6 +32,12 @@ public sealed class ListFixedExpensesQueryHandler(BudgetAccessGuard access, IFix
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var rows = await fixedExpenses.ListAsync(request.BudgetProfileId, ct, focusedPersonId);
-        return rows.Select(fe => FixedExpenseMapping.ToDto(fe, today)).ToList();
+        var dtos = new List<FixedExpenseDto>(rows.Count);
+        foreach (var fe in rows)
+        {
+            var amountPaid = await FixedExpensePayoff.AmountPaidAsync(fixedExpenses, fe, ct);
+            dtos.Add(FixedExpenseMapping.ToDto(fe, today, amountPaid));
+        }
+        return dtos;
     }
 }

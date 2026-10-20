@@ -38,4 +38,7 @@ public sealed class Transaction
     public string? PlaidPfcDetailed { get; set; }
     public string? PlaidReferenceNumber { get; set; }
     public string? PlaidPpdId { get; set; }
+
+    /// <summary>True on exactly the one payment that brought its linked FixedExpense's remaining balance to zero, strictly before EndDate.</summary>
+    public bool FixedExpensePaidOffEarly { get; set; }
 }

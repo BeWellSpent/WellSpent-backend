@@ -64,6 +64,9 @@ public interface ITransactionRepository
 
     Task<Transaction> SetTransactionExcludedAsync(Guid id, Guid budgetPeriodId, bool excluded, CancellationToken ct);
 
+    /// <summary>Sets FixedExpensePaidOffEarly on exactly this transaction — the payment that brought its FixedExpense's remaining balance to zero strictly before EndDate.</summary>
+    Task SetFixedExpensePaidOffEarlyAsync(Guid id, CancellationToken ct);
+
     // ── Categories ───────────────────────────────────────────────────────────
     Task<Category> GetCategoryAsync(int id, CancellationToken ct);
 

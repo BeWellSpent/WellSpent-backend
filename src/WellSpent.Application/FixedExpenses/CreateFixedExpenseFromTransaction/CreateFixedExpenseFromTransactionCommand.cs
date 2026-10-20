@@ -75,7 +75,8 @@ public sealed class CreateFixedExpenseFromTransactionCommandHandler(
         // No transaction spawned this period (e.g. a future anchor date) — nothing to match against yet. The source transaction is left as-is.
         if (spawned is null)
         {
-            return new CreateFixedExpenseFromTransactionResult(FixedExpenseMapping.ToDto(fe, today), TransactionMapping.ToDto(tx));
+            var amountPaidNoSpawn = await FixedExpensePayoff.AmountPaidAsync(fixedExpenses, fe, ct);
+            return new CreateFixedExpenseFromTransactionResult(FixedExpenseMapping.ToDto(fe, today, amountPaidNoSpawn), TransactionMapping.ToDto(tx));
         }
 
         var review = await reviews.UpsertAsync(request.BudgetPeriodId, request.TransactionId, spawned.Id, 100.0m, ct);
@@ -83,6 +84,7 @@ public sealed class CreateFixedExpenseFromTransactionCommandHandler(
             transactions, fixedExpenses, reviews, profiles, review, period.BudgetProfileId, logger, ct);
 
         var updated = await transactions.GetTransactionAsync(request.TransactionId, ct);
-        return new CreateFixedExpenseFromTransactionResult(FixedExpenseMapping.ToDto(fe, today), TransactionMapping.ToDto(updated));
+        var amountPaid = await FixedExpensePayoff.AmountPaidAsync(fixedExpenses, fe, ct);
+        return new CreateFixedExpenseFromTransactionResult(FixedExpenseMapping.ToDto(fe, today, amountPaid), TransactionMapping.ToDto(updated));
     }
 }

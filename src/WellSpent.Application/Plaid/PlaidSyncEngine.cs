@@ -403,7 +403,7 @@ public sealed class PlaidSyncEngine(
         {
             await FixedExpensePaymentSync.MarkPaidAsync(
                 transactions, fixedExpenses, unpaid.Id, period.Id, tx.Amount, tx.Date,
-                autoUpdatePlanned, new ObservedPayment(categoryId, paymentMethodId), ct);
+                autoUpdatePlanned, new ObservedPayment(categoryId, paymentMethodId), logger, ct);
         }
         catch (Exception ex)
         {
@@ -501,7 +501,7 @@ public sealed class PlaidSyncEngine(
             // Re-syncing a settled amount, not a fresh payment — no ObservedPayment override.
             await FixedExpensePaymentSync.MarkPaidAsync(
                 transactions, fixedExpenses, matchedTx.Id, matchedPeriodId, repointed.Amount,
-                matchedTx.PaidDate ?? tx.Date, autoUpdatePlanned, default, ct);
+                matchedTx.PaidDate ?? tx.Date, autoUpdatePlanned, default, logger, ct);
         }
         catch (Exception ex)
         {
