@@ -267,7 +267,7 @@ public sealed class NotificationDispatcher(
             var tokens = await notifications.ListDeviceTokensForUserAsync(userId, ct) ?? [];
             foreach (var token in tokens)
             {
-                await pushSender.SendAsync(token.Token, title, body, ct);
+                await pushSender.SendAsync(token.Token, title, body, alertType, profileId, ct);
             }
         }
         catch (Exception ex)

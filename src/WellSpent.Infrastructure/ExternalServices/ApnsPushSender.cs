@@ -30,9 +30,14 @@ public sealed class ApnsPushSender : IPushSender
         _sender = new ApnSender(settings, httpClient);
     }
 
-    public async Task<bool> SendAsync(string deviceToken, string title, string body, CancellationToken ct)
+    public async Task<bool> SendAsync(string deviceToken, string title, string body, string alertType, Guid budgetProfileId, CancellationToken ct)
     {
-        var payload = new { aps = new { alert = new { title, body }, badge = 1 } };
+        var payload = new
+        {
+            aps = new { alert = new { title, body }, badge = 1 },
+            alertType,
+            budgetProfileId = budgetProfileId.ToString(),
+        };
         try
         {
             var result = await _sender.SendAsync(payload, deviceToken, null, 10, 0, ApnPushType.Alert, ct);
@@ -54,7 +59,7 @@ public sealed class ApnsPushSender : IPushSender
 /// <summary>Registered in place of ApnsPushSender when APNS_AUTH_KEY is unset — mirrors Go's "skipped: APNS_AUTH_KEY not set" warning-and-no-op rather than failing the caller.</summary>
 public sealed class NoOpPushSender(ILogger<NoOpPushSender> logger) : IPushSender
 {
-    public Task<bool> SendAsync(string deviceToken, string title, string body, CancellationToken ct)
+    public Task<bool> SendAsync(string deviceToken, string title, string body, string alertType, Guid budgetProfileId, CancellationToken ct)
     {
         logger.LogWarning("notification.send_push_skipped: APNS_AUTH_KEY not set token={Token}", deviceToken);
         return Task.FromResult(false);
