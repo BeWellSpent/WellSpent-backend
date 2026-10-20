@@ -146,6 +146,93 @@ public sealed class PlaidSyncEngineTests
     }
 
     [Fact]
+    public async Task HighConfidenceMatch_AgainstAlreadyPaidTransaction_ConfirmsWithoutMarkingPaidAgain()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var periodId = Guid.NewGuid();
+        var feId = Guid.NewGuid();
+        var matchedTxId = Guid.NewGuid();
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var period = new BudgetPeriod { Id = periodId, BudgetProfileId = item.BudgetProfileId, StartDate = today.AddDays(-10), EndDate = today.AddDays(10) };
+
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("plaid-tx-1", "Patreon", 15.00m, today)], [], [], "new-cursor"));
+        _budgets.GetPeriodByDateAsync(item.BudgetProfileId, Arg.Any<DateOnly>(), Arg.Any<CancellationToken>()).Returns(period);
+        _fixedExpenses.ListAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
+            .Returns([new FixedExpense { Id = feId, BudgetProfileId = item.BudgetProfileId, Name = "Creator Support", PlannedAmount = 15.00m }]);
+        _reviews.ListAliasesAsync(feId, Arg.Any<CancellationToken>()).Returns(["Patreon"]);
+        // No unpaid transaction — the bill was already marked paid by hand before this import arrived (issue #90).
+        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>()).Returns((Transaction?)null);
+        _fixedExpenses.GetTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = matchedTxId, BudgetPeriodId = periodId, PlannedAmount = 15.00m, Amount = 15.00m, IsPaid = true });
+
+        var reviewId = Guid.NewGuid();
+        _reviews.UpsertAsync(periodId, Arg.Any<Guid>(), matchedTxId, Arg.Any<decimal>(), Arg.Any<CancellationToken>())
+            .Returns(info => Task.FromResult(new TransactionReview { Id = reviewId, BudgetPeriodId = periodId, TransactionId = (Guid)info[1], MatchedTransactionId = matchedTxId }));
+        _reviews.ListByMatchedTransactionIdAsync(matchedTxId, Arg.Any<CancellationToken>()).Returns([]);
+        _transactions.GetTransactionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(info =>
+            {
+                var id = (Guid)info[0];
+                return Task.FromResult(id == matchedTxId
+                    ? new Transaction { Id = matchedTxId, BudgetPeriodId = periodId, IsPaid = true }
+                    : new Transaction { Id = id, Name = "Patreon", Amount = 15.00m });
+            });
+
+        Guid excludedId = Guid.Empty;
+        bool excludedFlag = false;
+        _transactions.SetTransactionExcludedAsync(Arg.Any<Guid>(), periodId, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(info =>
+            {
+                excludedId = (Guid)info[0];
+                excludedFlag = (bool)info[2];
+                return Task.FromResult(new Transaction { Id = excludedId, IsExcluded = excludedFlag });
+            });
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.Equal(1, result.AutoConfirmed);
+        Assert.Equal(0, result.Queued);
+        Assert.True(excludedFlag);
+        await _transactions.DidNotReceive().MarkTransactionAsPaidAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>());
+        await _reviews.Received(1).UpdateStatusAsync(reviewId, "confirmed", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task QueuesForReview_AgainstAlreadyPaidTransaction_WhenNoUnpaidOneExists()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var periodId = Guid.NewGuid();
+        var feId = Guid.NewGuid();
+        var paidTxId = Guid.NewGuid();
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var period = new BudgetPeriod { Id = periodId, BudgetProfileId = item.BudgetProfileId, StartDate = today.AddDays(-10), EndDate = today.AddDays(10) };
+
+        var catId = 5;
+        var pmId = Guid.NewGuid();
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("plaid-tx-1", "Amex Renewal Membership", 150.00m, today, accountId: "acct-1")], [], [], "new-cursor"));
+        _budgets.GetPeriodByDateAsync(item.BudgetProfileId, Arg.Any<DateOnly>(), Arg.Any<CancellationToken>()).Returns(period);
+        _transactions.GetPaymentMethodByPlaidAccountIdAsync("acct-1", Arg.Any<CancellationToken>())
+            .Returns(new PaymentMethod { Id = pmId, Name = "Amex" });
+        _fixedExpenses.ListAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
+            .Returns([new FixedExpense { Id = feId, BudgetProfileId = item.BudgetProfileId, Name = "Renewal Membership", PlannedAmount = 150.00m, PaymentMethodId = pmId, CategoryId = catId }]);
+        // No unpaid transaction — fall back to the already-paid one instead of giving up (issue #90).
+        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>()).Returns((Transaction?)null);
+        _fixedExpenses.GetTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = paidTxId, BudgetPeriodId = periodId, PlannedAmount = 150.00m, Amount = 150.00m, IsPaid = true });
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.Equal(1, result.Queued);
+        Assert.Equal(0, result.AutoConfirmed);
+        await _reviews.Received(1).UpsertAsync(periodId, Arg.Any<Guid>(), paidTxId, Arg.Any<decimal>(), Arg.Any<CancellationToken>());
+        await _transactions.DidNotReceive().MarkTransactionAsPaidAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task QueuesForReview_WhenScoreMeetsThresholdWithoutAliasAndAmount()
     {
         var item = NewItem(Guid.NewGuid());

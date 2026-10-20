@@ -1,0 +1,11 @@
+{
+  "component": "server",
+  "version": "2.1.1",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summaryEn": "A bank transaction importing after its matching fixed bill was already marked paid by hand now gets reviewed and excluded like any other match, instead of counting twice toward the period's total.",
+      "summaryEs": "Una transacción bancaria que llega después de marcar pagada a mano su factura fija ahora se revisa y excluye como cualquier otra coincidencia, en lugar de contarse dos veces en el total del período."
+    }
+  ]
+}

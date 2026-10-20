@@ -58,4 +58,7 @@ public interface IFixedExpenseRepository
     /// added/edited transaction might duplicate.
     /// </summary>
     Task<Transaction?> GetUnpaidTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, CancellationToken ct);
+
+    /// <summary>Same as GetUnpaidTransactionInPeriodAsync but regardless of paid status — the fallback when the bill was already paid by hand before its Plaid import arrived (issue #90).</summary>
+    Task<Transaction?> GetTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, CancellationToken ct);
 }

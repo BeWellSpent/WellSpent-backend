@@ -134,10 +134,12 @@ public static class ManualMatchReview
 
         // Same-period only, matching MarkTransactionForReview's guard — a
         // review linking two different periods can't be rendered by either client.
-        var unpaid = await fixedExpenses.GetUnpaidTransactionInPeriodAsync(bestFe.Id, periodId, ct);
-        if (unpaid is null)
+        // Falls back to an already-paid transaction (issue #90): the bill may have been paid by hand before this import arrived.
+        var target = await fixedExpenses.GetUnpaidTransactionInPeriodAsync(bestFe.Id, periodId, ct)
+            ?? await fixedExpenses.GetTransactionInPeriodAsync(bestFe.Id, periodId, ct);
+        if (target is null)
         {
-            logger.LogInformation("transaction.match: tx {TransactionId}: matched fixed expense {FixedExpenseId} (score={Score}) but no unpaid transaction in period {PeriodId}",
+            logger.LogInformation("transaction.match: tx {TransactionId}: matched fixed expense {FixedExpenseId} (score={Score}) but no transaction at all in period {PeriodId}",
                 tx.Id, bestFe.Id, bestScore, periodId);
             await RemoveStaleAsync(bestScore);
             return;
@@ -145,12 +147,12 @@ public static class ManualMatchReview
 
         try
         {
-            await reviews.UpsertAsync(periodId, tx.Id, unpaid.Id, (decimal)bestScore, ct);
+            await reviews.UpsertAsync(periodId, tx.Id, target.Id, (decimal)bestScore, ct);
         }
         catch (Exception ex)
         {
             // Not fatal: the transaction is created and correct, it just won't be offered for review.
-            logger.LogError(ex, "transaction.match: tx {TransactionId}: queue review against {UnpaidId}", tx.Id, unpaid.Id);
+            logger.LogError(ex, "transaction.match: tx {TransactionId}: queue review against {TargetId}", tx.Id, target.Id);
             return;
         }
         logger.LogInformation("transaction.match: tx {TransactionId} {Name}: queued review against fixed expense {FixedExpenseName} (score={Score})",

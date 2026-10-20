@@ -143,4 +143,10 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
             .Where(t => t.FixedExpenseId == fixedExpenseId && !t.IsPaid && t.BudgetPeriodId == budgetPeriodId)
             .OrderByDescending(t => t.Date)
             .FirstOrDefaultAsync(ct);
+
+    public async Task<Transaction?> GetTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, CancellationToken ct) =>
+        await db.Transactions
+            .Where(t => t.FixedExpenseId == fixedExpenseId && t.BudgetPeriodId == budgetPeriodId)
+            .OrderByDescending(t => t.Date)
+            .FirstOrDefaultAsync(ct);
 }
