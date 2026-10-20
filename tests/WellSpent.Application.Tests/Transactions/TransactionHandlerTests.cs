@@ -167,6 +167,32 @@ public sealed class TransactionHandlerTests
     }
 
     [Fact]
+    public async Task Create_Variable_QueuesReview_AgainstAlreadyPaidTransaction_WhenNoUnpaidOneExists()
+    {
+        var (adminId, profileId, periodId) = SetUpOpenPeriod();
+        SetUpManualMatchEligible(profileId, adminId);
+        var feId = Guid.NewGuid();
+        var paidId = Guid.NewGuid();
+        const int catId = 9; // matching category pushes the score to 80 (amount 40 + name 20 + category 20)
+        _fixedExpenses.ListAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns([new FixedExpense { Id = feId, BudgetProfileId = profileId, Name = "Netflix", PlannedAmount = 15.49m, CategoryId = catId }]);
+        _reviews.ListAliasesAsync(feId, Arg.Any<CancellationToken>()).Returns([]);
+        _reviews.GetByTransactionIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((TransactionReview?)null);
+        // No unpaid transaction — the bill was already marked paid by hand before this transaction was created (issue #90).
+        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>()).Returns((Transaction?)null);
+        _fixedExpenses.GetTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = paidId, BudgetPeriodId = periodId, IsPaid = true });
+        _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { var t = ci.Arg<Transaction>(); t.Id = Guid.NewGuid(); return t; });
+
+        var result = await CreateCreateHandler().Handle(new CreateTransactionCommand(
+            adminId, "Netflix", new Money(15, 490_000_000), new Money(15, 490_000_000), new DateOnly(2026, 2, 10), null,
+            periodId, catId, null, null, "variable"), CancellationToken.None);
+
+        await _reviews.Received(1).UpsertAsync(periodId, result.Id, paidId, 80m, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Create_Variable_NoReview_WhenScoreUnder80()
     {
         var (adminId, profileId, periodId) = SetUpOpenPeriod();

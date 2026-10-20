@@ -4,6 +4,7 @@ using WellSpent.Application.Abstractions;
 using WellSpent.Application.Configuration;
 using WellSpent.Application.FixedExpenses;
 using WellSpent.Application.Notifications;
+using WellSpent.Application.TransactionReviews;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 
@@ -304,21 +305,38 @@ public sealed class PlaidSyncEngine(
             // Scoped to this transaction's own period, not every live one (issue #41).
             var unpaid = await fixedExpenses.GetUnpaidTransactionInPeriodAsync(bestFe.Id, period.Id, ct);
             var hasUnpaidTarget = unpaid is not null;
+            // Falls back to an already-paid transaction (issue #90): the bill may have been marked paid by hand before this import arrived.
+            var alreadyPaid = hasUnpaidTarget ? null : await fixedExpenses.GetTransactionInPeriodAsync(bestFe.Id, period.Id, ct);
+            var hasAnyTarget = hasUnpaidTarget || alreadyPaid is not null;
 
             if (bestAliasHit && bestAmountOk && hasUnpaidTarget)
             {
                 consumed = await TryAutoConfirmAsync(item.Id, tx, period, inserted, unpaid!, bestFe, bestScore, categoryId, paymentMethodId, autoUpdatePlanned, byAccount, accountName, ct);
                 if (consumed) autoConfirmed++;
             }
-            else if (bestScore >= 80 && hasUnpaidTarget)
+            else if (bestAliasHit && bestAmountOk && alreadyPaid is not null)
             {
+                consumed = await TryConfirmAlreadyPaidMatchAsync(item.Id, inserted, period, alreadyPaid, bestFe, bestScore, byAccount, accountName, ct);
+                if (consumed) autoConfirmed++;
+            }
+            else if (bestScore >= 80 && hasAnyTarget)
+            {
+                var targetId = hasUnpaidTarget ? unpaid!.Id : alreadyPaid!.Id;
                 try
                 {
-                    await reviews.UpsertAsync(period.Id, inserted.Id, unpaid!.Id, (decimal)bestScore, ct);
+                    await reviews.UpsertAsync(period.Id, inserted.Id, targetId, (decimal)bestScore, ct);
                     queued++;
                     consumed = true;
-                    logger.LogInformation("plaid.sync_queued_review plaid_item_id={PlaidItemId} name={Name} score={Score} fixed_expense={FixedExpenseName}",
-                        item.Id, tx.Name, bestScore, bestFe.Name);
+                    if (hasUnpaidTarget)
+                    {
+                        logger.LogInformation("plaid.sync_queued_review plaid_item_id={PlaidItemId} name={Name} score={Score} fixed_expense={FixedExpenseName}",
+                            item.Id, tx.Name, bestScore, bestFe.Name);
+                    }
+                    else
+                    {
+                        logger.LogInformation("plaid.sync_queued_review_already_paid plaid_item_id={PlaidItemId} name={Name} score={Score} fixed_expense={FixedExpenseName}",
+                            item.Id, tx.Name, bestScore, bestFe.Name);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -447,6 +465,39 @@ public sealed class PlaidSyncEngine(
         }
 
         logger.LogInformation("plaid.sync_auto_confirmed plaid_item_id={PlaidItemId} name={Name} fixed_expense={FixedExpenseName}", itemId, tx.Name, bestFe.Name);
+        return true;
+    }
+
+    // The fixed side is already paid by hand (issue #90) — reuses ConfirmTransactionReview's own confirm path, which already skips a second mark-paid.
+    private async Task<bool> TryConfirmAlreadyPaidMatchAsync(
+        Guid itemId, Transaction inserted, BudgetPeriod period, Transaction alreadyPaid,
+        FixedExpense bestFe, double bestScore, Dictionary<string, int> byAccount, string accountName, CancellationToken ct)
+    {
+        TransactionReview review;
+        try
+        {
+            review = await reviews.UpsertAsync(period.Id, inserted.Id, alreadyPaid.Id, (decimal)bestScore, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "plaid.sync_auto_confirm_create_review_failed plaid_item_id={PlaidItemId} name={Name}", itemId, inserted.Name);
+            byAccount[accountName] = byAccount.GetValueOrDefault(accountName) + 1;
+            return false;
+        }
+
+        try
+        {
+            await TransactionReviewConfirmation.ConfirmTransactionMatchAsync(
+                transactions, fixedExpenses, reviews, budgets, review, period.BudgetProfileId, logger, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "plaid.sync_auto_confirm_already_paid_failed plaid_item_id={PlaidItemId} name={Name} review_id={ReviewId}", itemId, inserted.Name, review.Id);
+            byAccount[accountName] = byAccount.GetValueOrDefault(accountName) + 1;
+            return false;
+        }
+
+        logger.LogInformation("plaid.sync_auto_confirm_already_paid plaid_item_id={PlaidItemId} name={Name} fixed_expense={FixedExpenseName}", itemId, inserted.Name, bestFe.Name);
         return true;
     }
 
