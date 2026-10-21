@@ -19,15 +19,17 @@ public sealed record RegisterCommand(
     string StateCode,
     string Language,
     string Currency,
-    string CaptchaToken) : IRequest<RegisterResult>;
+    string CaptchaToken,
+    string DeviceId) : IRequest<RegisterResult>;
 
-public sealed record RegisterResult(string AccessToken, long ExpiresIn);
+public sealed record RegisterResult(string AccessToken, long ExpiresIn, string RefreshToken);
 
 public sealed class RegisterCommandHandler(
     IUserRepository users,
     IPasswordHasher passwordHasher,
     ICaptchaVerifier captcha,
     IJwtService jwt,
+    IRefreshTokenRepository refreshTokens,
     VerificationMailer mailer,
     IOptions<AuthOptions> options,
     ILogger<RegisterCommandHandler> logger) : IRequestHandler<RegisterCommand, RegisterResult>
@@ -97,7 +99,12 @@ public sealed class RegisterCommandHandler(
             logger.LogError(ex, "auth.verification_email.failed to={To}", user.Email);
         }
 
-        var token = jwt.GenerateToken(user.Id, AuthConstants.DefaultTokenLifetime);
-        return new RegisterResult(token, (long)AuthConstants.DefaultTokenLifetime.TotalSeconds);
+        var accessToken = jwt.GenerateToken(user.Id, AuthConstants.AccessTokenLifetime);
+        var rawRefreshToken = RefreshTokenGenerator.GenerateRaw();
+        await refreshTokens.IssueAsync(user.Id, request.DeviceId, RefreshTokenGenerator.Hash(rawRefreshToken),
+            (int)AuthConstants.DefaultTokenLifetime.TotalSeconds, DateTime.UtcNow.Add(AuthConstants.DefaultTokenLifetime), ct);
+        logger.LogInformation("auth.register.success user_id={UserId} device_id={DeviceId}", user.Id, request.DeviceId);
+
+        return new RegisterResult(accessToken, (long)AuthConstants.AccessTokenLifetime.TotalSeconds, rawRefreshToken);
     }
 }

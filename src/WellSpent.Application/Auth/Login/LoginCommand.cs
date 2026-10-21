@@ -1,15 +1,19 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using WellSpent.Application.Abstractions;
+using WellSpent.Application.Common;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Exceptions;
 
 namespace WellSpent.Application.Auth.Login;
 
-public sealed record LoginCommand(string Email, string Password, bool RememberMe) : IRequest<LoginResult>;
+public sealed record LoginCommand(string Email, string Password, bool RememberMe, string DeviceId) : IRequest<LoginResult>;
 
-public sealed record LoginResult(string AccessToken, long ExpiresIn, string Language, string Currency);
+public sealed record LoginResult(string AccessToken, long ExpiresIn, string Language, string Currency, string RefreshToken);
 
-public sealed class LoginCommandHandler(IUserRepository users, IPasswordHasher passwordHasher, IJwtService jwt)
+public sealed class LoginCommandHandler(
+    IUserRepository users, IPasswordHasher passwordHasher, IJwtService jwt,
+    IRefreshTokenRepository refreshTokens, ILogger<LoginCommandHandler> logger)
     : IRequestHandler<LoginCommand, LoginResult>
 {
     public async Task<LoginResult> Handle(LoginCommand request, CancellationToken ct)
@@ -40,8 +44,13 @@ public sealed class LoginCommandHandler(IUserRepository users, IPasswordHasher p
             throw new AppValidationException("invalid email or password");
         }
 
-        var lifetime = request.RememberMe ? Auth.AuthConstants.RememberMeTokenLifetime : Auth.AuthConstants.DefaultTokenLifetime;
-        var token = jwt.GenerateToken(user.Id, lifetime);
-        return new LoginResult(token, (long)lifetime.TotalSeconds, user.Language, user.Currency);
+        var refreshLifetime = request.RememberMe ? Auth.AuthConstants.RememberMeTokenLifetime : Auth.AuthConstants.DefaultTokenLifetime;
+        var accessToken = jwt.GenerateToken(user.Id, Auth.AuthConstants.AccessTokenLifetime);
+        var rawRefreshToken = RefreshTokenGenerator.GenerateRaw();
+        await refreshTokens.IssueAsync(user.Id, request.DeviceId, RefreshTokenGenerator.Hash(rawRefreshToken),
+            (int)refreshLifetime.TotalSeconds, DateTime.UtcNow.Add(refreshLifetime), ct);
+        logger.LogInformation("auth.login.success user_id={UserId} device_id={DeviceId} remember_me={RememberMe}", user.Id, request.DeviceId, request.RememberMe);
+
+        return new LoginResult(accessToken, (long)Auth.AuthConstants.AccessTokenLifetime.TotalSeconds, user.Language, user.Currency, rawRefreshToken);
     }
 }

@@ -18,3 +18,6 @@ public sealed class DuplicateException(string resource, string field, string val
     : Exception($"{resource} with {field} \"{value}\" already exists");
 
 public sealed class AppValidationException(string message) : Exception(message);
+
+/// <summary>An unknown, revoked, expired, or device-mismatched refresh token — maps to 401.</summary>
+public sealed class UnauthorizedException(string message) : Exception(message);

@@ -15,9 +15,10 @@ public sealed class DeleteMeCommandHandlerTests
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly IAppleAuthClient _apple = Substitute.For<IAppleAuthClient>();
     private readonly ICryptoService _crypto = Substitute.For<ICryptoService>();
+    private readonly IRefreshTokenRepository _refreshTokens = Substitute.For<IRefreshTokenRepository>();
 
     private DeleteMeCommandHandler CreateHandler(string encryptionKey = "hex-key") =>
-        new(_users, _apple, _crypto, Options.Create(new AuthOptions { EncryptionKey = encryptionKey }),
+        new(_users, _apple, _crypto, _refreshTokens, Options.Create(new AuthOptions { EncryptionKey = encryptionKey }),
             NullLogger<DeleteMeCommandHandler>.Instance);
 
     [Fact]
@@ -30,6 +31,17 @@ public sealed class DeleteMeCommandHandlerTests
 
         await _users.Received(1).SoftDeleteAsync(userId, Arg.Any<CancellationToken>());
         await _apple.DidNotReceive().RevokeRefreshTokenAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Success_RevokesAllRefreshTokensForUser()
+    {
+        var userId = Guid.NewGuid();
+        _users.ListOAuthAccountsByUserAsync(userId, Arg.Any<CancellationToken>()).Returns([]);
+
+        await CreateHandler().Handle(new DeleteMeCommand(userId), CancellationToken.None);
+
+        await _refreshTokens.Received(1).RevokeAllForUserAsync(userId, Arg.Any<CancellationToken>());
     }
 
     [Fact]

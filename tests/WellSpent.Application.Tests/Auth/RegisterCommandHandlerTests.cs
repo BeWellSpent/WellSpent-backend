@@ -18,35 +18,40 @@ public sealed class RegisterCommandHandlerTests
     private readonly IPasswordHasher _passwordHasher = Substitute.For<IPasswordHasher>();
     private readonly ICaptchaVerifier _captcha = Substitute.For<ICaptchaVerifier>();
     private readonly IJwtService _jwt = Substitute.For<IJwtService>();
+    private readonly IRefreshTokenRepository _refreshTokens = Substitute.For<IRefreshTokenRepository>();
     private readonly IEmailSender _emailSender = Substitute.For<IEmailSender>();
 
     private RegisterCommandHandler CreateHandler(bool captchaEnforced = false)
     {
         var options = Options.Create(new AuthOptions { CaptchaEnforcementEnabled = captchaEnforced, FrontendUrl = "http://localhost:3000" });
         var mailer = new VerificationMailer(_users, _emailSender, options, NullLogger<VerificationMailer>.Instance);
-        return new RegisterCommandHandler(_users, _passwordHasher, _captcha, _jwt, mailer, options, NullLogger<RegisterCommandHandler>.Instance);
+        return new RegisterCommandHandler(_users, _passwordHasher, _captcha, _jwt, _refreshTokens, mailer, options, NullLogger<RegisterCommandHandler>.Instance);
     }
 
     private static RegisterCommand ValidCommand() => new(
-        "New@Example.com", "Str0ng!Pass", "First", "Last", "US", "CA", "en", "USD", "");
+        "New@Example.com", "Str0ng!Pass", "First", "Last", "US", "CA", "en", "USD", "", "device-1");
 
     [Fact]
-    public async Task Success_NormalizesEmail_HashesPassword_CreatesUser_ReturnsToken()
+    public async Task Success_NormalizesEmail_HashesPassword_CreatesUser_ReturnsTokens()
     {
         _users.GetByEmailAsync("new@example.com", Arg.Any<CancellationToken>())
             .Returns(Task.FromException<User>(new NotFoundException("user", "new@example.com")));
         _passwordHasher.Hash("Str0ng!Pass").Returns("hashed");
         var created = new User { Id = Guid.NewGuid(), Email = "new@example.com", Language = "en", Currency = "USD" };
         _users.CreateAsync(Arg.Any<User>(), Arg.Any<CancellationToken>()).Returns(created);
-        _jwt.GenerateToken(created.Id, WellSpent.Application.Auth.AuthConstants.DefaultTokenLifetime).Returns("token-123");
+        _jwt.GenerateToken(created.Id, WellSpent.Application.Auth.AuthConstants.AccessTokenLifetime).Returns("token-123");
 
         var result = await CreateHandler().Handle(ValidCommand(), CancellationToken.None);
 
         Assert.Equal("token-123", result.AccessToken);
-        Assert.Equal((long)WellSpent.Application.Auth.AuthConstants.DefaultTokenLifetime.TotalSeconds, result.ExpiresIn);
+        Assert.Equal((long)WellSpent.Application.Auth.AuthConstants.AccessTokenLifetime.TotalSeconds, result.ExpiresIn);
+        Assert.False(string.IsNullOrEmpty(result.RefreshToken));
         await _users.Received(1).CreateAsync(
             Arg.Is<User>(u => u.Email == "new@example.com" && u.HashedPassword == "hashed"),
             Arg.Any<CancellationToken>());
+        await _refreshTokens.Received(1).IssueAsync(
+            created.Id, "device-1", Arg.Any<string>(), (int)WellSpent.Application.Auth.AuthConstants.DefaultTokenLifetime.TotalSeconds,
+            Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

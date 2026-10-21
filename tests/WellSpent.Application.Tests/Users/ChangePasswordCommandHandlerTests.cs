@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using WellSpent.Application.Abstractions;
 using WellSpent.Application.Users.ChangePassword;
@@ -12,8 +13,10 @@ public sealed class ChangePasswordCommandHandlerTests
 {
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly IPasswordHasher _passwordHasher = Substitute.For<IPasswordHasher>();
+    private readonly IRefreshTokenRepository _refreshTokens = Substitute.For<IRefreshTokenRepository>();
 
-    private ChangePasswordCommandHandler CreateHandler() => new(_users, _passwordHasher);
+    private ChangePasswordCommandHandler CreateHandler() =>
+        new(_users, _passwordHasher, _refreshTokens, NullLogger<ChangePasswordCommandHandler>.Instance);
 
     [Fact]
     public async Task Success_HashesAndStoresNewPassword()
@@ -26,6 +29,19 @@ public sealed class ChangePasswordCommandHandlerTests
         await CreateHandler().Handle(new ChangePasswordCommand(user.Id, "current", "new-password"), CancellationToken.None);
 
         await _users.Received(1).UpdatePasswordAsync(user.Id, "new-hash", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Success_RevokesAllRefreshTokensForUser()
+    {
+        var user = new User { Id = Guid.NewGuid(), Email = "a@example.com", HashedPassword = "old-hash" };
+        _users.GetByIdAsync(user.Id, Arg.Any<CancellationToken>()).Returns(user);
+        _passwordHasher.Verify("current", "old-hash").Returns(true);
+        _passwordHasher.Hash("new-password").Returns("new-hash");
+
+        await CreateHandler().Handle(new ChangePasswordCommand(user.Id, "current", "new-password"), CancellationToken.None);
+
+        await _refreshTokens.Received(1).RevokeAllForUserAsync(user.Id, Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -1,0 +1,16 @@
+{
+  "component": "server",
+  "version": "2.2.0",
+  "items": [
+    {
+      "changeType": "added",
+      "summaryEn": "Sign-in now issues a short-lived session with a separate, device-scoped refresh token, so a single compromised device can be revoked without logging out every other device. Changing your password or email, or deleting your account, now also signs out every other session.",
+      "summaryEs": "El inicio de sesión ahora usa una sesión de corta duración con un token de actualización separado por dispositivo, para poder revocar un solo dispositivo comprometido sin cerrar sesión en los demás. Cambiar tu contraseña, tu correo o eliminar tu cuenta ahora también cierra sesión en todos los demás dispositivos."
+    },
+    {
+      "changeType": "changed",
+      "summaryEn": "Logging out now actually ends your session on the server, instead of only clearing the app's local copy of your credentials.",
+      "summaryEs": "Cerrar sesión ahora termina realmente tu sesión en el servidor, en lugar de solo borrar la copia local de tus credenciales en la app."
+    }
+  ]
+}

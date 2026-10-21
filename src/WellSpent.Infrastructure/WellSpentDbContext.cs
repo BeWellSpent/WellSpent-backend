@@ -38,6 +38,7 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
     public DbSet<BudgetInvite> BudgetInvites => Set<BudgetInvite>();
     public DbSet<PlaidItem> PlaidItems => Set<PlaidItem>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -66,5 +67,6 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
         modelBuilder.ApplyConfiguration(new DeviceTokenEntityConfiguration());
         modelBuilder.ApplyConfiguration(new BudgetInviteEntityConfiguration());
         modelBuilder.ApplyConfiguration(new PlaidItemEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new RefreshTokenEntityConfiguration());
     }
 }
