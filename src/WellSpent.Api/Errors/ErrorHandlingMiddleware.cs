@@ -36,6 +36,7 @@ public sealed class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorH
 
     private static (int Status, string Code) MapException(Exception ex) => ex switch
     {
+        UnauthorizedException => (StatusCodes.Status401Unauthorized, "unauthenticated"),
         NotFoundException => (StatusCodes.Status404NotFound, "not_found"),
         ForbiddenException => (StatusCodes.Status403Forbidden, "forbidden"),
         DuplicateException => (StatusCodes.Status409Conflict, "already_exists"),

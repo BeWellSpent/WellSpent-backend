@@ -18,13 +18,14 @@ public sealed class SignInWithAppleCommandHandlerTests
     private readonly IAppleAuthClient _apple = Substitute.For<IAppleAuthClient>();
     private readonly ICryptoService _crypto = Substitute.For<ICryptoService>();
     private readonly IJwtService _jwt = Substitute.For<IJwtService>();
+    private readonly IRefreshTokenRepository _refreshTokens = Substitute.For<IRefreshTokenRepository>();
 
     private SignInWithAppleCommandHandler CreateHandler(string encryptionKey = "") =>
-        new(_users, _apple, _crypto, _jwt, Options.Create(new AuthOptions { EncryptionKey = encryptionKey }),
+        new(_users, _apple, _crypto, _jwt, _refreshTokens, Options.Create(new AuthOptions { EncryptionKey = encryptionKey }),
             NullLogger<SignInWithAppleCommandHandler>.Instance);
 
     private static SignInWithAppleCommand Command(string authCode = "") =>
-        new("identity-token", authCode, "First", "Last", "en", "USD");
+        new("identity-token", authCode, "First", "Last", "en", "USD", "device-1");
 
     [Fact]
     public async Task NoEmailInToken_ThrowsAppValidationException()
@@ -57,12 +58,16 @@ public sealed class SignInWithAppleCommandHandlerTests
         _users.CreateAsync(Arg.Any<User>(), Arg.Any<CancellationToken>()).Returns(created);
         var linked = new OAuthAccount { Id = Guid.NewGuid(), UserId = created.Id, OauthName = "apple", AccountId = "apple-sub", AccountEmail = "new@example.com" };
         _users.CreateOAuthAccountAsync(Arg.Any<OAuthAccount>(), Arg.Any<CancellationToken>()).Returns(linked);
-        _jwt.GenerateToken(created.Id, AuthConstants.RememberMeTokenLifetime).Returns("token");
+        _jwt.GenerateToken(created.Id, AuthConstants.AccessTokenLifetime).Returns("token");
 
         var result = await CreateHandler().Handle(Command(), CancellationToken.None);
 
         Assert.True(result.IsNewUser);
+        Assert.False(string.IsNullOrEmpty(result.SessionRefreshToken));
         await _users.Received(1).MarkVerifiedAsync(created.Id, Arg.Any<CancellationToken>());
+        await _refreshTokens.Received(1).IssueAsync(
+            created.Id, "device-1", Arg.Any<string>(), (int)AuthConstants.RememberMeTokenLifetime.TotalSeconds,
+            Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -90,7 +95,7 @@ public sealed class SignInWithAppleCommandHandlerTests
         _users.GetByEmailAsync("existing@example.com", Arg.Any<CancellationToken>()).Returns(existing);
         var linked = new OAuthAccount { Id = Guid.NewGuid(), UserId = existing.Id, OauthName = "apple", AccountId = "apple-sub", AccountEmail = existing.Email };
         _users.CreateOAuthAccountAsync(Arg.Any<OAuthAccount>(), Arg.Any<CancellationToken>()).Returns(linked);
-        _jwt.GenerateToken(existing.Id, AuthConstants.RememberMeTokenLifetime).Returns("token");
+        _jwt.GenerateToken(existing.Id, AuthConstants.AccessTokenLifetime).Returns("token");
 
         var result = await CreateHandler().Handle(Command(), CancellationToken.None);
 
@@ -137,7 +142,7 @@ public sealed class SignInWithAppleCommandHandlerTests
         _users.GetByIdAsync(userId, Arg.Any<CancellationToken>()).Returns(user);
         _apple.ExchangeCodeAsync("auth-code", Arg.Any<CancellationToken>())
             .Returns(Task.FromException<string>(new AppleKeyNotConfiguredException()));
-        _jwt.GenerateToken(userId, AuthConstants.RememberMeTokenLifetime).Returns("token");
+        _jwt.GenerateToken(userId, AuthConstants.AccessTokenLifetime).Returns("token");
 
         var result = await CreateHandler().Handle(Command(authCode: "auth-code"), CancellationToken.None);
 

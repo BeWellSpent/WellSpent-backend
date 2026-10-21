@@ -20,6 +20,7 @@ public sealed class ChangeEmailCommandHandler(
     IUserRepository users,
     VerificationMailer mailer,
     IMapper mapper,
+    IRefreshTokenRepository refreshTokens,
     ILogger<ChangeEmailCommandHandler> logger) : IRequestHandler<ChangeEmailCommand, UserDto>
 {
     public async Task<UserDto> Handle(ChangeEmailCommand request, CancellationToken ct)
@@ -61,6 +62,10 @@ public sealed class ChangeEmailCommandHandler(
         {
             logger.LogError(ex, "user.change_email.verification_email_failed to={To}", updated.Email);
         }
+
+        // A stolen refresh token must not survive the one remediation step a compromised user is likely to take.
+        await refreshTokens.RevokeAllForUserAsync(request.UserId, ct);
+        logger.LogInformation("user.change_email.refresh_tokens_revoked user_id={UserId}", request.UserId);
 
         return mapper.Map<UserDto>(updated);
     }

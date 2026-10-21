@@ -1,5 +1,7 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using WellSpent.Application.Abstractions;
+using WellSpent.Application.Common;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 using WellSpent.Domain.Exceptions;
@@ -10,14 +12,17 @@ public sealed record ExchangeGoogleCodeCommand(
     string Code,
     string RedirectUri, // unused — mirrors the Go service method exactly, which receives but never reads it (the redirect URI is fixed at GoogleOAuth construction, not per-call)
     string Language,
-    string Currency) : IRequest<ExchangeGoogleCodeResult>;
+    string Currency,
+    string DeviceId) : IRequest<ExchangeGoogleCodeResult>;
 
-public sealed record ExchangeGoogleCodeResult(string AccessToken, long ExpiresIn, bool IsNewUser, string Language, string Currency);
+public sealed record ExchangeGoogleCodeResult(string AccessToken, long ExpiresIn, bool IsNewUser, string Language, string Currency, string RefreshToken);
 
 public sealed class ExchangeGoogleCodeCommandHandler(
     IUserRepository users,
     IGoogleOAuthClient google,
-    IJwtService jwt) : IRequestHandler<ExchangeGoogleCodeCommand, ExchangeGoogleCodeResult>
+    IJwtService jwt,
+    IRefreshTokenRepository refreshTokens,
+    ILogger<ExchangeGoogleCodeCommandHandler> logger) : IRequestHandler<ExchangeGoogleCodeCommand, ExchangeGoogleCodeResult>
 {
     public async Task<ExchangeGoogleCodeResult> Handle(ExchangeGoogleCodeCommand request, CancellationToken ct)
     {
@@ -77,10 +82,14 @@ public sealed class ExchangeGoogleCodeCommandHandler(
             }, ct);
         }
 
-        // Google OAuth has no "remember me" UI — always issue a persistent
-        // token so the session lifetime matches what a user gets from
-        // checking "remember me" on the email/password login form.
-        var token = jwt.GenerateToken(userId, AuthConstants.RememberMeTokenLifetime);
-        return new ExchangeGoogleCodeResult(token, (long)AuthConstants.RememberMeTokenLifetime.TotalSeconds, isNew, userLang, userCurrency);
+        // Google OAuth has no "remember me" UI — always issue the long-lived
+        // refresh token a user gets from checking "remember me" on the form.
+        var accessToken = jwt.GenerateToken(userId, AuthConstants.AccessTokenLifetime);
+        var rawRefreshToken = RefreshTokenGenerator.GenerateRaw();
+        await refreshTokens.IssueAsync(userId, request.DeviceId, RefreshTokenGenerator.Hash(rawRefreshToken),
+            (int)AuthConstants.RememberMeTokenLifetime.TotalSeconds, DateTime.UtcNow.Add(AuthConstants.RememberMeTokenLifetime), ct);
+        logger.LogInformation("auth.google_exchange.success user_id={UserId} device_id={DeviceId} is_new={IsNew}", userId, request.DeviceId, isNew);
+
+        return new ExchangeGoogleCodeResult(accessToken, (long)AuthConstants.AccessTokenLifetime.TotalSeconds, isNew, userLang, userCurrency, rawRefreshToken);
     }
 }

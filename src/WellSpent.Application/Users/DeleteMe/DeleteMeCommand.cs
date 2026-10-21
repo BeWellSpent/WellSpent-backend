@@ -14,6 +14,7 @@ public sealed class DeleteMeCommandHandler(
     IUserRepository users,
     IAppleAuthClient apple,
     ICryptoService crypto,
+    IRefreshTokenRepository refreshTokens,
     IOptions<AuthOptions> options,
     ILogger<DeleteMeCommandHandler> logger) : IRequestHandler<DeleteMeCommand, Unit>
 {
@@ -21,6 +22,11 @@ public sealed class DeleteMeCommandHandler(
     {
         await RevokeAppleTokensAsync(request.UserId, ct);
         await users.SoftDeleteAsync(request.UserId, ct);
+
+        // A stolen refresh token must not survive account deletion either.
+        await refreshTokens.RevokeAllForUserAsync(request.UserId, ct);
+        logger.LogInformation("user.delete.refresh_tokens_revoked user_id={UserId}", request.UserId);
+
         return Unit.Value;
     }
 

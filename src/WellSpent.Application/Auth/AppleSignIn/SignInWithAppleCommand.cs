@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WellSpent.Application.Abstractions;
+using WellSpent.Application.Common;
 using WellSpent.Application.Configuration;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
@@ -15,9 +16,11 @@ public sealed record SignInWithAppleCommand(
     string FirstName, // Apple supplies the name ONLY on the very first authorization, never again — written at creation time and never overwritten
     string LastName,
     string Language,
-    string Currency) : IRequest<SignInWithAppleResult>;
+    string Currency,
+    string DeviceId) : IRequest<SignInWithAppleResult>;
 
-public sealed record SignInWithAppleResult(string AccessToken, long ExpiresIn, bool IsNewUser, string Language, string Currency);
+/// <summary>SessionRefreshToken is our own device-scoped session token — unrelated to Apple's own OAuth refresh token handled by StoreAppleRefreshTokenAsync below.</summary>
+public sealed record SignInWithAppleResult(string AccessToken, long ExpiresIn, bool IsNewUser, string Language, string Currency, string SessionRefreshToken);
 
 /// <summary>
 /// Resolves a native Sign in with Apple credential to a session. Account
@@ -32,6 +35,7 @@ public sealed class SignInWithAppleCommandHandler(
     IAppleAuthClient apple,
     ICryptoService crypto,
     IJwtService jwt,
+    IRefreshTokenRepository refreshTokens,
     IOptions<AuthOptions> options,
     ILogger<SignInWithAppleCommandHandler> logger) : IRequestHandler<SignInWithAppleCommand, SignInWithAppleResult>
 {
@@ -126,9 +130,15 @@ public sealed class SignInWithAppleCommandHandler(
         await StoreAppleRefreshTokenAsync(oauthId, request.AuthorizationCode, ct);
 
         // No "remember me" control exists on either OAuth flow, so both issue
-        // the long-lived token a user would get by ticking it on the login form.
-        var token = jwt.GenerateToken(userId, AuthConstants.RememberMeTokenLifetime);
-        return new SignInWithAppleResult(token, (long)AuthConstants.RememberMeTokenLifetime.TotalSeconds, isNew, userLang, userCurrency);
+        // the long-lived session refresh token a user would get by ticking it
+        // on the login form.
+        var accessToken = jwt.GenerateToken(userId, AuthConstants.AccessTokenLifetime);
+        var rawSessionRefreshToken = RefreshTokenGenerator.GenerateRaw();
+        await refreshTokens.IssueAsync(userId, request.DeviceId, RefreshTokenGenerator.Hash(rawSessionRefreshToken),
+            (int)AuthConstants.RememberMeTokenLifetime.TotalSeconds, DateTime.UtcNow.Add(AuthConstants.RememberMeTokenLifetime), ct);
+        logger.LogInformation("auth.apple.success user_id={UserId} device_id={DeviceId} is_new={IsNew}", userId, request.DeviceId, isNew);
+
+        return new SignInWithAppleResult(accessToken, (long)AuthConstants.AccessTokenLifetime.TotalSeconds, isNew, userLang, userCurrency, rawSessionRefreshToken);
     }
 
     // Exchanges the one-time authorization code for a refresh token and

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using WellSpent.Application.Abstractions;
 using WellSpent.Application.Auth;
@@ -14,10 +15,12 @@ public sealed class ExchangeGoogleCodeCommandHandlerTests
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly IGoogleOAuthClient _google = Substitute.For<IGoogleOAuthClient>();
     private readonly IJwtService _jwt = Substitute.For<IJwtService>();
+    private readonly IRefreshTokenRepository _refreshTokens = Substitute.For<IRefreshTokenRepository>();
 
-    private ExchangeGoogleCodeCommandHandler CreateHandler() => new(_users, _google, _jwt);
+    private ExchangeGoogleCodeCommandHandler CreateHandler() =>
+        new(_users, _google, _jwt, _refreshTokens, NullLogger<ExchangeGoogleCodeCommandHandler>.Instance);
 
-    private static ExchangeGoogleCodeCommand Command() => new("code", "redirect", "en", "USD");
+    private static ExchangeGoogleCodeCommand Command() => new("code", "redirect", "en", "USD", "device-1");
 
     [Fact]
     public async Task BrandNewUser_CreatesVerifiedUserAndLinksAccount()
@@ -30,16 +33,20 @@ public sealed class ExchangeGoogleCodeCommandHandlerTests
             .Returns(Task.FromException<User>(new NotFoundException("user", "new@example.com")));
         var created = new User { Id = Guid.NewGuid(), Email = "new@example.com", Language = "en", Currency = "USD" };
         _users.CreateAsync(Arg.Any<User>(), Arg.Any<CancellationToken>()).Returns(created);
-        _jwt.GenerateToken(created.Id, AuthConstants.RememberMeTokenLifetime).Returns("token");
+        _jwt.GenerateToken(created.Id, AuthConstants.AccessTokenLifetime).Returns("token");
 
         var result = await CreateHandler().Handle(Command(), CancellationToken.None);
 
         Assert.True(result.IsNewUser);
         Assert.Equal("token", result.AccessToken);
+        Assert.False(string.IsNullOrEmpty(result.RefreshToken));
         await _users.Received(1).MarkVerifiedAsync(created.Id, Arg.Any<CancellationToken>());
         await _users.Received(1).CreateOAuthAccountAsync(
             Arg.Is<OAuthAccount>(o => o.OauthName == AuthConstants.OauthProviderGoogle && o.AccountId == "google-sub"),
             Arg.Any<CancellationToken>());
+        await _refreshTokens.Received(1).IssueAsync(
+            created.Id, "device-1", Arg.Any<string>(), (int)AuthConstants.RememberMeTokenLifetime.TotalSeconds,
+            Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -51,7 +58,7 @@ public sealed class ExchangeGoogleCodeCommandHandlerTests
             .Returns(Task.FromException<OAuthAccount>(new NotFoundException("oauth_account", "google:google-sub")));
         var existing = new User { Id = Guid.NewGuid(), Email = "existing@example.com", Language = "es", Currency = "ARS" };
         _users.GetByEmailAsync("existing@example.com", Arg.Any<CancellationToken>()).Returns(existing);
-        _jwt.GenerateToken(existing.Id, AuthConstants.RememberMeTokenLifetime).Returns("token");
+        _jwt.GenerateToken(existing.Id, AuthConstants.AccessTokenLifetime).Returns("token");
 
         var result = await CreateHandler().Handle(Command(), CancellationToken.None);
 
@@ -71,7 +78,7 @@ public sealed class ExchangeGoogleCodeCommandHandlerTests
             .Returns(new OAuthAccount { Id = Guid.NewGuid(), UserId = existingUserId, OauthName = "google", AccountId = "google-sub", AccountEmail = "existing@example.com" });
         var existing = new User { Id = existingUserId, Email = "existing@example.com", Language = "en", Currency = "USD" };
         _users.GetByIdAsync(existingUserId, Arg.Any<CancellationToken>()).Returns(existing);
-        _jwt.GenerateToken(existingUserId, AuthConstants.RememberMeTokenLifetime).Returns("token");
+        _jwt.GenerateToken(existingUserId, AuthConstants.AccessTokenLifetime).Returns("token");
 
         var result = await CreateHandler().Handle(Command(), CancellationToken.None);
 

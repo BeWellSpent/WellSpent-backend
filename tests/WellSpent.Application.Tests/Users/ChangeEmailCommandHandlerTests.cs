@@ -18,6 +18,7 @@ public sealed class ChangeEmailCommandHandlerTests
 {
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly IEmailSender _emailSender = Substitute.For<IEmailSender>();
+    private readonly IRefreshTokenRepository _refreshTokens = Substitute.For<IRefreshTokenRepository>();
     private static readonly IMapper Mapper = new MapperConfiguration(
         cfg => cfg.AddProfile<UserMappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
 
@@ -25,7 +26,7 @@ public sealed class ChangeEmailCommandHandlerTests
     {
         var options = Options.Create(new AuthOptions { FrontendUrl = "http://localhost:3000" });
         var mailer = new VerificationMailer(_users, _emailSender, options, NullLogger<VerificationMailer>.Instance);
-        return new ChangeEmailCommandHandler(_users, mailer, Mapper, NullLogger<ChangeEmailCommandHandler>.Instance);
+        return new ChangeEmailCommandHandler(_users, mailer, Mapper, _refreshTokens, NullLogger<ChangeEmailCommandHandler>.Instance);
     }
 
     [Fact]
@@ -43,6 +44,7 @@ public sealed class ChangeEmailCommandHandlerTests
 
         Assert.Equal("new@example.com", dto.Email);
         await _emailSender.Received(1).SendAsync("new@example.com", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _refreshTokens.Received(1).RevokeAllForUserAsync(userId, Arg.Any<CancellationToken>());
     }
 
     [Fact]
