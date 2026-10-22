@@ -1,7 +1,7 @@
 # Replaces GCP Artifact Registry. Basic SKU — this is a single low-traffic
 # image, nowhere near Basic's throughput/storage limits.
 resource "azurerm_container_registry" "main" {
-  name                = "wellspentacr"
+  name                = var.acr_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "Basic"

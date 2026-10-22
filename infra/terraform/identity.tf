@@ -4,7 +4,7 @@
 # repo+ref, nothing else.
 
 resource "azuread_application" "github_actions" {
-  display_name = "wellspent-backend-github-actions"
+  display_name = var.github_actions_app_display_name
 }
 
 resource "azuread_service_principal" "github_actions" {
@@ -29,14 +29,10 @@ resource "azuread_application_federated_identity_credential" "main" {
   subject        = "repo:${var.github_repo}:ref:refs/heads/main"
 }
 
-resource "azuread_application_federated_identity_credential" "workflow_dispatch" {
-  application_id = azuread_application.github_actions.id
-  display_name   = "github-workflow-dispatch"
-  description    = "OIDC trust for manually-triggered runs (deploy-csharp.yml, run-csharp-job.yml)"
-  audiences      = ["api://AzureADTokenExchange"]
-  issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "repo:${var.github_repo}:ref:refs/heads/develop"
-}
+# No separate workflow_dispatch credential: GitHub's OIDC subject claim is
+# ref-based regardless of trigger type, so a manually-dispatched run against
+# develop (deploy-csharp.yml, run-csharp-job.yml) produces the identical
+# subject the "develop" credential above already covers.
 
 # Scoped to this resource group only, not the whole subscription — Terraform
 # needs to manage everything in it (registry, vault, container apps, roles).
