@@ -27,4 +27,7 @@ infra/terraform/*.tfstate
 infra/terraform/*.tfstate.*
 infra/terraform/*.auto.tfvars
 infra/terraform/*.auto.tfvars.json
+infra/terraform/terraform.tfvars
+infra/terraform/terraform.tfvars.json
+infra/terraform/set-secret-vars.sh
 infra/terraform/crash.log

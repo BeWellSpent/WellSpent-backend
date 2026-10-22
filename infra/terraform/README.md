@@ -32,13 +32,12 @@ Replaces the GCP Cloud Run + Secret Manager setup (`.github/workflows/deploy-csh
    setup). Run `terraform login` once locally to get a token for state/backend
    access.
 4. `terraform init` from this directory.
-5. Supply every `variable` in `variables.tf` with no default — the plain
-   values via `-var` flags or a `*.auto.tfvars` (gitignored, never commit
-   one), the `sensitive = true` ones via `TF_VAR_*` environment variables
-   sourced from the already-decrypted `.env.prod` (same sourcing step the GCP
-   pipeline used, just pointed at `TF_VAR_database_url` etc. instead of
-   `$GITHUB_ENV`) — never put a secret value in a file Terraform itself reads
-   from disk here.
+5. `terraform.tfvars` (gitignored, already generated once — regenerate if a
+   value changes) holds `subscription_id` and the plain, non-secret
+   variables. `source set-secret-vars.sh` (also gitignored) exports the
+   9 `sensitive = true` variables as `TF_VAR_*` in your current shell only —
+   3 from the already-decrypted `.env.prod`, 6 from GCP Secret Manager via
+   `gcloud` — never printed, never written to a file.
 6. `terraform plan`, review, then `terraform apply`.
 
 ## Open question, deliberately not resolved here
