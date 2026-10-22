@@ -26,8 +26,8 @@ and applied separately.
   "version": "1.1.0",
   "releasedAt": "2026-08-25T12:00:00Z",
   "items": [
-    { "changeType": "added", "summaryEn": "…", "summaryEs": "…" },
-    { "changeType": "fixed", "summaryEn": "…" }
+    { "changeType": "added", "summary": { "en": "…", "es": "…" } },
+    { "changeType": "fixed", "summary": { "en": "…" } }
   ]
 }
 ```
@@ -37,7 +37,7 @@ and applied separately.
   that is `src/WellSpent.Application/Changelog/ChangelogConstants.cs`'s `ServerVersion`
 - `releasedAt` — optional, defaults to now
 - `changeType` — `added`, `fixed` or `changed`
-- `summaryEs` — optional; Spanish readers fall back to the English text
+- `summary` — locale-keyed map (issue #89); `en` is required, other locales (e.g. `es`) are optional and fall back to English when absent
 - Write for a **user**, not a reviewer: what they can now do, not which
   function changed
 

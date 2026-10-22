@@ -1,6 +1,6 @@
 namespace WellSpent.Application.Changelog;
 
-public sealed record ChangelogItemDto(string ChangeType, string SummaryEn, string SummaryEs);
+public sealed record ChangelogItemDto(string ChangeType, IReadOnlyDictionary<string, string> Summary);
 
 public sealed record ChangelogReleaseDto(
     Guid Id, string Component, string Version, DateTime ReleasedAt, List<ChangelogItemDto> Items, DateTime CreatedAt);

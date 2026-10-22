@@ -25,14 +25,14 @@ public static class ChangelogEndpoints
         // equivalent direct call for the new backend.
         group.MapPost("/releases", async (CreateReleaseRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
         {
-            var items = body.Items.Select(i => new CreateChangelogItemInput(i.ChangeType, i.SummaryEn, i.SummaryEs)).ToList();
+            var items = body.Items.Select(i => new CreateChangelogItemInput(i.ChangeType, i.Summary)).ToList();
             var release = await sender.Send(new CreateChangelogReleaseCommand(
                 CurrentUser.GetId(ctx), body.Component, body.Version, body.ReleasedAt, items), ct);
             return Results.Ok(new { release });
         });
     }
 
-    private sealed record CreateReleaseItemBody(string ChangeType, string SummaryEn, string SummaryEs);
+    private sealed record CreateReleaseItemBody(string ChangeType, Dictionary<string, string> Summary);
 
     private sealed record CreateReleaseRequestBody(
         string Component, string Version, DateTime? ReleasedAt, List<CreateReleaseItemBody> Items);

@@ -1,0 +1,13 @@
+{
+  "component": "server",
+  "version": "2.3.0",
+  "items": [
+    {
+      "changeType": "changed",
+      "summary": {
+        "en": "Status banner and changelog text now support any language, not just English and Spanish.",
+        "es": "El texto de los avisos de estado y las novedades ahora admite cualquier idioma, no solo inglés y español."
+      }
+    }
+  ]
+}

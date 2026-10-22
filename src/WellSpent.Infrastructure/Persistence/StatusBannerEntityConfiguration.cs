@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using WellSpent.Domain.Entities;
+using WellSpent.Infrastructure.Persistence.Json;
 
 namespace WellSpent.Infrastructure.Persistence;
 
@@ -15,8 +17,9 @@ public sealed class StatusBannerEntityConfiguration : IEntityTypeConfiguration<S
         b.Property(x => x.Id).HasColumnName("id")
             .HasDefaultValueSql("gen_random_uuid()").ValueGeneratedOnAdd();
         b.Property(x => x.Severity).HasColumnName("severity").IsRequired();
-        b.Property(x => x.MessageEn).HasColumnName("message_en").IsRequired();
-        b.Property(x => x.MessageEs).HasColumnName("message_es").IsRequired();
+        // First JSONB column in this repo (issue #89) — copy LocalizedTextConverter/Comparer for the next one.
+        b.Property(x => x.Message).HasColumnName("message").HasColumnType("jsonb")
+            .HasConversion(LocalizedTextConverter.Instance).Metadata.SetValueComparer(LocalizedTextConverter.Comparer);
         b.Property(x => x.StartsAt).HasColumnName("starts_at")
             .HasDefaultValueSql("NOW()");
         b.Property(x => x.EndsAt).HasColumnName("ends_at");

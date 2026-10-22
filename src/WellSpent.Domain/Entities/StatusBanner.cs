@@ -8,8 +8,8 @@ public sealed class StatusBanner
     /// <summary>"info" | "warning" | "critical".</summary>
     public required string Severity { get; set; }
 
-    public required string MessageEn { get; set; }
-    public string MessageEs { get; set; } = "";
+    /// <summary>Locale-keyed text, e.g. {"en": "...", "es": "..."}. "en" is required by the handler, not the DB.</summary>
+    public required Dictionary<string, string> Message { get; set; }
 
     public DateTime StartsAt { get; set; }
     public DateTime EndsAt { get; set; }

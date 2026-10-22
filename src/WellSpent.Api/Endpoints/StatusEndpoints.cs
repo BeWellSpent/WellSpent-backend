@@ -31,7 +31,7 @@ public static class StatusEndpoints
         operatorGroup.MapPost("", async (CreateStatusBannerRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
         {
             var banner = await sender.Send(new CreateStatusBannerCommand(
-                CurrentUser.GetId(ctx), body.Severity, body.MessageEn, body.MessageEs, body.StartsAt, body.EndsAt), ct);
+                CurrentUser.GetId(ctx), body.Severity, body.Message, body.StartsAt, body.EndsAt), ct);
             return Results.Ok(new { banner });
         });
 
@@ -49,5 +49,5 @@ public static class StatusEndpoints
     }
 
     private sealed record CreateStatusBannerRequestBody(
-        string Severity, string MessageEn, string MessageEs, DateTime? StartsAt, DateTime EndsAt);
+        string Severity, Dictionary<string, string> Message, DateTime? StartsAt, DateTime EndsAt);
 }

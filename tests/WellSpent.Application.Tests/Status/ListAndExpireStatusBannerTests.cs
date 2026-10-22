@@ -68,7 +68,7 @@ public sealed class ExpireStatusBannerCommandHandlerTests
         var id = Guid.NewGuid();
         var bannerId = Guid.NewGuid();
         _users.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(new User { Id = id, Email = "x@example.com", IsSuperuser = true });
-        var expired = new StatusBanner { Id = bannerId, Severity = "info", MessageEn = "x", EndsAt = DateTime.UtcNow };
+        var expired = new StatusBanner { Id = bannerId, Severity = "info", Message = new() { ["en"] = "x" }, EndsAt = DateTime.UtcNow };
         _banners.ExpireAsync(bannerId, Arg.Any<CancellationToken>()).Returns(expired);
 
         var result = await new ExpireStatusBannerCommandHandler(_banners, new SuperuserGuard(_users), Mapper)

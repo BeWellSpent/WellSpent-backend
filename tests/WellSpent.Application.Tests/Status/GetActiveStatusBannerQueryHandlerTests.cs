@@ -21,7 +21,7 @@ public sealed class GetActiveStatusBannerQueryHandlerTests
     {
         var banner = new StatusBanner
         {
-            Id = Guid.NewGuid(), Severity = "critical", MessageEn = "Down", MessageEs = "",
+            Id = Guid.NewGuid(), Severity = "critical", Message = new() { ["en"] = "Down" },
             StartsAt = DateTime.UtcNow.AddHours(-1), EndsAt = DateTime.UtcNow.AddHours(1),
         };
         _banners.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(banner);

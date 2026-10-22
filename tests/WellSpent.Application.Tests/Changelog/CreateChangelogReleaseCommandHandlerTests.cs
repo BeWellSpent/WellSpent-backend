@@ -28,7 +28,7 @@ public sealed class CreateChangelogReleaseCommandHandlerTests
     }
 
     private static List<CreateChangelogItemInput> OneValidItem() =>
-        [new CreateChangelogItemInput("added", "Added a thing", "")];
+        [new CreateChangelogItemInput("added", new() { ["en"] = "Added a thing" })];
 
     [Fact]
     public async Task NotSuperuser_Throws()
@@ -71,7 +71,7 @@ public sealed class CreateChangelogReleaseCommandHandlerTests
     public async Task InvalidChangeType_Throws()
     {
         var id = SetUpSuperuser();
-        var items = new List<CreateChangelogItemInput> { new("removed", "x", "") };
+        var items = new List<CreateChangelogItemInput> { new("removed", new() { ["en"] = "x" }) };
 
         await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
             new CreateChangelogReleaseCommand(id, "web", "1.0.0", null, items), CancellationToken.None));
@@ -81,7 +81,17 @@ public sealed class CreateChangelogReleaseCommandHandlerTests
     public async Task EmptyEnglishSummary_Throws()
     {
         var id = SetUpSuperuser();
-        var items = new List<CreateChangelogItemInput> { new("added", "  ", "") };
+        var items = new List<CreateChangelogItemInput> { new("added", new() { ["en"] = "  " }) };
+
+        await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
+            new CreateChangelogReleaseCommand(id, "web", "1.0.0", null, items), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task MissingEnglishSummary_Throws()
+    {
+        var id = SetUpSuperuser();
+        var items = new List<CreateChangelogItemInput> { new("added", new() { ["es"] = "Agregado" }) };
 
         await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
             new CreateChangelogReleaseCommand(id, "web", "1.0.0", null, items), CancellationToken.None));
@@ -91,10 +101,38 @@ public sealed class CreateChangelogReleaseCommandHandlerTests
     public async Task SummaryTooLong_Throws()
     {
         var id = SetUpSuperuser();
-        var items = new List<CreateChangelogItemInput> { new("added", new string('a', 301), "") };
+        var items = new List<CreateChangelogItemInput> { new("added", new() { ["en"] = new string('a', 301) }) };
 
         await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
             new CreateChangelogReleaseCommand(id, "web", "1.0.0", null, items), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task NonEnglishEntryTooLong_Throws()
+    {
+        var id = SetUpSuperuser();
+        var items = new List<CreateChangelogItemInput> { new("added", new() { ["en"] = "ok", ["es"] = new string('a', 301) }) };
+
+        await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
+            new CreateChangelogReleaseCommand(id, "web", "1.0.0", null, items), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task MultiLocaleMap_RoundTrips()
+    {
+        var id = SetUpSuperuser();
+        var items = new List<CreateChangelogItemInput>
+        {
+            new("added", new() { ["en"] = "Added", ["es"] = "Agregado", ["fr"] = "Ajouté" }),
+        };
+        _changelog.CreateReleaseAsync(Arg.Any<ChangelogRelease>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<ChangelogRelease>());
+
+        var result = await CreateHandler().Handle(new CreateChangelogReleaseCommand(id, "web", "1.0.0", null, items), CancellationToken.None);
+
+        Assert.Equal("Added", result.Items[0].Summary["en"]);
+        Assert.Equal("Agregado", result.Items[0].Summary["es"]);
+        Assert.Equal("Ajouté", result.Items[0].Summary["fr"]);
     }
 
     [Fact]
@@ -103,8 +141,8 @@ public sealed class CreateChangelogReleaseCommandHandlerTests
         var id = SetUpSuperuser();
         var items = new List<CreateChangelogItemInput>
         {
-            new("added", "First", ""),
-            new("fixed", "Second", ""),
+            new("added", new() { ["en"] = "First" }),
+            new("fixed", new() { ["en"] = "Second" }),
         };
         _changelog.CreateReleaseAsync(Arg.Any<ChangelogRelease>(), Arg.Any<CancellationToken>())
             .Returns(ci => ci.Arg<ChangelogRelease>());
