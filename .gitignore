@@ -19,3 +19,12 @@ tmp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Terraform — local provider cache and any accidental local tfvars with
+# secrets. .terraform.lock.hcl IS committed (pins provider versions).
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.auto.tfvars
+infra/terraform/*.auto.tfvars.json
+infra/terraform/crash.log
