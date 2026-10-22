@@ -18,6 +18,8 @@ public sealed class CreateStatusBannerCommandHandlerTests
     private static readonly IMapper Mapper = new MapperConfiguration(
         cfg => cfg.AddProfile<StatusBannerMappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
 
+    private static Dictionary<string, string> Msg(string en) => new() { ["en"] = en };
+
     private CreateStatusBannerCommandHandler CreateHandler() => new(_banners, new SuperuserGuard(_users), Mapper);
 
     private Guid SetUpSuperuser()
@@ -37,7 +39,7 @@ public sealed class CreateStatusBannerCommandHandlerTests
         SetUpNonSuperuser(id);
 
         await Assert.ThrowsAsync<ForbiddenException>(() => CreateHandler().Handle(
-            new CreateStatusBannerCommand(id, "info", "Hello", "", null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
+            new CreateStatusBannerCommand(id, "info", Msg("Hello"), null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
     }
 
     [Fact]
@@ -49,7 +51,7 @@ public sealed class CreateStatusBannerCommandHandlerTests
 
         var before = DateTime.UtcNow;
         var result = await CreateHandler().Handle(
-            new CreateStatusBannerCommand(id, "INFO", "Hello", "", null, DateTime.UtcNow.AddHours(1)), CancellationToken.None);
+            new CreateStatusBannerCommand(id, "INFO", Msg("Hello"), null, DateTime.UtcNow.AddHours(1)), CancellationToken.None);
 
         Assert.True(result.StartsAt >= before);
         Assert.Equal("info", result.Severity);
@@ -63,7 +65,7 @@ public sealed class CreateStatusBannerCommandHandlerTests
         var id = SetUpSuperuser();
 
         await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
-            new CreateStatusBannerCommand(id, severity, "Hello", "", null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
+            new CreateStatusBannerCommand(id, severity, Msg("Hello"), null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
     }
 
     [Fact]
@@ -72,7 +74,17 @@ public sealed class CreateStatusBannerCommandHandlerTests
         var id = SetUpSuperuser();
 
         await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
-            new CreateStatusBannerCommand(id, "info", "   ", "", null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
+            new CreateStatusBannerCommand(id, "info", Msg("   "), null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task MissingMessageEn_Throws()
+    {
+        var id = SetUpSuperuser();
+        var message = new Dictionary<string, string> { ["es"] = "Hola" };
+
+        await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
+            new CreateStatusBannerCommand(id, "info", message, null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
     }
 
     [Fact]
@@ -82,17 +94,34 @@ public sealed class CreateStatusBannerCommandHandlerTests
         var tooLong = new string('a', 301);
 
         await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
-            new CreateStatusBannerCommand(id, "info", tooLong, "", null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
+            new CreateStatusBannerCommand(id, "info", Msg(tooLong), null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
     }
 
     [Fact]
-    public async Task MessageEsTooLong_Throws()
+    public async Task NonEnglishEntryTooLong_Throws()
     {
         var id = SetUpSuperuser();
         var tooLong = new string('a', 301);
+        var message = new Dictionary<string, string> { ["en"] = "Hello", ["es"] = tooLong };
 
         await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
-            new CreateStatusBannerCommand(id, "info", "Hello", tooLong, null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
+            new CreateStatusBannerCommand(id, "info", message, null, DateTime.UtcNow.AddHours(1)), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task MultiLocaleMap_RoundTrips()
+    {
+        var id = SetUpSuperuser();
+        var message = new Dictionary<string, string> { ["en"] = "Hello", ["es"] = "Hola", ["fr"] = "Bonjour" };
+        _banners.CreateAsync(Arg.Any<StatusBanner>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<StatusBanner>());
+
+        var result = await CreateHandler().Handle(
+            new CreateStatusBannerCommand(id, "info", message, null, DateTime.UtcNow.AddHours(1)), CancellationToken.None);
+
+        Assert.Equal("Hello", result.Message["en"]);
+        Assert.Equal("Hola", result.Message["es"]);
+        Assert.Equal("Bonjour", result.Message["fr"]);
     }
 
     [Fact]
@@ -101,7 +130,7 @@ public sealed class CreateStatusBannerCommandHandlerTests
         var id = SetUpSuperuser();
 
         await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
-            new CreateStatusBannerCommand(id, "info", "Hello", "", null, default), CancellationToken.None));
+            new CreateStatusBannerCommand(id, "info", Msg("Hello"), null, default), CancellationToken.None));
     }
 
     [Fact]
@@ -112,7 +141,7 @@ public sealed class CreateStatusBannerCommandHandlerTests
         var ends = DateTime.UtcNow.AddHours(1);
 
         await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
-            new CreateStatusBannerCommand(id, "info", "Hello", "", starts, ends), CancellationToken.None));
+            new CreateStatusBannerCommand(id, "info", Msg("Hello"), starts, ends), CancellationToken.None));
     }
 
     [Fact]
@@ -121,6 +150,6 @@ public sealed class CreateStatusBannerCommandHandlerTests
         var id = SetUpSuperuser();
 
         await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(
-            new CreateStatusBannerCommand(id, "info", "Hello", "", DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddDays(-1)), CancellationToken.None));
+            new CreateStatusBannerCommand(id, "info", Msg("Hello"), DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddDays(-1)), CancellationToken.None));
     }
 }

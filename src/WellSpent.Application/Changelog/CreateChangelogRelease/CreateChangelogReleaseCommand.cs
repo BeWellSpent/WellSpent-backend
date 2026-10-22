@@ -6,7 +6,7 @@ using WellSpent.Domain.Exceptions;
 
 namespace WellSpent.Application.Changelog.CreateChangelogRelease;
 
-public sealed record CreateChangelogItemInput(string ChangeType, string SummaryEn, string SummaryEs);
+public sealed record CreateChangelogItemInput(string ChangeType, Dictionary<string, string> Summary);
 
 /// <summary>ReleasedAt null means "now" — publishing normally happens at release time.</summary>
 public sealed record CreateChangelogReleaseCommand(
@@ -53,22 +53,12 @@ public sealed class CreateChangelogReleaseCommandHandler(
         for (var i = 0; i < request.Items.Count; i++)
         {
             var changeType = request.Items[i].ChangeType;
-            var summaryEn = request.Items[i].SummaryEn.Trim();
-            var summaryEs = request.Items[i].SummaryEs.Trim();
             if (!ChangelogConstants.ValidChangeTypes.Contains(changeType))
             {
                 throw new AppValidationException("must be one of added, fixed, changed");
             }
-            if (summaryEn.Length == 0)
-            {
-                throw new AppValidationException("English summary is required");
-            }
-            if (summaryEn.EnumerateRunes().Count() > ChangelogConstants.MaxSummaryLength ||
-                summaryEs.EnumerateRunes().Count() > ChangelogConstants.MaxSummaryLength)
-            {
-                throw new AppValidationException("summary is too long");
-            }
-            items.Add(new ChangelogItem { ChangeType = changeType, SummaryEn = summaryEn, SummaryEs = summaryEs, Position = i });
+            var summary = LocalizedTextValidator.ValidateAndTrim(request.Items[i].Summary, ChangelogConstants.MaxSummaryLength, "summary");
+            items.Add(new ChangelogItem { ChangeType = changeType, Summary = summary, Position = i });
         }
 
         var release = new ChangelogRelease

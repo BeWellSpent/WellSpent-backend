@@ -10,8 +10,8 @@ public sealed class ChangelogItem
     /// <summary>"added" | "fixed" | "changed".</summary>
     public required string ChangeType { get; set; }
 
-    public required string SummaryEn { get; set; }
-    public string SummaryEs { get; set; } = "";
+    /// <summary>Locale-keyed text, e.g. {"en": "...", "es": "..."}. "en" is required by the handler, not the DB.</summary>
+    public required Dictionary<string, string> Summary { get; set; }
 
     /// <summary>Preserves the order the operator wrote them in.</summary>
     public int Position { get; set; }
