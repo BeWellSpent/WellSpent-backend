@@ -1,0 +1,47 @@
+name: Build and push image to ACR
+
+# Manual, one-off: builds the C# backend image on this runner's native
+# x86_64 hardware (no QEMU emulation, unlike building this on an Apple
+# Silicon Mac) and pushes it to Azure Container Registry. Authenticates via
+# OIDC (azure/login) against the app registration infra/terraform/identity.tf
+# creates — no client secret stored anywhere.
+#
+# This does not deploy anything — it only produces an image in ACR. Bumping
+# the running Container App/Jobs to a new image tag is a separate step
+# (az containerapp update / terraform apply with -var="container_image=...").
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to build and push"
+        required: true
+        default: bootstrap
+
+permissions:
+  id-token: write # required for OIDC login — nothing here works without this
+  contents: read
+
+env:
+  ACR_NAME: wellspentacr # must match infra/terraform/variables.tf's acr_name default
+  IMAGE: wellspent-backend
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build and push
+        run: |
+          docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE }}:${{ inputs.tag }} -f Dockerfile .
+          docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE }}:${{ inputs.tag }}
