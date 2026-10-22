@@ -1,29 +1,18 @@
-name: Deploy C# backend to Cloud Run
+name: Deploy C# backend to Azure (manual)
 
-# The repo is C#-only now (Go fully decommissioned), and ci-main.yml's own
-# `deploy` job redeploys the API service automatically on every push to
-# main — this workflow's API step is now a manual escape hatch for
-# re-running that same deploy without a new push (e.g. after a Secret
-# Manager change). The two background jobs have no equivalent in
-# ci-main.yml and are deployed from here only; run manually from the
-# Actions tab (or `gh workflow run deploy-csharp.yml`) whenever a job-only
-# fix needs to go out without an API/image change.
-#
-# Covers the API service and both background jobs (cycle-budgets,
-# plaid-sync) — the jobs redeploy onto the same Cloud Run Job names Go used
-# to, reusing the existing Cloud Scheduler triggers rather than creating new
-# ones, so there is exactly one schedule per job, never two.
-# This is a real cutover, not an addition: ci-main.yml's own
-# "Deploy cycle-budgets/plaid-sync" steps were removed in the same change
-# that added this, so a future Go-only merge can't silently revert it.
+# ci-main.yml redeploys automatically on every push to main. This is the
+# manual escape hatch for re-running that same deploy without a new push
+# (e.g. after a Terraform/Key Vault change with no code change) — run from
+# the Actions tab or `gh workflow run deploy-csharp.yml`.
 
 on:
   workflow_dispatch:
 
 env:
-  REGION: us-central1
-  SERVICE: wellspent-csharp-backend
-  IMAGE: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/wellspent/csharp-backend
+  RESOURCE_GROUP: wellspent-prod
+  ACR_NAME: wellspentacr # must match infra/terraform/variables.tf's acr_name default
+  IMAGE: wellspentacr.azurecr.io/wellspent-backend
+  CONTAINER_APP: wellspent-csharp-backend
 
 jobs:
   build-and-test:
@@ -42,61 +31,29 @@ jobs:
         run: dotnet test WellSpent.slnx --no-build -c Release
 
   deploy:
-    name: Deploy to Cloud Run
+    name: Deploy to Azure Container Apps
     runs-on: ubuntu-latest
     needs: build-and-test
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v5
-      # Same secret, same JWT_SECRET/DATABASE_URL — the C# API reads the
-      # identical env var names as the Go backend (AppConfig.cs mirrors
-      # config.go field-for-field), so the existing prod secrets file covers
-      # it with no new encrypted values to manage.
-      - name: Decrypt prod config
-        env:
-          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
-        run: |
-          SOPS_VERSION=3.9.4
-          curl -fsSL -o /tmp/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
-          sudo install -m 755 /tmp/sops /usr/local/bin/sops
-          mkdir -p ~/.config/sops/age
-          printf '%s\n' "${SOPS_AGE_KEY}" > ~/.config/sops/age/keys.txt
-          sops --decrypt .env.prod.enc > .env.prod
-          sed -i 's/\r$//' .env.prod
-          set -a; source .env.prod; set +a
-          printf 'FRONTEND_URL=%s\n'        "${FRONTEND_URL}"        >> $GITHUB_ENV
-          printf 'GOOGLE_REDIRECT_URI=%s\n' "${GOOGLE_REDIRECT_URI}" >> $GITHUB_ENV
-          printf 'GOOGLE_CLIENT_ID=%s\n'    "${GOOGLE_CLIENT_ID}"    >> $GITHUB_ENV
-          printf 'PLAID_CLIENT_ID=%s\n'     "${PLAID_CLIENT_ID}"     >> $GITHUB_ENV
-          printf 'RESEND_FROM_EMAIL=%s\n'   "${RESEND_FROM_EMAIL}"   >> $GITHUB_ENV
-          printf 'APPLE_KEY_ID=%s\n'        "${APPLE_KEY_ID}"        >> $GITHUB_ENV
-          printf 'MEDIATR_LICENSE_KEY=%s\n' "${MEDIATR_LICENSE_KEY}" >> $GITHUB_ENV
-          # deploy-cloudrun's env_vars parser strips single backslashes; double
-          # them so the literal \n sequence survives for NormalizePemKey.
-          APPLE_PRIVATE_KEY_ESCAPED=$(printf '%s' "${APPLE_PRIVATE_KEY}" | sed 's/\\/\\\\/g')
-          printf 'APPLE_PRIVATE_KEY=%s\n'   "${APPLE_PRIVATE_KEY_ESCAPED}" >> $GITHUB_ENV
-          printf 'APNS_KEY_ID=%s\n'         "${APNS_KEY_ID}"         >> $GITHUB_ENV
-          printf 'APNS_TEAM_ID=%s\n'        "${APNS_TEAM_ID}"        >> $GITHUB_ENV
-          printf 'APNS_ENVIRONMENT=%s\n'    "${APNS_ENVIRONMENT}"    >> $GITHUB_ENV
-          APNS_AUTH_KEY_ESCAPED=$(printf '%s' "${APNS_AUTH_KEY}" | sed 's/\\/\\\\/g')
-          printf 'APNS_AUTH_KEY=%s\n'       "${APNS_AUTH_KEY_ESCAPED}" >> $GITHUB_ENV
-          # Raw (non-double-escaped) form for the two `gcloud run jobs deploy`
-          # steps below — those go straight through the gcloud CLI, not
-          # deploy-cloudrun's own env_vars parser, so they need the literal
-          # \n form AppConfig's NormalizePemKey expects.
-          printf 'APNS_AUTH_KEY_RAW=%s\n'   "${APNS_AUTH_KEY}"       >> $GITHUB_ENV
-      - uses: google-github-actions/auth@v2
+
+      - uses: azure/login@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-      - uses: google-github-actions/setup-gcloud@v2
-      - name: Configure Docker
-        run: gcloud auth configure-docker us-central1-docker.pkg.dev
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
       - name: Build and push image
         run: |
           docker build -t ${{ env.IMAGE }}:${{ github.sha }} .
           docker push ${{ env.IMAGE }}:${{ github.sha }}
-      # Same schema, same DATABASE_URL as Go — idempotent against migrations
-      # Go's own pipeline has already applied; included so this pipeline
-      # doesn't depend on Go's having run first.
+
       - name: Migrate prod
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
@@ -105,68 +62,24 @@ jobs:
             -e DATABASE_URL \
             --entrypoint dotnet \
             ${{ env.IMAGE }}:${{ github.sha }} migrator/WellSpent.Migrator.dll up prod
-      - name: Deploy API — Cloud Run Service
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: ${{ env.SERVICE }}
-          region: ${{ env.REGION }}
-          image: ${{ env.IMAGE }}:${{ github.sha }}
-          # --cpu-boost: extra CPU allocated during container startup only,
-          # then drops back to normal — free on Cloud Run, shortens the cold
-          # start after scale-to-zero instead of adding cost (startup finishes
-          # faster, so fewer total CPU-seconds billed for that window, not more).
-          flags: --allow-unauthenticated --cpu-boost
-          env_vars: |
-            ENV=prod
-            CORS_ALLOWED_ORIGINS=https://bewellspent.com
-            PLAID_ENV=production
-            FRONTEND_URL=${{ env.FRONTEND_URL }}
-            GOOGLE_REDIRECT_URI=${{ env.GOOGLE_REDIRECT_URI }}
-            GOOGLE_CLIENT_ID=${{ env.GOOGLE_CLIENT_ID }}
-            PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }}
-            RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }}
-            APPLE_KEY_ID=${{ env.APPLE_KEY_ID }}
-            APPLE_PRIVATE_KEY=${{ env.APPLE_PRIVATE_KEY }}
-            APNS_KEY_ID=${{ env.APNS_KEY_ID }}
-            APNS_TEAM_ID=${{ env.APNS_TEAM_ID }}
-            APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }}
-            APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY }}
-            MEDIATR_LICENSE_KEY=${{ env.MEDIATR_LICENSE_KEY }}
-          secrets: |
-            DATABASE_URL=DATABASE_URL:latest
-            JWT_SECRET=JWT_SECRET:latest
-            GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
-            RESEND_API_KEY=RESEND_API_KEY:latest
-            PLAID_SECRET=PLAID_SECRET:latest
-            ENCRYPTION_KEY=ENCRYPTION_KEY:latest
 
-      # Same job name Go's own pipeline used — this replaces that job's
-      # definition (image/command/env/secrets), it doesn't add a second one.
-      # AppConfig.Load() requires JWT_SECRET even though this job never
-      # checks a bearer token. Both jobs reach NotificationDispatcher
-      # (cycle-budgets via CreateBudgetPeriodCommand's period_created alert,
-      # plaid-sync via its own imported/review-pending alerts) so both need
-      # the full APNS_* set, not just the API service. --set-env-vars is
-      # quoted: APNS_AUTH_KEY_RAW's PEM header/footer text contains spaces,
-      # which would otherwise be word-split by the shell before gcloud sees it.
-      - name: Deploy cycle-budgets — Cloud Run Job
+      - name: Deploy API — Container App
         run: |
-          gcloud run jobs deploy cycle-budgets \
-            --image=${{ env.IMAGE }}:${{ github.sha }} \
-            --region=${{ env.REGION }} \
-            --command=./cycle-budgets/WellSpent.Jobs.CycleBudgets \
-            --set-env-vars="ENV=prod,FRONTEND_URL=${{ env.FRONTEND_URL }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }},MEDIATR_LICENSE_KEY=${{ env.MEDIATR_LICENSE_KEY }}" \
-            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,RESEND_API_KEY=RESEND_API_KEY:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest \
-            --max-retries=1 \
-            --project=${{ secrets.GCP_PROJECT_ID }}
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.IMAGE }}:${{ github.sha }}
 
-      - name: Deploy plaid-sync — Cloud Run Job
+      - name: Deploy cycle-budgets — Container Apps Job
         run: |
-          gcloud run jobs deploy plaid-sync \
-            --image=${{ env.IMAGE }}:${{ github.sha }} \
-            --region=${{ env.REGION }} \
-            --command=./plaid-sync/WellSpent.Jobs.PlaidSync \
-            --set-env-vars="ENV=prod,PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }},MEDIATR_LICENSE_KEY=${{ env.MEDIATR_LICENSE_KEY }}" \
-            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest \
-            --max-retries=1 \
-            --project=${{ secrets.GCP_PROJECT_ID }}
+          az containerapp job update \
+            --name cycle-budgets \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.IMAGE }}:${{ github.sha }}
+
+      - name: Deploy plaid-sync — Container Apps Job
+        run: |
+          az containerapp job update \
+            --name plaid-sync \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.IMAGE }}:${{ github.sha }}
