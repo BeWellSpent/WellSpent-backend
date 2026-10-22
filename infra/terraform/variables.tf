@@ -12,6 +12,47 @@ variable "resource_group_name" {
   default = "wellspent-prod"
 }
 
+# Azure resource names below — none of these are fixed by anything, they're
+# just names. acr_name/key_vault_name must be globally unique across all of
+# Azure (same constraint as a GCP project ID or an S3 bucket name); the rest
+# only need to be unique within this resource group. Change any default if
+# `terraform plan` reports a name already taken.
+
+variable "acr_name" {
+  type    = string
+  default = "wellspentacr"
+}
+
+variable "key_vault_name" {
+  type    = string
+  default = "wellspent-prod-kv"
+}
+
+variable "container_app_environment_name" {
+  type    = string
+  default = "wellspent-env"
+}
+
+variable "container_app_name" {
+  type    = string
+  default = "wellspent-csharp-backend"
+}
+
+variable "identity_name" {
+  type    = string
+  default = "wellspent-api-identity"
+}
+
+variable "log_analytics_name" {
+  type    = string
+  default = "wellspent-logs"
+}
+
+variable "github_actions_app_display_name" {
+  type    = string
+  default = "wellspent-backend-github-actions"
+}
+
 variable "environment" {
   type        = string
   default     = "prod"

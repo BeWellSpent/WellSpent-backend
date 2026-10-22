@@ -3,7 +3,7 @@ data "azurerm_client_config" "current" {}
 # RBAC authorization (not legacy access policies) — consistent with every
 # other resource here using azurerm_role_assignment rather than a policy list.
 resource "azurerm_key_vault" "main" {
-  name                       = "wellspent-prod-kv"
+  name                       = var.key_vault_name
   resource_group_name        = azurerm_resource_group.main.name
   location                   = azurerm_resource_group.main.location
   tenant_id                  = data.azurerm_client_config.current.tenant_id
@@ -19,6 +19,16 @@ resource "azurerm_role_assignment" "github_actions_kv_officer" {
   scope                = azurerm_key_vault.main.id
   role_definition_name = "Key Vault Secrets Officer"
   principal_id         = azuread_service_principal.github_actions.object_id
+}
+
+# Same role, for whoever is actually running `terraform apply` right now —
+# with the workspace on local execution (see README.md), that's your own
+# `az login` identity, not the CI identity above. RBAC is per-principal, not
+# inherited, so this had to be granted separately.
+resource "azurerm_role_assignment" "current_user_kv_officer" {
+  scope                = azurerm_key_vault.main.id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = data.azurerm_client_config.current.object_id
 }
 
 locals {
@@ -41,5 +51,8 @@ resource "azurerm_key_vault_secret" "secrets" {
   value        = each.value
   key_vault_id = azurerm_key_vault.main.id
 
-  depends_on = [azurerm_role_assignment.github_actions_kv_officer]
+  depends_on = [
+    azurerm_role_assignment.github_actions_kv_officer,
+    azurerm_role_assignment.current_user_kv_officer,
+  ]
 }

@@ -4,7 +4,7 @@
 # until the resource using it is created, but that resource needs the role
 # granted before it can resolve its own Key Vault secrets).
 resource "azurerm_user_assigned_identity" "api" {
-  name                = "wellspent-api-identity"
+  name                = var.identity_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
@@ -22,7 +22,7 @@ resource "azurerm_role_assignment" "api_acr_pull" {
 }
 
 resource "azurerm_log_analytics_workspace" "main" {
-  name                = "wellspent-logs"
+  name                = var.log_analytics_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "PerGB2018"
@@ -30,7 +30,7 @@ resource "azurerm_log_analytics_workspace" "main" {
 }
 
 resource "azurerm_container_app_environment" "main" {
-  name                       = "wellspent-env"
+  name                       = var.container_app_environment_name
   resource_group_name        = azurerm_resource_group.main.name
   location                   = azurerm_resource_group.main.location
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
@@ -64,7 +64,7 @@ locals {
 }
 
 resource "azurerm_container_app" "api" {
-  name                         = "wellspent-csharp-backend"
+  name                         = var.container_app_name
   resource_group_name          = azurerm_resource_group.main.name
   container_app_environment_id = azurerm_container_app_environment.main.id
   revision_mode                = "Single"
