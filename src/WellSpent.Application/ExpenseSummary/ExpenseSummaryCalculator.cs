@@ -78,8 +78,12 @@ public sealed class ExpenseSummaryCalculator
         {
             if (SpendFilter.IsUnpaidFixed(tx)) continue;
             var amt = tx.Amount;
-            // Split before the uncategorized branch, so the two halves still sum to total_actual when a transaction has no category.
-            if (SpendFilter.IsFixed(tx)) _fixedActual += amt; else _variableActual += amt;
+            var isSavings = tx.CategoryId is { } sc && IsSavingsCategory(sc);
+            // Split before the uncategorized branch, so the two halves still sum to total_actual when a transaction has no category. Savings excluded — it's an allocation, not an expense (issue #94).
+            if (!isSavings)
+            {
+                if (SpendFilter.IsFixed(tx)) _fixedActual += amt; else _variableActual += amt;
+            }
 
             if (tx.CategoryId is not { } catId)
             {
@@ -267,10 +271,10 @@ public sealed class ExpenseSummaryCalculator
     /// amount in NotDuePlannedTotal instead — so total_committed is exactly
     /// the sum of the rows above it.
     /// </summary>
-    private (List<CategoryExpenseSummaryDto> Categories, decimal TotalCommitted) BuildPlanCategories()
+    private (List<CategoryExpenseSummaryDto> Categories, decimal TotalCommitted, decimal TotalCommittedIncludingSavings) BuildPlanCategories()
     {
         var categories = new List<CategoryExpenseSummaryDto>();
-        decimal totalCommitted = 0;
+        decimal totalCommitted = 0, totalCommittedIncludingSavings = 0;
         foreach (var catId in AllCategoryIds())
         {
             var hasSavingsSources = IsSavingsCategory(catId) && _data.SavingsSources.Count > 0;
@@ -282,10 +286,12 @@ public sealed class ExpenseSummaryCalculator
             var (notDue, nextDue) = NotDueSummary(catId);
             categories.Add(new CategoryExpenseSummaryDto(
                 catId, Money.FromDecimal(planned), null, false, BuildPersonBreakdowns(catId), notDue, nextDue));
-            totalCommitted += planned;
+            // Savings is an allocation, not an expense (issue #94) — kept out of totalCommitted, folded into the *IncludingSavings twin.
+            if (!IsSavingsCategory(catId)) totalCommitted += planned;
+            totalCommittedIncludingSavings += planned;
         }
         categories.Sort((a, b) => b.PlannedTotal.ToDecimal().CompareTo(a.PlannedTotal.ToDecimal()));
-        return (categories, totalCommitted);
+        return (categories, totalCommitted, totalCommittedIncludingSavings);
     }
 
     /// <summary>
@@ -296,10 +302,11 @@ public sealed class ExpenseSummaryCalculator
     /// has no actual spend and no plan, a 0/0 row on a tab about what was
     /// actually spent. It still appears on the Plan tab.
     /// </summary>
-    private (List<CategoryExpenseSummaryDto> Categories, decimal TotalPlanned, decimal TotalActual, decimal TotalOverBudget, decimal TotalUnplanned) BuildOverviewCategories()
+    private (List<CategoryExpenseSummaryDto> Categories, decimal TotalPlanned, decimal TotalActual, decimal TotalOverBudget, decimal TotalUnplanned, decimal TotalPlannedIncludingSavings, decimal TotalActualIncludingSavings) BuildOverviewCategories()
     {
         var categories = new List<CategoryExpenseSummaryDto>();
         decimal totalPlanned = 0, totalActual = _uncategorized, totalOverBudget = 0, totalUnplanned = _uncategorized;
+        decimal totalPlannedIncludingSavings = 0, totalActualIncludingSavings = _uncategorized;
 
         foreach (var catId in AllCategoryIds())
         {
@@ -315,19 +322,26 @@ public sealed class ExpenseSummaryCalculator
             categories.Add(new CategoryExpenseSummaryDto(
                 catId, Money.FromDecimal(planned), Money.FromDecimal(actual), isOver, BuildPersonBreakdowns(catId), null, null));
 
-            totalPlanned += planned;
-            totalActual += actual;
-            if (planned <= 0) totalUnplanned += actual;
-            else if (actual > planned) totalOverBudget += actual - planned;
+            // Savings is an allocation, not an expense (issue #94) — kept out of totalPlanned/totalActual, folded into the *IncludingSavings twins.
+            if (!IsSavingsCategory(catId))
+            {
+                totalPlanned += planned;
+                totalActual += actual;
+                if (planned <= 0) totalUnplanned += actual;
+                else if (actual > planned) totalOverBudget += actual - planned;
+            }
+            totalPlannedIncludingSavings += planned;
+            totalActualIncludingSavings += actual;
         }
         categories.Sort((a, b) => b.ActualTotal!.Value.ToDecimal().CompareTo(a.ActualTotal!.Value.ToDecimal()));
-        return (categories, totalPlanned, totalActual, totalOverBudget, totalUnplanned);
+        return (categories, totalPlanned, totalActual, totalOverBudget, totalUnplanned, totalPlannedIncludingSavings, totalActualIncludingSavings);
     }
 
     public GetExpenseSummaryDto Response()
     {
-        var (planCategories, totalCommitted) = BuildPlanCategories();
-        var (overviewCategories, totalPlanned, totalActual, totalOverBudget, totalUnplanned) = BuildOverviewCategories();
+        var (planCategories, totalCommitted, totalCommittedIncludingSavings) = BuildPlanCategories();
+        var (overviewCategories, totalPlanned, totalActual, totalOverBudget, totalUnplanned,
+            totalPlannedIncludingSavings, totalActualIncludingSavings) = BuildOverviewCategories();
 
         var incomeFromSources = _data.IncomeSources.Sum(s => s.DefaultAmount);
         var incomeFromEntries = _data.IncomeEntries.Sum(e => e.Amount);
@@ -339,6 +353,8 @@ public sealed class ExpenseSummaryCalculator
             Money.FromDecimal(incomeFromSources - totalCommitted), Money.FromDecimal(incomeFromEntries - totalActual),
             Money.FromDecimal(incomeFromEntries - totalPlanned),
             planCategories, overviewCategories,
-            Money.FromDecimal(_fixedActual), Money.FromDecimal(_variableActual), _overBudgetTxIds);
+            Money.FromDecimal(_fixedActual), Money.FromDecimal(_variableActual), _overBudgetTxIds,
+            Money.FromDecimal(totalCommittedIncludingSavings), Money.FromDecimal(totalPlannedIncludingSavings),
+            Money.FromDecimal(totalActualIncludingSavings), Money.FromDecimal(_savingsTotal));
     }
 }

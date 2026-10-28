@@ -171,7 +171,39 @@ public sealed class ExpenseSummaryCalculatorTests
         var resp = new ExpenseSummaryCalculator(data).Response();
 
         Assert.Equal(250.00m, Assert.Single(resp.PlanCategories).PlannedTotal.ToDecimal());
-        Assert.Equal(250.00m, resp.TotalCommitted.ToDecimal());
+        // Savings is an allocation, not an expense (issue #94) — excluded from
+        // totalCommitted, folded into totalCommittedIncludingSavings instead.
+        Assert.Equal(0.00m, resp.TotalCommitted.ToDecimal());
+        Assert.Equal(250.00m, resp.TotalCommittedIncludingSavings.ToDecimal());
+        Assert.Equal(250.00m, resp.SavingsPlannedTotal.ToDecimal());
+    }
+
+    [Fact]
+    public void SavingsCategory_ExcludedFromOverviewTotalsAndActualSplit()
+    {
+        const int savingsCatId = 4;
+        const int expenseCatId = 5;
+        var pmId = Guid.NewGuid();
+        var data = Data(
+            savingsCategoryId: savingsCatId,
+            savingsSources: [new SavingsSource { BudgetProfileId = ProfileId, Name = "A", Amount = 200.00m }],
+            allocations: [new ExpenseAllocation { CategoryId = expenseCatId, PlannedAmount = 100.00m }],
+            paymentMethods: [new PaymentMethod { Id = pmId, Name = "Cash" }],
+            transactions: [
+                // A real savings transfer, categorized as Savings — must not count as spend.
+                Tx(savingsCatId, 200.00m, 200.00m, isPaid: true, paymentMethodId: pmId),
+                Tx(expenseCatId, 60.00m, 60.00m, isPaid: true, paymentMethodId: pmId),
+            ]);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(100.00m, resp.TotalPlanned.ToDecimal());
+        Assert.Equal(60.00m, resp.TotalActual.ToDecimal());
+        Assert.Equal(60.00m, resp.VariableActualTotal.ToDecimal());
+        Assert.Equal(0.00m, resp.FixedActualTotal.ToDecimal());
+        Assert.Equal(300.00m, resp.TotalPlannedIncludingSavings.ToDecimal());
+        Assert.Equal(260.00m, resp.TotalActualIncludingSavings.ToDecimal());
+        Assert.Equal(200.00m, resp.SavingsPlannedTotal.ToDecimal());
     }
 
     [Fact]
