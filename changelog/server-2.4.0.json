@@ -1,0 +1,13 @@
+{
+  "component": "server",
+  "version": "2.4.0",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summary": {
+        "en": "Savings no longer counts toward your spending totals — it's an optimistic allocation, not an expense.",
+        "es": "Los ahorros ya no cuentan hacia tus totales de gasto: son una asignación optimista, no un gasto."
+      }
+    }
+  ]
+}
