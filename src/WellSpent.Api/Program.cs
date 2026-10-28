@@ -101,6 +101,7 @@ try
     app.MapPaymentMethodEndpoints();
     app.MapTransactionEndpoints();
     app.MapPlaidEndpoints();
+    app.MapWebhookEndpoints();
 
     app.Run();
 }

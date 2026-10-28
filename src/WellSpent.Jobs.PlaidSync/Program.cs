@@ -7,6 +7,7 @@ using WellSpent.Application;
 using WellSpent.Application.Abstractions;
 using WellSpent.Application.Configuration;
 using WellSpent.Application.Plaid;
+using WellSpent.Domain.Abstractions;
 using WellSpent.Infrastructure;
 using WellSpent.Infrastructure.Configuration;
 
@@ -32,6 +33,14 @@ services.Configure<AuthOptions>(o =>
 
 await using var provider = services.BuildServiceProvider();
 var logger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("PlaidSyncJob");
+
+// One-off manual mode: registers PLAID_WEBHOOK_URL on every already-linked item (a
+// newly-linked one gets it automatically via CreateLinkToken). Run once after deploying
+// the webhook endpoint: dotnet WellSpent.Jobs.PlaidSync.dll --backfill-webhooks
+if (args.Contains("--backfill-webhooks"))
+{
+    return await BackfillWebhooksAsync(provider, config, logger);
+}
 
 var engine = provider.GetRequiredService<PlaidSyncEngine>();
 List<ProfileSyncResult> profiles;
@@ -76,3 +85,40 @@ catch (Exception ex)
 }
 
 return 0;
+
+static async Task<int> BackfillWebhooksAsync(ServiceProvider provider, AppConfig config, ILogger logger)
+{
+    if (string.IsNullOrEmpty(config.PlaidWebhookUrl))
+    {
+        logger.LogCritical("plaid-sync.backfill_webhooks.no_webhook_url_configured");
+        return 1;
+    }
+
+    var items = provider.GetRequiredService<IPlaidItemRepository>();
+    var plaid = provider.GetRequiredService<IPlaidClient>();
+    var crypto = provider.GetRequiredService<ICryptoService>();
+    var encryptionKey = provider.GetRequiredService<IOptions<AuthOptions>>().Value.EncryptionKey;
+
+    var connections = await items.ListNonDisconnectedAsync(CancellationToken.None);
+    logger.LogInformation("plaid-sync.backfill_webhooks.started connection_count={ConnectionCount}", connections.Count);
+
+    var failures = 0;
+    foreach (var item in connections)
+    {
+        try
+        {
+            var accessToken = crypto.Decrypt(item.AccessToken, encryptionKey);
+            await plaid.UpdateItemWebhookAsync(accessToken, config.PlaidWebhookUrl, CancellationToken.None);
+            logger.LogInformation("plaid-sync.backfill_webhooks.updated plaid_item_id={PlaidItemId} item_id={ItemId}", item.Id, item.ItemId);
+        }
+        catch (Exception ex)
+        {
+            failures++;
+            logger.LogError(ex, "plaid-sync.backfill_webhooks.failed plaid_item_id={PlaidItemId} item_id={ItemId}", item.Id, item.ItemId);
+        }
+    }
+
+    logger.LogInformation(
+        "plaid-sync.backfill_webhooks.completed connection_count={ConnectionCount} failure_count={FailureCount}", connections.Count, failures);
+    return failures == 0 ? 0 : 1;
+}

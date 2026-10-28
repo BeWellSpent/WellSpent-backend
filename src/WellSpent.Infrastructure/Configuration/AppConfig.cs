@@ -51,6 +51,9 @@ public sealed class AppConfig
     public TimeSpan PlaidHttpRetryDelay { get; init; } = TimeSpan.FromSeconds(5);
     public bool PlaidLogRedactSensitive { get; init; } = true;
 
+    /// <summary>Public URL Plaid POSTs webhooks to (e.g. "https://api.bewellspent.com/webhooks/plaid"). Empty in dev, which has no public URL — CreateLinkToken simply omits the field, and no webhook ever arrives, same as before this feature.</summary>
+    public string PlaidWebhookUrl { get; init; } = "";
+
     /// <summary>Sent as Postgres' application_name — distinct per deployed process.</summary>
     public string ApplicationName => $"wellspent-api-{Env}";
 
@@ -103,6 +106,7 @@ public sealed class AppConfig
             PlaidHttpMaxRetries = int.Parse(OptionalEnv("PLAID_HTTP_MAX_RETRIES", "3")),
             PlaidHttpRetryDelay = TimeSpan.FromSeconds(int.Parse(OptionalEnv("PLAID_HTTP_RETRY_DELAY", "5"))),
             PlaidLogRedactSensitive = OptionalEnv("PLAID_LOG_REDACT_SENSITIVE", "true") == "true",
+            PlaidWebhookUrl = OptionalEnv("PLAID_WEBHOOK_URL", ""),
         };
     }
 

@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <PackageReference Include="AutoMapper" Version="16.2.0" />
+    <!-- HandlePlaidWebhookCommand takes Going.Plaid's own typed webhook payload directly, per design — no hand-rolled re-parsing of what the SDK already deserializes. -->
+    <PackageReference Include="Going.Plaid" Version="6.68.0" />
     <PackageReference Include="MediatR" Version="14.2.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
