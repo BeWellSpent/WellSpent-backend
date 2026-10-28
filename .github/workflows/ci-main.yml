@@ -64,6 +64,11 @@ jobs:
           # deploy-cloudrun's env_vars parser strips single backslashes; double them so \n survives intact.
           APNS_AUTH_KEY_ESCAPED=$(printf '%s' "${APNS_AUTH_KEY}" | sed 's/\\/\\\\/g')
           printf 'APNS_AUTH_KEY=%s\n'          "${APNS_AUTH_KEY_ESCAPED}"  >> $GITHUB_ENV
+          # Raw (non-double-escaped) form for the two `gcloud run jobs deploy`
+          # steps below — those go straight through the gcloud CLI, not
+          # deploy-cloudrun's own env_vars parser, so they need the literal
+          # \n form AppConfig's NormalizePemKey expects.
+          printf 'APNS_AUTH_KEY_RAW=%s\n'      "${APNS_AUTH_KEY}"          >> $GITHUB_ENV
           # Sign in with Apple. Deliberately plain env vars sourced from
           # .env.prod.enc rather than Secret Manager entries: the free tier
           # allows 6 active secrets and all 6 are already spoken for
@@ -133,17 +138,39 @@ jobs:
             PLAID_SECRET=PLAID_SECRET:latest
             ENCRYPTION_KEY=ENCRYPTION_KEY:latest
 
-      # cycle-budgets and plaid-sync aren't deployed from here — both Cloud
-      # Run Jobs are deployed via deploy-csharp.yml instead. This step only
-      # keeps cycle-budgets' Cloud Scheduler trigger pointed at it.
-      #
-      # plaid-sync's own Mon/Wed/Fri trigger was removed here deliberately —
-      # sync is now webhook-driven (POST /webhooks/plaid), not polled. The
-      # Cloud Run Job itself stays deployed as a manual escape hatch (ad-hoc
-      # full resync, or the one-off `--backfill-webhooks` mode), it's just no
-      # longer auto-triggered. If a `plaid-sync-trigger` Cloud Scheduler job
-      # is still running in GCP from a prior deploy, delete it by hand —
-      # nothing here removes an already-created trigger.
+      # Both Cloud Run Jobs redeploy here too, same as the API above — this
+      # was manual-only for a stretch during the C# rewrite (deploy-csharp.yml
+      # only), which is how the jobs ended up running weeks-stale code while
+      # the API kept auto-deploying. Restored to automatic so job code never
+      # silently drifts from what's on main again. deploy-csharp.yml keeps
+      # its own copy of these same two steps as a manual escape hatch (e.g.
+      # re-running a job deploy without a new commit, or the one-off
+      # `plaid-sync --backfill-webhooks` mode) — not the only path anymore.
+      - name: Deploy cycle-budgets — Cloud Run Job
+        run: |
+          gcloud run jobs deploy cycle-budgets \
+            --image=${{ env.IMAGE }}:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --command=./cycle-budgets/WellSpent.Jobs.CycleBudgets \
+            --set-env-vars="ENV=prod,FRONTEND_URL=${{ env.FRONTEND_URL }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }},MEDIATR_LICENSE_KEY=${{ env.MEDIATR_LICENSE_KEY }}" \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,RESEND_API_KEY=RESEND_API_KEY:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest \
+            --max-retries=1 \
+            --project=${{ secrets.GCP_PROJECT_ID }}
+
+      # plaid-sync's own Mon/Wed/Fri trigger was removed deliberately — sync
+      # is now webhook-driven (POST /webhooks/plaid), not polled. The job
+      # itself still redeploys here so `--backfill-webhooks` and any ad-hoc
+      # manual full resync always run current code.
+      - name: Deploy plaid-sync — Cloud Run Job
+        run: |
+          gcloud run jobs deploy plaid-sync \
+            --image=${{ env.IMAGE }}:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --command=./plaid-sync/WellSpent.Jobs.PlaidSync \
+            --set-env-vars="ENV=prod,PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},PLAID_WEBHOOK_URL=${{ env.PLAID_WEBHOOK_URL }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }},MEDIATR_LICENSE_KEY=${{ env.MEDIATR_LICENSE_KEY }}" \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest \
+            --max-retries=1 \
+            --project=${{ secrets.GCP_PROJECT_ID }}
 
       - name: Schedule cycle-budgets — 1st of each month
         run: |

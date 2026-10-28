@@ -1,21 +1,14 @@
 name: Deploy C# backend to Cloud Run
 
-# The repo is C#-only now (Go fully decommissioned), and ci-main.yml's own
-# `deploy` job redeploys the API service automatically on every push to
-# main — this workflow's API step is now a manual escape hatch for
-# re-running that same deploy without a new push (e.g. after a Secret
-# Manager change). The two background jobs have no equivalent in
-# ci-main.yml and are deployed from here only; run manually from the
-# Actions tab (or `gh workflow run deploy-csharp.yml`) whenever a job-only
-# fix needs to go out without an API/image change.
-#
-# Covers the API service and both background jobs (cycle-budgets,
-# plaid-sync) — the jobs redeploy onto the same Cloud Run Job names Go used
-# to, reusing the existing Cloud Scheduler triggers rather than creating new
-# ones, so there is exactly one schedule per job, never two.
-# This is a real cutover, not an addition: ci-main.yml's own
-# "Deploy cycle-budgets/plaid-sync" steps were removed in the same change
-# that added this, so a future Go-only merge can't silently revert it.
+# ci-main.yml's own `deploy` job now redeploys the API service AND both
+# background jobs (cycle-budgets, plaid-sync) automatically on every push to
+# main — this workflow is a manual escape hatch for re-running that same
+# deploy without a new push (e.g. after a Secret Manager change, or to run
+# plaid-sync's one-off `--backfill-webhooks` mode against current code). It
+# used to be the *only* path for the two jobs, for a stretch during the C#
+# rewrite — that's what let them drift 13+ days stale while the API kept
+# auto-deploying. Restored to automatic in ci-main.yml; this file is no
+# longer load-bearing for keeping job code current, just a manual trigger.
 
 on:
   workflow_dispatch:
