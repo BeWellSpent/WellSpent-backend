@@ -1,0 +1,13 @@
+{
+  "component": "server",
+  "version": "2.4.1",
+  "items": [
+    {
+      "changeType": "added",
+      "summary": {
+        "en": "The expense summary now reports how much has actually been saved/invested this period, alongside the expected savings figure.",
+        "es": "El resumen de gastos ahora informa cuánto se ha ahorrado/invertido realmente en este período, junto con la cifra de ahorro esperado."
+      }
+    }
+  ]
+}
