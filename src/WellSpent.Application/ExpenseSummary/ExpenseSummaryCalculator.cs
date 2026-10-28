@@ -345,6 +345,7 @@ public sealed class ExpenseSummaryCalculator
 
         var incomeFromSources = _data.IncomeSources.Sum(s => s.DefaultAmount);
         var incomeFromEntries = _data.IncomeEntries.Sum(e => e.Amount);
+        var savingsActual = _data.SavingsCategoryId is { } savingsCatId ? _actualByCat.GetValueOrDefault(savingsCatId) : 0m;
 
         return new GetExpenseSummaryDto(
             Money.FromDecimal(incomeFromSources), Money.FromDecimal(incomeFromEntries),
@@ -355,6 +356,6 @@ public sealed class ExpenseSummaryCalculator
             planCategories, overviewCategories,
             Money.FromDecimal(_fixedActual), Money.FromDecimal(_variableActual), _overBudgetTxIds,
             Money.FromDecimal(totalCommittedIncludingSavings), Money.FromDecimal(totalPlannedIncludingSavings),
-            Money.FromDecimal(totalActualIncludingSavings), Money.FromDecimal(_savingsTotal));
+            Money.FromDecimal(totalActualIncludingSavings), Money.FromDecimal(_savingsTotal), Money.FromDecimal(savingsActual));
     }
 }

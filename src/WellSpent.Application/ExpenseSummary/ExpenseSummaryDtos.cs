@@ -21,4 +21,4 @@ public sealed record GetExpenseSummaryDto(
     List<CategoryExpenseSummaryDto> PlanCategories, List<CategoryExpenseSummaryDto> OverviewCategories,
     Money FixedActualTotal, Money VariableActualTotal, List<Guid> OverBudgetTransactionIds,
     Money TotalCommittedIncludingSavings, Money TotalPlannedIncludingSavings, Money TotalActualIncludingSavings,
-    Money SavingsPlannedTotal);
+    Money SavingsPlannedTotal, Money SavingsActualTotal);

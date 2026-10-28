@@ -204,6 +204,7 @@ public sealed class ExpenseSummaryCalculatorTests
         Assert.Equal(300.00m, resp.TotalPlannedIncludingSavings.ToDecimal());
         Assert.Equal(260.00m, resp.TotalActualIncludingSavings.ToDecimal());
         Assert.Equal(200.00m, resp.SavingsPlannedTotal.ToDecimal());
+        Assert.Equal(200.00m, resp.SavingsActualTotal.ToDecimal());
     }
 
     [Fact]
