@@ -14,7 +14,13 @@ public interface IPlaidItemRepository
 
     Task<PlaidItem> GetByIdAsync(Guid id, CancellationToken ct);
 
+    /// <summary>Looks up by Plaid's own item_id string — all a webhook payload carries. Null (not throw) when unknown: an unrecognized item on a webhook is an expected case the caller logs and no-ops on, not an error.</summary>
+    Task<PlaidItem?> GetByItemIdAsync(string itemId, CancellationToken ct);
+
     Task<List<PlaidItem>> ListByUserIdAsync(Guid userId, CancellationToken ct);
+
+    /// <summary>Every non-disconnected item regardless of owner/profile — used only by the one-off webhook backfill (WellSpent.Jobs.PlaidSync --backfill-webhooks).</summary>
+    Task<List<PlaidItem>> ListNonDisconnectedAsync(CancellationToken ct);
 
     /// <summary>Every live (non-disconnected) connection on a budget, each with its owner's display name and plan.</summary>
     Task<List<PlaidItemWithOwnerRow>> ListActiveWithOwnerByBudgetProfileAsync(Guid profileId, CancellationToken ct);

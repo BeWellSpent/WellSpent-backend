@@ -18,10 +18,16 @@ public sealed class PlaidItemRepository(WellSpentDbContext db) : IPlaidItemRepos
         await db.PlaidItems.FirstOrDefaultAsync(i => i.Id == id, ct)
             ?? throw new NotFoundException("plaid_item", id.ToString());
 
+    public async Task<PlaidItem?> GetByItemIdAsync(string itemId, CancellationToken ct) =>
+        await db.PlaidItems.FirstOrDefaultAsync(i => i.ItemId == itemId, ct);
+
     public async Task<List<PlaidItem>> ListByUserIdAsync(Guid userId, CancellationToken ct) =>
         await db.PlaidItems.Where(i => i.UserId == userId)
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync(ct);
+
+    public async Task<List<PlaidItem>> ListNonDisconnectedAsync(CancellationToken ct) =>
+        await db.PlaidItems.Where(i => i.Status != "disconnected").ToListAsync(ct);
 
     public async Task<List<PlaidItemWithOwnerRow>> ListActiveWithOwnerByBudgetProfileAsync(Guid profileId, CancellationToken ct) =>
         await (

@@ -28,6 +28,9 @@ public sealed record PlaidSyncResult(
     List<string> RemovedIds,
     string NextCursor);
 
+/// <summary>An EC JWK Plaid returns for webhook signature verification. X/Y are base64url-encoded curve coordinates; ExpiredAt non-null means this key was rotated out and must not be trusted.</summary>
+public sealed record PlaidWebhookVerificationKey(string Kid, string Crv, string X, string Y, int? ExpiredAt);
+
 /// <summary>Mirrors internal/plaid/client.go's Client interface — the seam that lets Plaid-dependent logic be unit-tested without reaching Plaid.</summary>
 public interface IPlaidClient
 {
@@ -44,4 +47,10 @@ public interface IPlaidClient
 
     /// <summary>Fetches incremental transaction changes since cursor. Pass an empty cursor for the initial sync.</summary>
     Task<PlaidSyncResult> SyncTransactionsAsync(string accessToken, string cursor, CancellationToken ct);
+
+    /// <summary>Fetches the EC public key identified by a webhook JWT's "kid" header, for PlaidWebhookVerifier to verify the signature against.</summary>
+    Task<PlaidWebhookVerificationKey> GetWebhookVerificationKeyAsync(string keyId, CancellationToken ct);
+
+    /// <summary>Registers (or replaces) the webhook URL Plaid calls for an already-linked item — only newly-created link tokens pick up PlaidWebhookUrl automatically, so this is how an existing item catches up (see the PlaidSync job's --backfill-webhooks mode).</summary>
+    Task UpdateItemWebhookAsync(string accessToken, string webhookUrl, CancellationToken ct);
 }

@@ -1,0 +1,13 @@
+{
+  "component": "server",
+  "version": "2.5.0",
+  "items": [
+    {
+      "changeType": "added",
+      "summary": {
+        "en": "Connected bank accounts now sync transactions in near-real-time instead of up to a few days late.",
+        "es": "Las cuentas bancarias conectadas ahora sincronizan transacciones casi en tiempo real en lugar de con hasta varios días de retraso."
+      }
+    }
+  ]
+}

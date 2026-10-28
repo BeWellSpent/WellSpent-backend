@@ -62,6 +62,8 @@ public static class DependencyInjection
                 logger: sp.GetRequiredService<ILogger<Going.Plaid.PlaidClient>>());
         });
         services.AddSingleton<IPlaidClient, GoingPlaidClient>();
+        // Singleton so the in-memory per-kid key cache actually persists across requests.
+        services.AddSingleton<IPlaidWebhookVerifier, PlaidWebhookVerifier>();
 
         if (string.IsNullOrEmpty(config.ResendApiKey))
         {

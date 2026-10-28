@@ -67,6 +67,7 @@ jobs:
           printf 'GOOGLE_REDIRECT_URI=%s\n' "${GOOGLE_REDIRECT_URI}" >> $GITHUB_ENV
           printf 'GOOGLE_CLIENT_ID=%s\n'    "${GOOGLE_CLIENT_ID}"    >> $GITHUB_ENV
           printf 'PLAID_CLIENT_ID=%s\n'     "${PLAID_CLIENT_ID}"     >> $GITHUB_ENV
+          printf 'PLAID_WEBHOOK_URL=%s\n'   "${PLAID_WEBHOOK_URL}"   >> $GITHUB_ENV
           printf 'RESEND_FROM_EMAIL=%s\n'   "${RESEND_FROM_EMAIL}"   >> $GITHUB_ENV
           printf 'APPLE_KEY_ID=%s\n'        "${APPLE_KEY_ID}"        >> $GITHUB_ENV
           printf 'MEDIATR_LICENSE_KEY=%s\n' "${MEDIATR_LICENSE_KEY}" >> $GITHUB_ENV
@@ -124,6 +125,7 @@ jobs:
             GOOGLE_REDIRECT_URI=${{ env.GOOGLE_REDIRECT_URI }}
             GOOGLE_CLIENT_ID=${{ env.GOOGLE_CLIENT_ID }}
             PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }}
+            PLAID_WEBHOOK_URL=${{ env.PLAID_WEBHOOK_URL }}
             RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }}
             APPLE_KEY_ID=${{ env.APPLE_KEY_ID }}
             APPLE_PRIVATE_KEY=${{ env.APPLE_PRIVATE_KEY }}
@@ -166,7 +168,7 @@ jobs:
             --image=${{ env.IMAGE }}:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --command=./plaid-sync/WellSpent.Jobs.PlaidSync \
-            --set-env-vars="ENV=prod,PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }},MEDIATR_LICENSE_KEY=${{ env.MEDIATR_LICENSE_KEY }}" \
+            --set-env-vars="ENV=prod,PLAID_ENV=production,PLAID_CLIENT_ID=${{ env.PLAID_CLIENT_ID }},PLAID_WEBHOOK_URL=${{ env.PLAID_WEBHOOK_URL }},RESEND_FROM_EMAIL=${{ env.RESEND_FROM_EMAIL }},APNS_KEY_ID=${{ env.APNS_KEY_ID }},APNS_TEAM_ID=${{ env.APNS_TEAM_ID }},APNS_ENVIRONMENT=${{ env.APNS_ENVIRONMENT }},APNS_AUTH_KEY=${{ env.APNS_AUTH_KEY_RAW }},MEDIATR_LICENSE_KEY=${{ env.MEDIATR_LICENSE_KEY }}" \
             --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,PLAID_SECRET=PLAID_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest \
             --max-retries=1 \
             --project=${{ secrets.GCP_PROJECT_ID }}

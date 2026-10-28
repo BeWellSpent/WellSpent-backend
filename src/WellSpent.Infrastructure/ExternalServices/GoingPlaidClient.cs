@@ -4,13 +4,15 @@ using Going.Plaid.Institutions;
 using Going.Plaid.Item;
 using Going.Plaid.Link;
 using Going.Plaid.Transactions;
+using Going.Plaid.WebhookVerificationKey;
 using Microsoft.Extensions.Logging;
 using WellSpent.Application.Abstractions;
+using WellSpent.Infrastructure.Configuration;
 
 namespace WellSpent.Infrastructure.ExternalServices;
 
 /// <summary>Wraps Going.Plaid's PlaidClient, mirroring internal/plaid/client.go's *client exactly.</summary>
-public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<GoingPlaidClient> logger) : IPlaidClient
+public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, AppConfig config, ILogger<GoingPlaidClient> logger) : IPlaidClient
 {
     // Plaid's documented max for /transactions/sync `count` (default 100).
     private const int MaxSyncPageSize = 500;
@@ -41,6 +43,12 @@ public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<Goin
         if (!string.IsNullOrEmpty(redirectUri))
         {
             request.RedirectUri = redirectUri;
+        }
+
+        // Empty in dev (no public URL) — Plaid simply never calls back, same as before webhooks existed.
+        if (!string.IsNullOrEmpty(config.PlaidWebhookUrl))
+        {
+            request.Webhook = config.PlaidWebhookUrl;
         }
 
         var response = await plaid.LinkTokenCreateAsync(request);
@@ -160,6 +168,20 @@ public sealed class GoingPlaidClient(Going.Plaid.PlaidClient plaid, ILogger<Goin
                 return new PlaidSyncResult(added, modified, removedIds, cursor);
             }
         }
+    }
+
+    public async Task<PlaidWebhookVerificationKey> GetWebhookVerificationKeyAsync(string keyId, CancellationToken ct)
+    {
+        var response = await plaid.WebhookVerificationKeyGetAsync(new WebhookVerificationKeyGetRequest { KeyId = keyId });
+        ThrowIfError(response.Error, response.IsSuccessStatusCode, "get webhook verification key");
+        var key = response.Key;
+        return new PlaidWebhookVerificationKey(key.Kid, key.Crv, key.X, key.Y, key.ExpiredAt);
+    }
+
+    public async Task UpdateItemWebhookAsync(string accessToken, string webhookUrl, CancellationToken ct)
+    {
+        var response = await plaid.ItemWebhookUpdateAsync(new ItemWebhookUpdateRequest { AccessToken = accessToken, Webhook = webhookUrl });
+        ThrowIfError(response.Error, response.IsSuccessStatusCode, "update item webhook");
     }
 
     private static PlaidImportedTransaction? ToImportedTransaction(Transaction t)
