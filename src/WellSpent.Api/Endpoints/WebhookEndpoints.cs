@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Going.Plaid;
 using Going.Plaid.Converters;
 using MediatR;
@@ -39,7 +40,11 @@ public static class WebhookEndpoints
             throw new UnauthorizedException("plaid webhook signature verification failed");
         }
 
-        var options = new JsonSerializerOptions { Converters = { new WebhookBaseConverter() } };
+        // WebhookBase's WebhookType/WebhookCode/Environment are all enums with no
+        // [JsonConverter] of their own, and Plaid sends them as lowercase strings
+        // ("production", not "Production") — without JsonStringEnumConverter here,
+        // every delivery 500s before WebhookBaseConverter can even pick a subtype.
+        var options = new JsonSerializerOptions { Converters = { new JsonStringEnumConverter(), new WebhookBaseConverter() } };
         var payload = JsonSerializer.Deserialize<WebhookBase>(rawBody, options);
         if (payload is null)
         {
