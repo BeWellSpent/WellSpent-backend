@@ -303,23 +303,36 @@ public sealed class PlaidSyncEngine(
             }
 
             // Scoped to this transaction's own period, not every live one (issue #41).
-            var unpaid = await fixedExpenses.GetUnpaidTransactionInPeriodAsync(bestFe.Id, period.Id, ct);
+            var unpaid = await fixedExpenses.GetUnpaidTransactionInPeriodAsync(bestFe.Id, period.Id, inserted.Date, ct);
             var hasUnpaidTarget = unpaid is not null;
             // Falls back to an already-paid transaction (issue #90): the bill may have been marked paid by hand before this import arrived.
-            var alreadyPaid = hasUnpaidTarget ? null : await fixedExpenses.GetTransactionInPeriodAsync(bestFe.Id, period.Id, ct);
+            var alreadyPaid = hasUnpaidTarget ? null : await fixedExpenses.GetTransactionInPeriodAsync(bestFe.Id, period.Id, inserted.Date, ct);
             var hasAnyTarget = hasUnpaidTarget || alreadyPaid is not null;
+
+            // An already-paid target that already has a confirmed match from a
+            // DIFFERENT transaction is not "paid by hand before this import
+            // arrived" (issue #90) — it's already fully reconciled, so a second
+            // unrelated alias/amount match here would silently sum into it via
+            // the split-payment logic instead of flagging a real duplicate.
+            var alreadyReconciled = alreadyPaid is not null &&
+                (await reviews.ListByMatchedTransactionIdAsync(alreadyPaid.Id, ct) ?? []).Any(r => r.Status == "confirmed");
 
             if (bestAliasHit && bestAmountOk && hasUnpaidTarget)
             {
                 consumed = await TryAutoConfirmAsync(item.Id, tx, period, inserted, unpaid!, bestFe, bestScore, categoryId, paymentMethodId, autoUpdatePlanned, byAccount, accountName, ct);
                 if (consumed) autoConfirmed++;
             }
-            else if (bestAliasHit && bestAmountOk && alreadyPaid is not null)
+            else if (bestAliasHit && bestAmountOk && alreadyPaid is not null && !alreadyReconciled)
             {
                 consumed = await TryConfirmAlreadyPaidMatchAsync(item.Id, inserted, period, alreadyPaid, bestFe, bestScore, byAccount, accountName, ct);
                 if (consumed) autoConfirmed++;
             }
-            else if (bestScore >= 80 && hasAnyTarget)
+            // Below the normal queue threshold, this alias+amount match would
+            // otherwise auto-confirm (branch above) — it's being redirected to
+            // manual review only because the target's already reconciled, not
+            // because the match itself is weak, so it still belongs in front
+            // of a person rather than silently dropped.
+            else if ((bestScore >= 80 || (bestAliasHit && bestAmountOk && alreadyReconciled)) && hasAnyTarget)
             {
                 var targetId = hasUnpaidTarget ? unpaid!.Id : alreadyPaid!.Id;
                 try
