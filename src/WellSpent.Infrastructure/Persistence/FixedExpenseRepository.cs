@@ -8,6 +8,10 @@ namespace WellSpent.Infrastructure.Persistence;
 
 public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpenseRepository
 {
+    /// <summary>See TransactionRepository's identical helper for why this exists.</summary>
+    private Task SaveChangesCatchingConflictAsync(CancellationToken ct) =>
+        ConcurrencyGuard.RunAsync(() => db.SaveChangesAsync(ct));
+
     public async Task<FixedExpense> CreateAsync(FixedExpense fixedExpense, CancellationToken ct)
     {
         db.FixedExpenses.Add(fixedExpense);
@@ -48,7 +52,7 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         existing.DayOfWeek = fixedExpense.DayOfWeek;
         existing.EndDate = fixedExpense.EndDate;
         existing.TotalPayments = fixedExpense.TotalPayments;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
         return existing;
     }
 
@@ -64,7 +68,7 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         fe.AnchorDate = anchorDate;
         fe.CategoryId = categoryId;
         fe.PaymentMethodId = paymentMethodId;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
     }
 
     public async Task DeactivateAsync(Guid id, Guid budgetProfileId, CancellationToken ct)
@@ -122,7 +126,7 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         tx.CategoryId = categoryId;
         tx.PaymentMethodId = paymentMethodId;
         tx.Date = date;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
     }
 
     public async Task UpdatePaidTransactionFromFixedExpenseAsync(
@@ -136,7 +140,7 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         tx.Name = name;
         tx.CategoryId = categoryId;
         tx.PaymentMethodId = paymentMethodId;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
     }
 
     public async Task<Transaction?> GetUnpaidTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, DateOnly? targetDate, CancellationToken ct)

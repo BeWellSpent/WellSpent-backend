@@ -10,6 +10,13 @@ public sealed class TransactionEntityConfiguration : IEntityTypeConfiguration<Tr
     {
         b.ToTable("transaction");
         b.HasKey(x => x.Id);
+        // Postgres's own system column as an optimistic concurrency token — no
+        // migration needed. Protects the tracked load-mutate-save methods
+        // (MarkTransactionAsPaidAsync, SetTransactionExcludedAsync, etc.) from
+        // silently losing a concurrent write; the bulk ExecuteUpdateAsync/raw-SQL
+        // cascades elsewhere in this repository are untouched by this.
+        b.Property<uint>("xmin").HasColumnName("xmin").HasColumnType("xid")
+            .ValueGeneratedOnAddOrUpdate().IsRowVersion();
 
         b.Property(x => x.Id).HasColumnName("id")
             .HasDefaultValueSql("gen_random_uuid()").ValueGeneratedOnAdd();
