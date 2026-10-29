@@ -10,6 +10,10 @@ public sealed class FixedExpenseEntityConfiguration : IEntityTypeConfiguration<F
     {
         b.ToTable("fixed_expense");
         b.HasKey(x => x.Id);
+        // See TransactionEntityConfiguration's identical note — same
+        // xmin-as-concurrency-token protection for UpdateAsync/UpdateFromPaymentAsync.
+        b.Property<uint>("xmin").HasColumnName("xmin").HasColumnType("xid")
+            .ValueGeneratedOnAddOrUpdate().IsRowVersion();
 
         b.Property(x => x.Id).HasColumnName("id")
             .HasDefaultValueSql("gen_random_uuid()").ValueGeneratedOnAdd();

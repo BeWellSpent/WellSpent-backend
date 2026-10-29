@@ -7,6 +7,16 @@ namespace WellSpent.Infrastructure.Persistence;
 
 public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionRepository
 {
+    /// <summary>
+    /// For the tracked load-mutate-save methods below, where a concurrent
+    /// write to the same row (another request's mark-paid, Plaid auto-confirm,
+    /// etc.) must be detected via the xmin concurrency token rather than
+    /// silently overwritten. Not used by the bulk ExecuteUpdateAsync/raw-SQL
+    /// methods in this file — those have no single tracked row to conflict on.
+    /// </summary>
+    private Task SaveChangesCatchingConflictAsync(CancellationToken ct) =>
+        ConcurrencyGuard.RunAsync(() => db.SaveChangesAsync(ct));
+
     // ── Transactions ─────────────────────────────────────────────────────────
 
     public async Task<Transaction> GetTransactionAsync(Guid id, CancellationToken ct) =>
@@ -47,7 +57,7 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         existing.PaymentMethodId = transaction.PaymentMethodId;
         existing.TransactionFrequencyId = transaction.TransactionFrequencyId;
         existing.TransactionTypeId = transaction.TransactionTypeId;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
         return existing;
     }
 
@@ -89,7 +99,7 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         tx.Name = name;
         tx.Amount = amount;
         tx.Date = date;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
         return tx;
     }
 
@@ -100,7 +110,7 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         tx.IsPaid = true;
         tx.PaidDate = paidDate;
         tx.Amount = amount;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
         return tx;
     }
 
@@ -120,7 +130,7 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         tx.IsPaid = false;
         tx.PaidDate = null;
         tx.Amount = tx.PlannedAmount;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
         return tx;
     }
 
@@ -130,7 +140,7 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
             ?? throw new NotFoundException("transaction", id.ToString());
         tx.IsExcluded = true;
         tx.InstallmentFixedExpenseId = installmentFixedExpenseId;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
         return tx;
     }
 
@@ -140,7 +150,7 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
             ?? throw new NotFoundException("transaction", id.ToString());
         tx.IsExcluded = false;
         tx.InstallmentFixedExpenseId = null;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
         return tx;
     }
 
@@ -157,7 +167,7 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         var tx = await db.Transactions.FirstOrDefaultAsync(t => t.Id == id && t.BudgetPeriodId == budgetPeriodId, ct)
             ?? throw new NotFoundException("transaction", id.ToString());
         tx.IsExcluded = excluded;
-        await db.SaveChangesAsync(ct);
+        await SaveChangesCatchingConflictAsync(ct);
         return tx;
     }
 

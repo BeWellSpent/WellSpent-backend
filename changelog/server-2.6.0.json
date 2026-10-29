@@ -1,0 +1,27 @@
+{
+  "component": "server",
+  "version": "2.6.0",
+  "items": [
+    {
+      "changeType": "fixed",
+      "summary": {
+        "en": "A bank transaction that would have matched a bill already marked paid by a different transaction is no longer silently merged into it — it's queued for review instead.",
+        "es": "Una transacción bancaria que habría coincidido con una factura ya marcada como pagada por otra transacción ya no se combina en silencio con ella; ahora se pone en cola para revisión."
+      }
+    },
+    {
+      "changeType": "fixed",
+      "summary": {
+        "en": "A recurring bill that's due more than once in the same period now matches each real payment to its own due date instead of always resolving to the most recent one.",
+        "es": "Una factura recurrente que vence más de una vez en el mismo período ahora empareja cada pago real con su propia fecha de vencimiento, en lugar de resolver siempre a la más reciente."
+      }
+    },
+    {
+      "changeType": "added",
+      "summary": {
+        "en": "Editing a transaction or fixed expense at the same moment someone else changes it no longer silently loses one of the changes — the request now fails clearly so the client can ask to refresh and retry.",
+        "es": "Editar una transacción o un gasto fijo justo cuando otra persona lo cambia ya no pierde uno de los cambios en silencio; la solicitud ahora falla claramente para que el cliente pueda pedir actualizar y reintentar."
+      }
+    }
+  ]
+}

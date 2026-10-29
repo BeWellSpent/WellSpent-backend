@@ -40,6 +40,7 @@ public sealed class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorH
         NotFoundException => (StatusCodes.Status404NotFound, "not_found"),
         ForbiddenException => (StatusCodes.Status403Forbidden, "forbidden"),
         DuplicateException => (StatusCodes.Status409Conflict, "already_exists"),
+        ConflictException => (StatusCodes.Status409Conflict, "conflict"),
         AppValidationException => (StatusCodes.Status400BadRequest, "invalid_argument"),
         _ => (StatusCodes.Status500InternalServerError, "internal"),
     };
