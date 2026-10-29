@@ -95,7 +95,7 @@ public sealed class PlaidSyncEngineTests
         _fixedExpenses.ListAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
             .Returns([new FixedExpense { Id = feId, BudgetProfileId = item.BudgetProfileId, Name = "Creator Support", PlannedAmount = 15.00m }]);
         _reviews.ListAliasesAsync(feId, Arg.Any<CancellationToken>()).Returns(["Patreon"]);
-        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>())
+        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = unpaidTxId, BudgetPeriodId = periodId, PlannedAmount = 15.00m, Amount = 15.00m });
 
         Guid markedPaidId = Guid.Empty;
@@ -163,8 +163,8 @@ public sealed class PlaidSyncEngineTests
             .Returns([new FixedExpense { Id = feId, BudgetProfileId = item.BudgetProfileId, Name = "Creator Support", PlannedAmount = 15.00m }]);
         _reviews.ListAliasesAsync(feId, Arg.Any<CancellationToken>()).Returns(["Patreon"]);
         // No unpaid transaction — the bill was already marked paid by hand before this import arrived (issue #90).
-        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>()).Returns((Transaction?)null);
-        _fixedExpenses.GetTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>())
+        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>()).Returns((Transaction?)null);
+        _fixedExpenses.GetTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = matchedTxId, BudgetPeriodId = periodId, PlannedAmount = 15.00m, Amount = 15.00m, IsPaid = true });
 
         var reviewId = Guid.NewGuid();
@@ -200,6 +200,43 @@ public sealed class PlaidSyncEngineTests
     }
 
     [Fact]
+    public async Task QueuesForReview_AgainstAlreadyPaidTransaction_WhenAlreadyReconciledByADifferentTransaction()
+    {
+        // The reported bug: once an already-paid occurrence has a CONFIRMED
+        // match from one transaction, a second, unrelated transaction that
+        // also scores an alias/amount match must not auto-confirm and sum
+        // into it — that's two separate real payments, not one bill paid via
+        // two transfers. It should queue for manual review instead.
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var periodId = Guid.NewGuid();
+        var feId = Guid.NewGuid();
+        var matchedTxId = Guid.NewGuid();
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var period = new BudgetPeriod { Id = periodId, BudgetProfileId = item.BudgetProfileId, StartDate = today.AddDays(-10), EndDate = today.AddDays(10) };
+
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("plaid-tx-2", "Patreon", 15.00m, today)], [], [], "new-cursor"));
+        _budgets.GetPeriodByDateAsync(item.BudgetProfileId, Arg.Any<DateOnly>(), Arg.Any<CancellationToken>()).Returns(period);
+        _fixedExpenses.ListAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
+            .Returns([new FixedExpense { Id = feId, BudgetProfileId = item.BudgetProfileId, Name = "Creator Support", PlannedAmount = 15.00m }]);
+        _reviews.ListAliasesAsync(feId, Arg.Any<CancellationToken>()).Returns(["Patreon"]);
+        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>()).Returns((Transaction?)null);
+        _fixedExpenses.GetTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = matchedTxId, BudgetPeriodId = periodId, PlannedAmount = 15.00m, Amount = 15.00m, IsPaid = true });
+        // Already has a confirmed match from a prior, different transaction.
+        _reviews.ListByMatchedTransactionIdAsync(matchedTxId, Arg.Any<CancellationToken>())
+            .Returns([new TransactionReview { Id = Guid.NewGuid(), BudgetPeriodId = periodId, TransactionId = Guid.NewGuid(), MatchedTransactionId = matchedTxId, Status = "confirmed" }]);
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.Equal(1, result.Queued);
+        Assert.Equal(0, result.AutoConfirmed);
+        await _reviews.Received(1).UpsertAsync(periodId, Arg.Any<Guid>(), matchedTxId, Arg.Any<decimal>(), Arg.Any<CancellationToken>());
+        await _transactions.DidNotReceive().MarkTransactionAsPaidAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task QueuesForReview_AgainstAlreadyPaidTransaction_WhenNoUnpaidOneExists()
     {
         var item = NewItem(Guid.NewGuid());
@@ -220,8 +257,8 @@ public sealed class PlaidSyncEngineTests
         _fixedExpenses.ListAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
             .Returns([new FixedExpense { Id = feId, BudgetProfileId = item.BudgetProfileId, Name = "Renewal Membership", PlannedAmount = 150.00m, PaymentMethodId = pmId, CategoryId = catId }]);
         // No unpaid transaction — fall back to the already-paid one instead of giving up (issue #90).
-        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>()).Returns((Transaction?)null);
-        _fixedExpenses.GetTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>())
+        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>()).Returns((Transaction?)null);
+        _fixedExpenses.GetTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = paidTxId, BudgetPeriodId = periodId, PlannedAmount = 150.00m, Amount = 150.00m, IsPaid = true });
 
         var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
@@ -253,7 +290,7 @@ public sealed class PlaidSyncEngineTests
             .Returns(new PaymentMethod { Id = pmId, Name = "Amex" });
         _fixedExpenses.ListAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
             .Returns([new FixedExpense { Id = feId, BudgetProfileId = item.BudgetProfileId, Name = "Renewal Membership", PlannedAmount = 150.00m, PaymentMethodId = pmId, CategoryId = catId }]);
-        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>())
+        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = unpaidTxId, BudgetPeriodId = periodId, PlannedAmount = 150.00m, Amount = 150.00m });
 
         var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);

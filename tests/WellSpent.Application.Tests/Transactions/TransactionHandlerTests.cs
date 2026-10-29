@@ -154,7 +154,7 @@ public sealed class TransactionHandlerTests
             .Returns([new FixedExpense { Id = feId, BudgetProfileId = profileId, Name = "Netflix", PlannedAmount = 15.49m, CategoryId = catId }]);
         _reviews.ListAliasesAsync(feId, Arg.Any<CancellationToken>()).Returns([]);
         _reviews.GetByTransactionIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((TransactionReview?)null);
-        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>())
+        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = unpaidId, BudgetPeriodId = periodId });
         _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
             .Returns(ci => { var t = ci.Arg<Transaction>(); t.Id = Guid.NewGuid(); return t; });
@@ -179,8 +179,8 @@ public sealed class TransactionHandlerTests
         _reviews.ListAliasesAsync(feId, Arg.Any<CancellationToken>()).Returns([]);
         _reviews.GetByTransactionIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((TransactionReview?)null);
         // No unpaid transaction — the bill was already marked paid by hand before this transaction was created (issue #90).
-        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>()).Returns((Transaction?)null);
-        _fixedExpenses.GetTransactionInPeriodAsync(feId, periodId, Arg.Any<CancellationToken>())
+        _fixedExpenses.GetUnpaidTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>()).Returns((Transaction?)null);
+        _fixedExpenses.GetTransactionInPeriodAsync(feId, periodId, Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>())
             .Returns(new Transaction { Id = paidId, BudgetPeriodId = periodId, IsPaid = true });
         _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
             .Returns(ci => { var t = ci.Arg<Transaction>(); t.Id = Guid.NewGuid(); return t; });

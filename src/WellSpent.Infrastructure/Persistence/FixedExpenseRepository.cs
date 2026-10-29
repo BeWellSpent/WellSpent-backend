@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using WellSpent.Application.FixedExpenses;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 using WellSpent.Domain.Exceptions;
@@ -138,15 +139,19 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<Transaction?> GetUnpaidTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, CancellationToken ct) =>
-        await db.Transactions
+    public async Task<Transaction?> GetUnpaidTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, DateOnly? targetDate, CancellationToken ct)
+    {
+        var candidates = await db.Transactions
             .Where(t => t.FixedExpenseId == fixedExpenseId && !t.IsPaid && t.BudgetPeriodId == budgetPeriodId)
-            .OrderByDescending(t => t.Date)
-            .FirstOrDefaultAsync(ct);
+            .ToListAsync(ct);
+        return FixedExpenseOccurrenceMatching.ClosestTo(candidates, targetDate);
+    }
 
-    public async Task<Transaction?> GetTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, CancellationToken ct) =>
-        await db.Transactions
+    public async Task<Transaction?> GetTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, DateOnly? targetDate, CancellationToken ct)
+    {
+        var candidates = await db.Transactions
             .Where(t => t.FixedExpenseId == fixedExpenseId && t.BudgetPeriodId == budgetPeriodId)
-            .OrderByDescending(t => t.Date)
-            .FirstOrDefaultAsync(ct);
+            .ToListAsync(ct);
+        return FixedExpenseOccurrenceMatching.ClosestTo(candidates, targetDate);
+    }
 }

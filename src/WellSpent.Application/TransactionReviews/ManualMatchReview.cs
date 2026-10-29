@@ -135,8 +135,8 @@ public static class ManualMatchReview
         // Same-period only, matching MarkTransactionForReview's guard — a
         // review linking two different periods can't be rendered by either client.
         // Falls back to an already-paid transaction (issue #90): the bill may have been paid by hand before this import arrived.
-        var target = await fixedExpenses.GetUnpaidTransactionInPeriodAsync(bestFe.Id, periodId, ct)
-            ?? await fixedExpenses.GetTransactionInPeriodAsync(bestFe.Id, periodId, ct);
+        var target = await fixedExpenses.GetUnpaidTransactionInPeriodAsync(bestFe.Id, periodId, tx.Date, ct)
+            ?? await fixedExpenses.GetTransactionInPeriodAsync(bestFe.Id, periodId, tx.Date, ct);
         if (target is null)
         {
             logger.LogInformation("transaction.match: tx {TransactionId}: matched fixed expense {FixedExpenseId} (score={Score}) but no transaction at all in period {PeriodId}",

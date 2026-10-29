@@ -57,4 +57,18 @@ public sealed class PlaidSyncCategoryResolutionTests
         Assert.Equal("", key);
         Assert.Null(id);
     }
+
+    [Fact]
+    public void ResolveId_RealCreditCardPaymentPayloadResolvesToPayment()
+    {
+        // Exact field values from a real plaid.http.response: "MOBILE PAYMENT -
+        // THANK YOU", LOAN_PAYMENTS / LOAN_PAYMENTS_CREDIT_CARD_PAYMENT, against
+        // the real production category row (id 23, system_key "payment").
+        var categoryIds = new Dictionary<string, int> { ["payment"] = 23 };
+        var (key, id) = PlaidSyncCategoryResolution.ResolveId(
+            "MOBILE PAYMENT - THANK YOU", "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", categoryIds);
+
+        Assert.Equal("payment", key);
+        Assert.Equal(23, id);
+    }
 }
