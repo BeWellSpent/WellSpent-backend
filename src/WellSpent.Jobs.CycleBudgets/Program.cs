@@ -33,7 +33,15 @@ var profiles = provider.GetRequiredService<IBudgetProfileRepository>();
 var plaidSync = provider.GetRequiredService<PlaidSyncEngine>();
 var sender = provider.GetRequiredService<ISender>();
 
-var cutoff = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+// --region=emea|americas narrows this run to one Cloud Scheduler invocation's
+// slice of profiles, so each region's cutoff fires only once it's actually
+// past local midnight there — see ProfileTimeZone. Absent (e.g. the manual
+// run-csharp-job.yml trigger), every profile is evaluated.
+var region = args.FirstOrDefault(a => a.StartsWith("--region=", StringComparison.Ordinal))?["--region=".Length..];
+
+var utcNow = DateTime.UtcNow;
+// Loose DB-level filter only — the precise per-profile local-midnight check happens below.
+var cutoff = DateOnly.FromDateTime(utcNow);
 
 List<Guid> profileIds;
 try
@@ -46,7 +54,7 @@ catch (Exception ex)
     return 1;
 }
 
-logger.LogInformation("cycle-budgets.run_started profile_count={ProfileCount}", profileIds.Count);
+logger.LogInformation("cycle-budgets.run_started region={Region} profile_count={ProfileCount}", region ?? "all", profileIds.Count);
 
 var succeeded = 0;
 var failed = 0;
@@ -61,6 +69,28 @@ foreach (var id in profileIds)
     {
         logger.LogError(ex, "cycle-budgets.load_profile_failed profile_id={ProfileId}", id);
         failed++;
+        continue;
+    }
+
+    if (!ProfileTimeZone.MatchesRegion(profile.CountryCode, region))
+    {
+        continue; // a different scheduled invocation is responsible for this profile
+    }
+
+    WellSpent.Domain.Entities.BudgetPeriod latestPeriod;
+    try
+    {
+        latestPeriod = await profiles.GetLatestPeriodAsync(id, CancellationToken.None);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "cycle-budgets.load_latest_period_failed profile_id={ProfileId}", id);
+        failed++;
+        continue;
+    }
+    if (!ProfileTimeZone.IsPastLocalMidnightAfter(latestPeriod.EndDate, profile.CountryCode, utcNow))
+    {
+        logger.LogInformation("cycle-budgets.not_yet_local_midnight profile_id={ProfileId} country={Country} end_date={EndDate}", id, profile.CountryCode, latestPeriod.EndDate);
         continue;
     }
 

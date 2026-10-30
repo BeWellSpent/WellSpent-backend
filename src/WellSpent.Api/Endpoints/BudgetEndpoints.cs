@@ -3,6 +3,7 @@ using WellSpent.Api.Auth;
 using WellSpent.Application.Budgets.AddBudgetPeople;
 using WellSpent.Application.Budgets.AddIncomeSource;
 using WellSpent.Application.Budgets.AddSavingsSource;
+using WellSpent.Application.Budgets.ConfirmPeriodReview;
 using WellSpent.Application.Budgets.CreateBudgetPeriod;
 using WellSpent.Application.Budgets.CreateBudgetProfile;
 using WellSpent.Application.Budgets.DeleteBudgetProfile;
@@ -17,6 +18,7 @@ using WellSpent.Application.Budgets.ListIncomeEntries;
 using WellSpent.Application.Budgets.ListIncomeSources;
 using WellSpent.Application.Budgets.ListSavingsSources;
 using WellSpent.Application.Budgets.RemoveBudgetPerson;
+using WellSpent.Application.Budgets.RetriggerPeriodReview;
 using WellSpent.Application.Budgets.SetBudgetAutoUpdatePlannedAmount;
 using WellSpent.Application.Budgets.SetBudgetCarryoverEnabled;
 using WellSpent.Application.Budgets.UpdateBudgetPerson;
@@ -293,6 +295,19 @@ public static class BudgetEndpoints
         periodGroup.MapGet("/{id:guid}", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
         {
             var period = await sender.Send(new GetBudgetPeriodQuery(CurrentUser.GetId(ctx), id), ct);
+            return Results.Ok(new { period });
+        });
+
+        // ── Review (month-cycling review, issue #74) ────────────────────
+        periodGroup.MapPost("/{id:guid}/review/confirm", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var period = await sender.Send(new ConfirmPeriodReviewCommand(CurrentUser.GetId(ctx), id), ct);
+            return Results.Ok(new { period });
+        });
+
+        periodGroup.MapPost("/{id:guid}/review/retrigger", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var period = await sender.Send(new RetriggerPeriodReviewCommand(CurrentUser.GetId(ctx), id), ct);
             return Results.Ok(new { period });
         });
 

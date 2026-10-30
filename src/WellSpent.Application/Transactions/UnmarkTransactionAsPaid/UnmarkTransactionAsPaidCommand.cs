@@ -6,12 +6,16 @@ using WellSpent.Domain.Abstractions;
 namespace WellSpent.Application.Transactions.UnmarkTransactionAsPaid;
 
 /// <summary>
-/// Mirrors Go's UnmarkTransactionAsPaid, now completing its own deferred
-/// HOOK (B5 batch 7): undoes every *confirmed* TransactionReview against
-/// this transaction — drops the fixed-expense alias, un-excludes the
-/// imported variable transaction, and resets each such review to pending —
-/// not just one. Every step here is best-effort/logged-and-continued in Go,
-/// so a failure never un-does the unmark itself.
+/// Undoes every *confirmed* TransactionReview against this transaction —
+/// drops the fixed-expense alias, un-excludes the imported variable
+/// transaction, and dismisses each such review — not just one. Dismissed,
+/// not reset to pending: the user just told us this specific match was
+/// wrong (or at least not final), so it must not immediately resurface as
+/// a new suggestion in the Review tab — a plain "Dismiss" has the exact
+/// same no-other-side-effects status transition, this just also runs the
+/// alias/exclusion cleanup a real dismiss doesn't need to. Every step here
+/// is best-effort/logged-and-continued, so a failure never un-does the
+/// unmark itself.
 /// </summary>
 public sealed record UnmarkTransactionAsPaidCommand(Guid UserId, Guid Id, Guid BudgetPeriodId) : IRequest<TransactionDto>;
 
@@ -72,11 +76,11 @@ public sealed class UnmarkTransactionAsPaidCommandHandler(
         {
             try
             {
-                await reviews.ResetConfirmedByMatchedTransactionAsync(tx.Id, ct);
+                await reviews.DismissConfirmedByMatchedTransactionAsync(tx.Id, ct);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "transaction.unmark_paid: reset reviews for transaction {TransactionId}", tx.Id);
+                logger.LogError(ex, "transaction.unmark_paid: dismiss reviews for transaction {TransactionId}", tx.Id);
             }
         }
 

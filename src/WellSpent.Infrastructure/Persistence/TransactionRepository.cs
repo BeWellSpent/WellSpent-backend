@@ -117,6 +117,10 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
     public async Task<int> CountCarriedAsync(Guid budgetPeriodId, Guid carriedFromBudgetPeriodId, CancellationToken ct) =>
         await db.Transactions.CountAsync(t => t.BudgetPeriodId == budgetPeriodId && t.CarriedFromBudgetPeriodId == carriedFromBudgetPeriodId, ct);
 
+    public async Task DeleteCarriedTransactionsAsync(Guid budgetPeriodId, Guid carriedFromBudgetPeriodId, CancellationToken ct) =>
+        await db.Transactions.Where(t => t.BudgetPeriodId == budgetPeriodId && t.CarriedFromBudgetPeriodId == carriedFromBudgetPeriodId)
+            .ExecuteDeleteAsync(ct);
+
     public async Task DeleteSavingsSourceTransactionsAsync(Guid budgetProfileId, string name, Guid paymentMethodId, int categoryId, CancellationToken ct) =>
         await db.Transactions
             .Where(t => t.Name == name && t.PaymentMethodId == paymentMethodId && t.CategoryId == categoryId

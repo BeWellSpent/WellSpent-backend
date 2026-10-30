@@ -44,16 +44,25 @@ public static class BudgetPeriodRollover
             BudgetProfileId = profile.Id,
             StartDate = start,
             EndDate = end,
+            NeedsReview = latest is not null,
         }, ct);
 
         if (latest is not null)
         {
-            // Two live periods at once: both clients pick a "current" period
-            // and would disagree about which — mirrors Go's log-and-continue,
-            // not a request failure.
+            // Current + previous both stay editable — only the period before
+            // that (two-or-more cycles old) archives. Best-effort: log-and-continue,
+            // not a request failure, matching the rest of this method.
             try
             {
-                await profiles.ArchivePeriodAsync(latest.Id, ct);
+                var existing = await profiles.ListPeriodsAsync(profile.Id, ct);
+                var toArchive = existing
+                    .Where(p => p.StartDate < latest.StartDate && !p.IsArchived)
+                    .OrderByDescending(p => p.StartDate)
+                    .FirstOrDefault();
+                if (toArchive is not null)
+                {
+                    await profiles.ArchivePeriodAsync(toArchive.Id, ct);
+                }
             }
             catch
             {
