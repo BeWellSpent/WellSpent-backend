@@ -504,7 +504,7 @@ public sealed class TransactionHandlerTests
     }
 
     [Fact]
-    public async Task UnmarkAsPaid_ResetsConfirmedReview_DropsAliasAndUnexcludes()
+    public async Task UnmarkAsPaid_DismissesConfirmedReview_DropsAliasAndUnexcludes()
     {
         var (adminId, _, periodId) = SetUpOpenPeriod();
         var txId = Guid.NewGuid();
@@ -522,11 +522,13 @@ public sealed class TransactionHandlerTests
 
         await _reviews.Received(1).DeleteAliasAsync(feId, "Netflix.com", Arg.Any<CancellationToken>());
         await _transactions.Received(1).SetTransactionExcludedAsync(importedTxId, periodId, false, Arg.Any<CancellationToken>());
-        await _reviews.Received(1).ResetConfirmedByMatchedTransactionAsync(txId, Arg.Any<CancellationToken>());
+        // Dismissed, not reset to pending — the user just undid this match, so it must not
+        // immediately resurface as a new suggestion in the Review tab.
+        await _reviews.Received(1).DismissConfirmedByMatchedTransactionAsync(txId, Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task UnmarkAsPaid_NoConfirmedReviews_SkipsReset()
+    public async Task UnmarkAsPaid_NoConfirmedReviews_SkipsDismiss()
     {
         var (adminId, _, periodId) = SetUpOpenPeriod();
         var txId = Guid.NewGuid();
@@ -536,7 +538,7 @@ public sealed class TransactionHandlerTests
 
         await CreateUnmarkHandler().Handle(new UnmarkTransactionAsPaidCommand(adminId, txId, periodId), CancellationToken.None);
 
-        await _reviews.DidNotReceive().ResetConfirmedByMatchedTransactionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _reviews.DidNotReceive().DismissConfirmedByMatchedTransactionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

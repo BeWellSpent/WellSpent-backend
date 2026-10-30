@@ -17,6 +17,7 @@ public sealed class BudgetPeriodEntityConfiguration : IEntityTypeConfiguration<B
         b.Property(x => x.StartDate).HasColumnName("start_date");
         b.Property(x => x.EndDate).HasColumnName("end_date");
         b.Property(x => x.IsArchived).HasColumnName("is_archived");
+        b.Property(x => x.NeedsReview).HasColumnName("needs_review");
         b.Property(x => x.CreatedAt).HasColumnName("created_at")
             .HasDefaultValueSql("NOW()").ValueGeneratedOnAdd();
     }

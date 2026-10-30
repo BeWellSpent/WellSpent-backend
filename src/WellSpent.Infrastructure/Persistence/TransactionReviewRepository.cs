@@ -72,9 +72,9 @@ public sealed class TransactionReviewRepository(WellSpentDbContext db) : ITransa
         await db.TransactionReviews.Where(r => r.Id == id && r.Status == "pending")
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.MatchScore, score), ct);
 
-    public async Task ResetConfirmedByMatchedTransactionAsync(Guid matchedTransactionId, CancellationToken ct) =>
+    public async Task DismissConfirmedByMatchedTransactionAsync(Guid matchedTransactionId, CancellationToken ct) =>
         await db.TransactionReviews.Where(r => r.MatchedTransactionId == matchedTransactionId && r.Status == "confirmed")
-            .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, "pending"), ct);
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, "dismissed"), ct);
 
     public async Task CreateAliasAsync(Guid fixedExpenseId, string alias, CancellationToken ct) =>
         await db.Database.ExecuteSqlInterpolatedAsync($"""

@@ -172,16 +172,47 @@ jobs:
             --max-retries=1 \
             --project=${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Schedule cycle-budgets — 1st of each month
+      # Superseded by the two region-scoped jobs below — delete so it doesn't
+      # keep firing a stale global-cutoff cycle alongside them.
+      - name: Remove superseded cycle-budgets-trigger scheduler job
+        run: |
+          gcloud scheduler jobs delete cycle-budgets-trigger \
+            --location=${{ env.REGION }} --project=${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
+
+      # Two region-scoped invocations on day 1 of the month, not one global
+      # monthly fire — each profile's own local-midnight check (ProfileTimeZone)
+      # still gates whether it actually cycles on a given invocation, this just
+      # bounds how many times a region gets a chance to. EMEA is UTC-adjacent
+      # (hours 0/2 cover it); Americas spans UTC-3 to UTC-10, so it gets more
+      # retries later in the day (hours 3/5/7/9).
+      - name: Schedule cycle-budgets — EMEA, 1st of each month
         run: |
           SA=$(gcloud config get-value account)
           URI="https://${{ env.REGION }}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${{ secrets.GCP_PROJECT_ID }}/jobs/cycle-budgets:run"
           ARGS=(
-            http cycle-budgets-trigger
+            http cycle-budgets-trigger-emea
             --location=${{ env.REGION }}
-            --schedule="0 0 1 * *"
+            --schedule="0 0,2 1 * *"
             --uri="$URI"
-            --message-body=""
+            --message-body='{"overrides":{"containerOverrides":[{"args":["--region=emea"]}]}}'
+            --headers="Content-Type=application/json"
+            --oauth-service-account-email="$SA"
+            --project=${{ secrets.GCP_PROJECT_ID }}
+          )
+          gcloud scheduler jobs update "${ARGS[@]}" 2>/dev/null \
+            || gcloud scheduler jobs create "${ARGS[@]}"
+
+      - name: Schedule cycle-budgets — Americas, 1st of each month
+        run: |
+          SA=$(gcloud config get-value account)
+          URI="https://${{ env.REGION }}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${{ secrets.GCP_PROJECT_ID }}/jobs/cycle-budgets:run"
+          ARGS=(
+            http cycle-budgets-trigger-americas
+            --location=${{ env.REGION }}
+            --schedule="0 3,5,7,9 1 * *"
+            --uri="$URI"
+            --message-body='{"overrides":{"containerOverrides":[{"args":["--region=americas"]}]}}'
+            --headers="Content-Type=application/json"
             --oauth-service-account-email="$SA"
             --project=${{ secrets.GCP_PROJECT_ID }}
           )

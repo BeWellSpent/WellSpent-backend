@@ -1,0 +1,9 @@
+{
+  "component": "server",
+  "version": "2.7.0",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "Both the current and previous budget period now stay editable — only periods two or more cycles old are archived." } },
+    { "changeType": "added", "summary": { "en": "A newly cycled period flags its carried-over balances for review until you confirm them or ask to recompute them." } },
+    { "changeType": "fixed", "summary": { "en": "Budgets no longer cycle to a new period before it's actually past midnight in your own timezone." } }
+  ]
+}

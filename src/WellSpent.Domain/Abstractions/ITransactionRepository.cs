@@ -47,6 +47,9 @@ public interface ITransactionRepository
     /// <summary>How many rows already carry this period's ending balance into the next one — the carryover idempotency check.</summary>
     Task<int> CountCarriedAsync(Guid budgetPeriodId, Guid carriedFromBudgetPeriodId, CancellationToken ct);
 
+    /// <summary>Deletes this period's carried-over rows so RetriggerPeriodReview can re-derive them from the previous period's current data.</summary>
+    Task DeleteCarriedTransactionsAsync(Guid budgetPeriodId, Guid carriedFromBudgetPeriodId, CancellationToken ct);
+
     /// <summary>Deletes a savings source's auto-created transactions in non-archived periods, matched by name/payment method/category (no FK links a transaction back to its savings_source).</summary>
     Task DeleteSavingsSourceTransactionsAsync(Guid budgetProfileId, string name, Guid paymentMethodId, int categoryId, CancellationToken ct);
 

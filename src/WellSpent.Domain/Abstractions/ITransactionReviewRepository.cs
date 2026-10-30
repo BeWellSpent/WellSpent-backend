@@ -32,7 +32,8 @@ public interface ITransactionReviewRepository
 
     Task UpdateScoreIfPendingAsync(Guid id, decimal score, CancellationToken ct);
 
-    Task ResetConfirmedByMatchedTransactionAsync(Guid matchedTransactionId, CancellationToken ct);
+    /// <summary>Dismisses every confirmed review against this matched (Fixed) transaction — used when unmarking it as paid, so the match the user just undid doesn't immediately resurface as a new pending suggestion.</summary>
+    Task DismissConfirmedByMatchedTransactionAsync(Guid matchedTransactionId, CancellationToken ct);
 
     Task CreateAliasAsync(Guid fixedExpenseId, string alias, CancellationToken ct);
 

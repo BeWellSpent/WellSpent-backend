@@ -8,5 +8,8 @@ public sealed class BudgetPeriod
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }
     public bool IsArchived { get; set; }
+
+    /// <summary>True right after a genuine cycle until the user confirms or retriggers the review.</summary>
+    public bool NeedsReview { get; set; }
     public DateTime CreatedAt { get; set; }
 }

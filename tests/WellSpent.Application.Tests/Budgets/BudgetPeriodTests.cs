@@ -86,6 +86,7 @@ public sealed class BudgetPeriodRolloverTests
         var period = await CreateNextPeriod(profile);
 
         Assert.Equal(profile.Id, period.BudgetProfileId);
+        Assert.False(period.NeedsReview);
         await _profiles.DidNotReceive().ArchivePeriodAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
@@ -104,8 +105,11 @@ public sealed class BudgetPeriodRolloverTests
     }
 
     [Fact]
-    public async Task LatestPeriodEnded_CreatesNextPeriod_ArchivesPrevious()
+    public async Task SecondCycleEver_PreviousPeriodStaysEditable_NothingArchived()
     {
+        // Only one prior period exists (this is the second cycle ever) —
+        // there's nothing older than it to archive, and it becomes "previous"
+        // rather than being archived itself.
         var profile = new BudgetProfile { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Name = "x", Cycle = "monthly" };
         var ended = new BudgetPeriod
         {
@@ -113,13 +117,43 @@ public sealed class BudgetPeriodRolloverTests
             StartDate = new DateOnly(2020, 1, 1), EndDate = new DateOnly(2020, 1, 31),
         };
         _profiles.GetLatestPeriodAsync(profile.Id, Arg.Any<CancellationToken>()).Returns(ended);
+        _profiles.ListPeriodsAsync(profile.Id, Arg.Any<CancellationToken>()).Returns([ended]);
         _profiles.CreatePeriodAsync(Arg.Any<BudgetPeriod>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<BudgetPeriod>());
         _profiles.ListIncomeSourcesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
 
         var period = await CreateNextPeriod(profile);
 
         Assert.Equal(new DateOnly(2020, 2, 1), period.StartDate);
-        await _profiles.Received(1).ArchivePeriodAsync(ended.Id, Arg.Any<CancellationToken>());
+        Assert.True(period.NeedsReview);
+        await _profiles.DidNotReceive().ArchivePeriodAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ThirdCycleEver_ArchivesOnlyTheOlderPeriod_NotThePreviousOne()
+    {
+        // Two prior periods exist — the one two cycles back archives, the
+        // one immediately before (now "previous") stays editable.
+        var profile = new BudgetProfile { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Name = "x", Cycle = "monthly" };
+        var older = new BudgetPeriod
+        {
+            Id = Guid.NewGuid(), BudgetProfileId = profile.Id,
+            StartDate = new DateOnly(2019, 12, 1), EndDate = new DateOnly(2019, 12, 31),
+        };
+        var latest = new BudgetPeriod
+        {
+            Id = Guid.NewGuid(), BudgetProfileId = profile.Id,
+            StartDate = new DateOnly(2020, 1, 1), EndDate = new DateOnly(2020, 1, 31),
+        };
+        _profiles.GetLatestPeriodAsync(profile.Id, Arg.Any<CancellationToken>()).Returns(latest);
+        _profiles.ListPeriodsAsync(profile.Id, Arg.Any<CancellationToken>()).Returns([latest, older]);
+        _profiles.CreatePeriodAsync(Arg.Any<BudgetPeriod>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<BudgetPeriod>());
+        _profiles.ListIncomeSourcesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
+
+        var period = await CreateNextPeriod(profile);
+
+        Assert.Equal(new DateOnly(2020, 2, 1), period.StartDate);
+        await _profiles.Received(1).ArchivePeriodAsync(older.Id, Arg.Any<CancellationToken>());
+        await _profiles.DidNotReceive().ArchivePeriodAsync(latest.Id, Arg.Any<CancellationToken>());
     }
 
     [Fact]

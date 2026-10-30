@@ -18,7 +18,7 @@ public sealed record BudgetProfileDto(
     bool CarryoverEnabled, bool AutoUpdatePlannedAmount);
 
 public sealed record BudgetPeriodDto(
-    Guid Id, Guid BudgetProfileId, DateOnly StartDate, DateOnly EndDate, bool IsArchived);
+    Guid Id, Guid BudgetProfileId, DateOnly StartDate, DateOnly EndDate, bool IsArchived, bool NeedsReview);
 
 public sealed record BudgetPersonDto(
     long Id, Guid BudgetProfileId, string? UserName, Guid? UserId, string Color, string Role,

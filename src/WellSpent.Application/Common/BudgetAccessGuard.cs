@@ -134,6 +134,22 @@ public sealed class BudgetAccessGuard(IBudgetProfileRepository profiles)
     }
 
     /// <summary>
+    /// Admin-only, and deliberately does NOT check IsArchived (unlike
+    /// EnsureCollaboratorOfPeriodAsync below) — confirming/retriggering a
+    /// review is a review-state action, not a period mutation, so it must
+    /// work even on an archived period.
+    /// </summary>
+    public async Task<BudgetPeriod> EnsureAdminOfPeriodAsync(Guid periodId, Guid callerId, CancellationToken ct)
+    {
+        var (period, role) = await GetPeriodRoleAsync(periodId, callerId, ct);
+        if (role != "admin")
+        {
+            throw new ForbiddenException("only admins can do this");
+        }
+        return period;
+    }
+
+    /// <summary>
     /// Mirrors TransactionService's own assertPeriodCollaborator: the role
     /// check runs BEFORE the archived check. This is the opposite order from
     /// the income-entry path (BudgetProfileService's assertPeriodCollaborator,

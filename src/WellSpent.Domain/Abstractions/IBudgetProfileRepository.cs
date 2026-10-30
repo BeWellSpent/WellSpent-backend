@@ -43,6 +43,8 @@ public interface IBudgetProfileRepository
 
     Task ArchivePeriodAsync(Guid id, CancellationToken ct);
 
+    Task SetPeriodNeedsReviewAsync(Guid id, bool value, CancellationToken ct);
+
     /// <summary>Profile ids whose latest period ends on or before cutoff — the cycle-budgets job's daily pick list.</summary>
     Task<List<Guid>> ListProfileIdsWithExpiredPeriodAsync(DateOnly cutoff, CancellationToken ct);
 
