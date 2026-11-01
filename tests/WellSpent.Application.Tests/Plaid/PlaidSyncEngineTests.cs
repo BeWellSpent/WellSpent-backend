@@ -476,6 +476,174 @@ public sealed class PlaidSyncEngineTests
         Assert.Equal(1, byProfile[profileB]);
     }
 
+    // ── Income-aware period assignment (issue #101) ─────────────────────────────
+
+    [Fact]
+    public async Task IncomeTransaction_EarlyEnoughDeposit_AssignedToFundedPeriod()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var rawDate = new DateOnly(2026, 3, 12);
+        var fundedDate = new DateOnly(2026, 3, 15); // anchor day 15, 3 days early, within tolerance
+        var fundedPeriodId = Guid.NewGuid();
+
+        _budgets.ListIncomeSourcesAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
+            .Returns([new IncomeSource { Id = 1, BudgetProfileId = item.BudgetProfileId, Name = "Paycheck", PaymentFrequency = "monthly", AnchorDate = new DateOnly(2025, 1, 15), EarlyArrivalToleranceDays = 3 }]);
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("plaid-tx-1", "ACME Payroll", 1500.00m, rawDate)], [], [], "new-cursor"));
+        _budgets.GetPeriodByDateAsync(item.BudgetProfileId, fundedDate, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = fundedPeriodId, BudgetProfileId = item.BudgetProfileId, StartDate = fundedDate, EndDate = fundedDate.AddDays(20) });
+
+        Transaction? created = null;
+        _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
+            .Returns(info =>
+            {
+                created = (Transaction)info[0];
+                created.Id = Guid.NewGuid();
+                return Task.FromResult(created);
+            });
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.Equal(1, result.Imported);
+        Assert.NotNull(created);
+        Assert.Equal(fundedPeriodId, created!.BudgetPeriodId);
+        Assert.Equal(rawDate, created.Date); // the stored Date is still the real deposit date — only the period assignment shifts
+        await _budgets.DidNotReceive().GetPeriodByDateAsync(item.BudgetProfileId, rawDate, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IncomeTransaction_DepositNotEarlyEnough_AssignedByRawDate()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var rawDate = new DateOnly(2026, 3, 10); // 5 days before anchor day 15, tolerance is only 3
+        var rawPeriodId = Guid.NewGuid();
+
+        _budgets.ListIncomeSourcesAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
+            .Returns([new IncomeSource { Id = 1, BudgetProfileId = item.BudgetProfileId, Name = "Paycheck", PaymentFrequency = "monthly", AnchorDate = new DateOnly(2025, 1, 15), EarlyArrivalToleranceDays = 3 }]);
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("plaid-tx-1", "ACME Payroll", 1500.00m, rawDate)], [], [], "new-cursor"));
+        _budgets.GetPeriodByDateAsync(item.BudgetProfileId, rawDate, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = rawPeriodId, BudgetProfileId = item.BudgetProfileId, StartDate = rawDate.AddDays(-10), EndDate = rawDate.AddDays(10) });
+
+        Transaction? created = null;
+        _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
+            .Returns(info =>
+            {
+                created = (Transaction)info[0];
+                created.Id = Guid.NewGuid();
+                return Task.FromResult(created);
+            });
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.Equal(1, result.Imported);
+        Assert.Equal(rawPeriodId, created!.BudgetPeriodId);
+    }
+
+    [Fact]
+    public async Task IncomeTransaction_NoRegularIncomeSource_AssignedByRawDate()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var rawDate = new DateOnly(2026, 3, 12);
+        var rawPeriodId = Guid.NewGuid();
+
+        // Only a one-off source exists — IsRegular filters it out, so behavior must fall back untouched.
+        _budgets.ListIncomeSourcesAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
+            .Returns([new IncomeSource { Id = 1, BudgetProfileId = item.BudgetProfileId, Name = "Bonus", PaymentFrequency = "one_off", AnchorDate = new DateOnly(2025, 1, 15) }]);
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("plaid-tx-1", "ACME Payroll", 1500.00m, rawDate)], [], [], "new-cursor"));
+        _budgets.GetPeriodByDateAsync(item.BudgetProfileId, rawDate, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = rawPeriodId, BudgetProfileId = item.BudgetProfileId, StartDate = rawDate.AddDays(-10), EndDate = rawDate.AddDays(10) });
+
+        Transaction? created = null;
+        _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
+            .Returns(info =>
+            {
+                created = (Transaction)info[0];
+                created.Id = Guid.NewGuid();
+                return Task.FromResult(created);
+            });
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.Equal(1, result.Imported);
+        Assert.Equal(rawPeriodId, created!.BudgetPeriodId);
+    }
+
+    [Fact]
+    public async Task NonIncomeTransaction_UnaffectedByRegularIncomeSources()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var rawDate = new DateOnly(2026, 3, 12); // would be "early" against the anchor below if this were Income
+        var rawPeriodId = Guid.NewGuid();
+
+        _budgets.ListIncomeSourcesAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
+            .Returns([new IncomeSource { Id = 1, BudgetProfileId = item.BudgetProfileId, Name = "Paycheck", PaymentFrequency = "monthly", AnchorDate = new DateOnly(2025, 1, 15), EarlyArrivalToleranceDays = 10 }]);
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("plaid-tx-1", "Coffee Shop", 5.00m, rawDate)], [], [], "new-cursor"));
+        _budgets.GetPeriodByDateAsync(item.BudgetProfileId, rawDate, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = rawPeriodId, BudgetProfileId = item.BudgetProfileId, StartDate = rawDate.AddDays(-10), EndDate = rawDate.AddDays(10) });
+
+        Transaction? created = null;
+        _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
+            .Returns(info =>
+            {
+                created = (Transaction)info[0];
+                created.Id = Guid.NewGuid();
+                return Task.FromResult(created);
+            });
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.Equal(1, result.Imported);
+        Assert.Equal(rawPeriodId, created!.BudgetPeriodId);
+        await _budgets.DidNotReceive().GetPeriodByDateAsync(item.BudgetProfileId, new DateOnly(2026, 3, 15), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IncomeTransaction_PrefersSamePersonSource_OverCloserDifferentPersonSource()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var rawDate = new DateOnly(2026, 3, 12);
+        var pmId = Guid.NewGuid();
+        // sourceA (person 5, same as the payment method): schedule is 8 days away, but tolerance (10) covers it.
+        // sourceB (person 99, a different person): schedule is only 1 day away, but tolerance (0) does NOT cover it.
+        // If person-preference is ignored and pure proximity wins, sourceB is picked and the funded date
+        // collapses back to rawDate (3/12). If person-preference correctly wins, the funded date is 3/20.
+        var sourceA = new IncomeSource { Id = 1, BudgetProfileId = item.BudgetProfileId, BudgetPersonId = 5, Name = "A", PaymentFrequency = "monthly", AnchorDate = new DateOnly(2025, 1, 20), EarlyArrivalToleranceDays = 10 };
+        var sourceB = new IncomeSource { Id = 2, BudgetProfileId = item.BudgetProfileId, BudgetPersonId = 99, Name = "B", PaymentFrequency = "monthly", AnchorDate = new DateOnly(2025, 1, 13), EarlyArrivalToleranceDays = 0 };
+        var preferredFundedDate = new DateOnly(2026, 3, 20);
+        var preferredPeriodId = Guid.NewGuid();
+
+        _budgets.ListIncomeSourcesAsync(item.BudgetProfileId, Arg.Any<CancellationToken>()).Returns([sourceA, sourceB]);
+        _transactions.GetPaymentMethodByPlaidAccountIdAsync("acct-5", Arg.Any<CancellationToken>())
+            .Returns(new PaymentMethod { Id = pmId, Name = "Chase", BudgetPersonId = 5 });
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("plaid-tx-1", "ACME Payroll", 1500.00m, rawDate, accountId: "acct-5")], [], [], "new-cursor"));
+        _budgets.GetPeriodByDateAsync(item.BudgetProfileId, preferredFundedDate, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = preferredPeriodId, BudgetProfileId = item.BudgetProfileId, StartDate = preferredFundedDate, EndDate = preferredFundedDate.AddDays(20) });
+
+        Transaction? created = null;
+        _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
+            .Returns(info =>
+            {
+                created = (Transaction)info[0];
+                created.Id = Guid.NewGuid();
+                return Task.FromResult(created);
+            });
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.Equal(1, result.Imported);
+        Assert.Equal(preferredPeriodId, created!.BudgetPeriodId);
+        await _budgets.DidNotReceive().GetPeriodByDateAsync(item.BudgetProfileId, rawDate, Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task SyncProfile_QueriesOnlyThatProfilesConnections()
     {

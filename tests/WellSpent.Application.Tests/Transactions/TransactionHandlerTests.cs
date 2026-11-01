@@ -10,6 +10,7 @@ using WellSpent.Application.Transactions.DeleteTransaction;
 using WellSpent.Application.Transactions.ListTransactions;
 using WellSpent.Application.Transactions.MarkTransactionAsPaid;
 using WellSpent.Application.Transactions.SetTransactionExcluded;
+using WellSpent.Application.Transactions.SetTransactionPeriod;
 using WellSpent.Application.Transactions.UnmarkTransactionAsPaid;
 using WellSpent.Application.Transactions.UpdateTransaction;
 using WellSpent.Domain.Abstractions;
@@ -565,5 +566,69 @@ public sealed class TransactionHandlerTests
             .Handle(new SetTransactionExcludedCommand(adminId, txId, periodId, true), CancellationToken.None);
 
         Assert.True(result.IsExcluded);
+    }
+
+    // ── SetTransactionPeriod (manual override) ─────────────────────────────────
+
+    [Fact]
+    public async Task SetPeriod_CollaboratorOnBothPeriods_Succeeds()
+    {
+        var (adminId, profileId, periodId) = SetUpOpenPeriod();
+        var newPeriodId = Guid.NewGuid();
+        var txId = Guid.NewGuid();
+        _profiles.GetPeriodByIdAsync(newPeriodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = newPeriodId, BudgetProfileId = profileId, IsArchived = false, StartDate = new DateOnly(2026, 3, 1), EndDate = new DateOnly(2026, 3, 31) });
+        _transactions.SetTransactionPeriodOverrideAsync(txId, newPeriodId, Arg.Any<CancellationToken>())
+            .Returns(new Transaction { Id = txId, BudgetPeriodId = newPeriodId, PeriodOverridden = true });
+
+        var result = await new SetTransactionPeriodCommandHandler(Access, _transactions)
+            .Handle(new SetTransactionPeriodCommand(adminId, txId, periodId, newPeriodId), CancellationToken.None);
+
+        Assert.Equal(newPeriodId, result.BudgetPeriodId);
+        Assert.True(result.PeriodOverridden);
+        await _transactions.Received(1).SetTransactionPeriodOverrideAsync(txId, newPeriodId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SetPeriod_ViewerOnCurrentPeriod_ThrowsForbidden()
+    {
+        var (_, profileId, periodId) = SetUpOpenPeriod();
+        var viewerId = Guid.NewGuid();
+        _profiles.GetPersonByUserIdAsync(profileId, viewerId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPerson { Id = 3, BudgetProfileId = profileId, UserId = viewerId, Role = "viewer" });
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => new SetTransactionPeriodCommandHandler(Access, _transactions)
+            .Handle(new SetTransactionPeriodCommand(viewerId, Guid.NewGuid(), periodId, Guid.NewGuid()), CancellationToken.None));
+        await _transactions.DidNotReceive().SetTransactionPeriodOverrideAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SetPeriod_NotMemberOfNewPeriodsProfile_ThrowsForbidden()
+    {
+        var (adminId, _, periodId) = SetUpOpenPeriod();
+        var otherProfileId = Guid.NewGuid();
+        var newPeriodId = Guid.NewGuid();
+        _profiles.GetPeriodByIdAsync(newPeriodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = newPeriodId, BudgetProfileId = otherProfileId, IsArchived = false });
+        _profiles.GetByIdAsync(otherProfileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = otherProfileId, UserId = Guid.NewGuid(), Name = "other" });
+        _profiles.GetPersonByUserIdAsync(otherProfileId, adminId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<BudgetPerson>(new NotFoundException("budget_person", adminId.ToString())));
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => new SetTransactionPeriodCommandHandler(Access, _transactions)
+            .Handle(new SetTransactionPeriodCommand(adminId, Guid.NewGuid(), periodId, newPeriodId), CancellationToken.None));
+        await _transactions.DidNotReceive().SetTransactionPeriodOverrideAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SetPeriod_NewPeriodDoesNotExist_ThrowsNotFound()
+    {
+        var (adminId, _, periodId) = SetUpOpenPeriod();
+        var missingPeriodId = Guid.NewGuid();
+        _profiles.GetPeriodByIdAsync(missingPeriodId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<BudgetPeriod>(new NotFoundException("budget_period", missingPeriodId.ToString())));
+
+        await Assert.ThrowsAsync<NotFoundException>(() => new SetTransactionPeriodCommandHandler(Access, _transactions)
+            .Handle(new SetTransactionPeriodCommand(adminId, Guid.NewGuid(), periodId, missingPeriodId), CancellationToken.None));
     }
 }
