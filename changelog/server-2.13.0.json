@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.13.0",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "Any budget whose income schedule is set up now cycles into its next period on that schedule's own pay dates instead of the calendar month — effective immediately for every profile that has one configured. Covers the owner's automatic first period, the daily cycling job, and manually starting the next period. A profile with no configured schedule is unaffected." } }
+  ]
+}
