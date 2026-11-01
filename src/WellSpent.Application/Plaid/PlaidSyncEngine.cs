@@ -616,8 +616,9 @@ public sealed class PlaidSyncEngine(
     /// </summary>
     private static IncomeSource? PickBestIncomeSource(List<IncomeSource> sources, int? personId, DateOnly depositDate)
     {
-        var candidates = personId is { } pid ? sources.Where(s => s.BudgetPersonId == pid).ToList() : [];
-        if (candidates.Count == 0) candidates = sources;
+        var effective = sources.Where(s => IncomePeriodDates.IsEffectiveAt(s, depositDate)).ToList();
+        var candidates = personId is { } pid ? effective.Where(s => s.BudgetPersonId == pid).ToList() : [];
+        if (candidates.Count == 0) candidates = effective;
 
         return candidates
             .OrderBy(s => Math.Abs(IncomePeriodDates.NextPayDate(s, depositDate).DayNumber - depositDate.DayNumber))

@@ -255,4 +255,25 @@ public sealed class GetExpenseSummaryQueryHandlerTests
         Assert.Equal(myPersonId, breakdown.BudgetPersonId);
         Assert.Equal(1000.00m, breakdown.ActualIncome.ToDecimal());
     }
+
+    [Fact]
+    public async Task SupersededIncomeSource_ExcludedFromIncomeFromSources()
+    {
+        var profileId = Guid.NewGuid();
+        var periodId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId });
+        _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = profileId, UserId = userId, Name = "B" });
+        _profiles.ListIncomeSourcesAsync(profileId, Arg.Any<CancellationToken>()).Returns([
+            new IncomeSource { Id = 1, BudgetProfileId = profileId, Name = "Old schedule", DefaultAmount = 500.00m, EffectiveTo = new DateOnly(2026, 2, 1) },
+            new IncomeSource { Id = 2, BudgetProfileId = profileId, Name = "Current schedule", DefaultAmount = 600.00m, EffectiveFrom = new DateOnly(2026, 2, 1) },
+        ]);
+
+        var resp = await CreateHandler().Handle(new GetExpenseSummaryQuery(userId, periodId, false), CancellationToken.None);
+
+        // Only the current (EffectiveTo == null) row counts — the superseded one must not double it up.
+        Assert.Equal(600.00m, resp.IncomeFromSources.ToDecimal());
+    }
 }

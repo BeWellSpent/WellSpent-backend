@@ -104,6 +104,8 @@ public sealed class BudgetProfileRepository(WellSpentDbContext db) : IBudgetProf
         existing.BudgetPersonId = source.BudgetPersonId;
         existing.PaymentFrequency = source.PaymentFrequency;
         existing.BeforeTax = source.BeforeTax;
+        existing.AnchorDate = source.AnchorDate;
+        existing.EarlyArrivalToleranceDays = source.EarlyArrivalToleranceDays;
         await db.SaveChangesAsync(ct);
         return existing;
     }
@@ -111,6 +113,12 @@ public sealed class BudgetProfileRepository(WellSpentDbContext db) : IBudgetProf
     public async Task DeleteIncomeSourceAsync(int id, Guid profileId, CancellationToken ct)
     {
         await db.IncomeSources.Where(s => s.Id == id && s.BudgetProfileId == profileId).ExecuteDeleteAsync(ct);
+    }
+
+    public async Task SetIncomeSourceEffectiveToAsync(int id, DateOnly effectiveTo, CancellationToken ct)
+    {
+        await db.IncomeSources.Where(s => s.Id == id).ExecuteUpdateAsync(
+            s => s.SetProperty(x => x.EffectiveTo, effectiveTo), ct);
     }
 
     // ── Income entries ───────────────────────────────────────────────────────

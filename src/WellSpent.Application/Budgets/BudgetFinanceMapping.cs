@@ -13,7 +13,8 @@ public static class IncomeSourceMapping
 {
     public static IncomeSourceDto ToDto(IncomeSource s) => new(
         s.Id, s.BudgetProfileId, s.Name, s.IncomeType, Money.FromDecimal(s.DefaultAmount),
-        s.Recurring, s.BudgetPersonId ?? 0, s.PaymentFrequency, s.BeforeTax);
+        s.Recurring, s.BudgetPersonId ?? 0, s.PaymentFrequency, s.BeforeTax,
+        s.AnchorDate, s.EarlyArrivalToleranceDays, s.EffectiveFrom, s.EffectiveTo);
 }
 
 public static class SavingsSourceMapping

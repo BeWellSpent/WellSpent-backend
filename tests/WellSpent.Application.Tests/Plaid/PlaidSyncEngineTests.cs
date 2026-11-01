@@ -644,6 +644,52 @@ public sealed class PlaidSyncEngineTests
         await _budgets.DidNotReceive().GetPeriodByDateAsync(item.BudgetProfileId, rawDate, Arg.Any<CancellationToken>());
     }
 
+    // ── Schedule versioning (issue #103) ─────────────────────────────────────────
+
+    [Fact]
+    public async Task IncomeTransaction_PicksScheduleVersionEffectiveOnDepositDate()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var rawDate = new DateOnly(2026, 3, 12);
+        // Superseded version: anchor day 13 (1 day away — would win on pure proximity), but no
+        // longer effective on the deposit date. Must be ignored even though it's the closer match.
+        var oldVersion = new IncomeSource
+        {
+            Id = 1, BudgetProfileId = item.BudgetProfileId, Name = "Paycheck", PaymentFrequency = "monthly",
+            AnchorDate = new DateOnly(2025, 1, 13), EarlyArrivalToleranceDays = 0, EffectiveTo = new DateOnly(2026, 2, 1),
+        };
+        // Current version: anchor day 25 (13 days away), effective since 2026-02-01, generous tolerance.
+        var newVersion = new IncomeSource
+        {
+            Id = 2, BudgetProfileId = item.BudgetProfileId, Name = "Paycheck", PaymentFrequency = "monthly",
+            AnchorDate = new DateOnly(2025, 1, 25), EarlyArrivalToleranceDays = 15, EffectiveFrom = new DateOnly(2026, 2, 1),
+        };
+        var fundedDate = new DateOnly(2026, 3, 25);
+        var fundedPeriodId = Guid.NewGuid();
+
+        _budgets.ListIncomeSourcesAsync(item.BudgetProfileId, Arg.Any<CancellationToken>()).Returns([oldVersion, newVersion]);
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("plaid-tx-1", "ACME Payroll", 1500.00m, rawDate)], [], [], "new-cursor"));
+        _budgets.GetPeriodByDateAsync(item.BudgetProfileId, fundedDate, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = fundedPeriodId, BudgetProfileId = item.BudgetProfileId, StartDate = fundedDate, EndDate = fundedDate.AddDays(20) });
+
+        Transaction? created = null;
+        _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
+            .Returns(info =>
+            {
+                created = (Transaction)info[0];
+                created.Id = Guid.NewGuid();
+                return Task.FromResult(created);
+            });
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.Equal(1, result.Imported);
+        Assert.Equal(fundedPeriodId, created!.BudgetPeriodId);
+        await _budgets.DidNotReceive().GetPeriodByDateAsync(item.BudgetProfileId, rawDate, Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task SyncProfile_QueriesOnlyThatProfilesConnections()
     {

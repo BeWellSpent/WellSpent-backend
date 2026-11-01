@@ -41,7 +41,7 @@ public sealed class GetExpenseSummaryQueryHandler(
             Allocations = await allocations.ListAsync(profileId, ct),
             SavingsSources = await profiles.ListSavingsSourcesAsync(profileId, ct),
             ActiveFixedExpenses = await fixedExpenses.ListAsync(profileId, ct),
-            IncomeSources = await profiles.ListIncomeSourcesAsync(profileId, ct),
+            IncomeSources = (await profiles.ListIncomeSourcesAsync(profileId, ct) ?? []).Where(s => s.EffectiveTo is null).ToList(),
             IncomeEntries = await profiles.ListIncomeEntriesAsync(period.Id, ct),
             PaymentMethods = await transactions.ListPaymentMethodsAsync(profileId, ct),
             Transactions = rawTransactions.Where(t => !SpendFilter.IsNonSpendTransaction(t, nonSpend)).ToList(),

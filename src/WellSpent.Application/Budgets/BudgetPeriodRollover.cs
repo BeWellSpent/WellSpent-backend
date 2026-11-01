@@ -71,8 +71,8 @@ public static class BudgetPeriodRollover
         }
 
         // Pre-fill recurring income sources as entries.
-        var sources = await profiles.ListIncomeSourcesAsync(profile.Id, ct);
-        foreach (var src in sources.Where(s => s.Recurring))
+        var sources = await profiles.ListIncomeSourcesAsync(profile.Id, ct) ?? [];
+        foreach (var src in sources.Where(s => s.Recurring && s.EffectiveTo is null))
         {
             try
             {

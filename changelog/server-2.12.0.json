@@ -1,0 +1,8 @@
+{
+  "component": "server",
+  "version": "2.12.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "Editing an income source's pay schedule (its pay date and how early a deposit still counts as on-time) now versions it: past periods keep reading the schedule that was actually in force instead of being retroactively rewritten. This is the backend half of the work only — no client surfaces schedule editing yet." } },
+    { "changeType": "fixed", "summary": { "en": "Bank-feed income matching now matches an early-arriving deposit against the pay schedule version that was actually in force on its date, instead of always using the current one." } }
+  ]
+}

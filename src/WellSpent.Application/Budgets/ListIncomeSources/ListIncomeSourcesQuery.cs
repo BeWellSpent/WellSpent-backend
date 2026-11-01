@@ -12,7 +12,7 @@ public sealed class ListIncomeSourcesQueryHandler(BudgetAccessGuard access, IBud
     public async Task<List<IncomeSourceDto>> Handle(ListIncomeSourcesQuery request, CancellationToken ct)
     {
         await access.EnsureMemberAsync(request.BudgetProfileId, request.UserId, ct);
-        var rows = await profiles.ListIncomeSourcesAsync(request.BudgetProfileId, ct);
-        return rows.Select(IncomeSourceMapping.ToDto).ToList();
+        var rows = await profiles.ListIncomeSourcesAsync(request.BudgetProfileId, ct) ?? [];
+        return rows.Where(s => s.EffectiveTo is null).Select(IncomeSourceMapping.ToDto).ToList();
     }
 }
