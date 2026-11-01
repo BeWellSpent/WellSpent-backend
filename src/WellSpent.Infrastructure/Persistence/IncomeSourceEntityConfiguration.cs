@@ -20,6 +20,10 @@ public sealed class IncomeSourceEntityConfiguration : IEntityTypeConfiguration<I
         b.Property(x => x.Recurring).HasColumnName("recurring");
         b.Property(x => x.PaymentFrequency).HasColumnName("payment_frequency").IsRequired();
         b.Property(x => x.BeforeTax).HasColumnName("before_tax");
+        b.Property(x => x.AnchorDate).HasColumnName("anchor_date");
+        b.Property(x => x.EarlyArrivalToleranceDays).HasColumnName("early_arrival_tolerance_days");
+        b.Property(x => x.EffectiveFrom).HasColumnName("effective_from");
+        b.Property(x => x.EffectiveTo).HasColumnName("effective_to");
         b.Property(x => x.CreatedAt).HasColumnName("created_at")
             .HasDefaultValueSql("NOW()").ValueGeneratedOnAdd();
     }

@@ -4,8 +4,8 @@
 #   docker build -t wellspent-backend-csharp .
 #
 # One builder stage, one slim runtime image holding every binary this
-# backend needs: the API host, the migration runner, and the two background
-# jobs (cycle-budgets, plaid-sync).
+# backend needs: the API host, the migration runner, and the background
+# jobs (cycle-budgets, plaid-sync, backfill-period-assignments).
 
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS builder
@@ -21,6 +21,7 @@ COPY src/WellSpent.Infrastructure/WellSpent.Infrastructure.csproj src/WellSpent.
 COPY src/WellSpent.Migrator/WellSpent.Migrator.csproj src/WellSpent.Migrator/
 COPY src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj src/WellSpent.Jobs.PlaidSync/
 COPY src/WellSpent.Jobs.CycleBudgets/WellSpent.Jobs.CycleBudgets.csproj src/WellSpent.Jobs.CycleBudgets/
+COPY src/WellSpent.Jobs.BackfillPeriodAssignments/WellSpent.Jobs.BackfillPeriodAssignments.csproj src/WellSpent.Jobs.BackfillPeriodAssignments/
 COPY tests/WellSpent.Api.Tests/WellSpent.Api.Tests.csproj tests/WellSpent.Api.Tests/
 COPY tests/WellSpent.Application.Tests/WellSpent.Application.Tests.csproj tests/WellSpent.Application.Tests/
 COPY tests/WellSpent.Infrastructure.Tests/WellSpent.Infrastructure.Tests.csproj tests/WellSpent.Infrastructure.Tests/
@@ -38,6 +39,7 @@ RUN dotnet publish src/WellSpent.Api/WellSpent.Api.csproj -c Release -o /app/api
 RUN dotnet publish src/WellSpent.Migrator/WellSpent.Migrator.csproj -c Release -o /app/migrator -r linux-x64 --self-contained false -p:PublishReadyToRun=true
 RUN dotnet publish src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj -c Release -o /app/plaid-sync -r linux-x64 --self-contained false -p:PublishReadyToRun=true
 RUN dotnet publish src/WellSpent.Jobs.CycleBudgets/WellSpent.Jobs.CycleBudgets.csproj -c Release -o /app/cycle-budgets -r linux-x64 --self-contained false -p:PublishReadyToRun=true
+RUN dotnet publish src/WellSpent.Jobs.BackfillPeriodAssignments/WellSpent.Jobs.BackfillPeriodAssignments.csproj -c Release -o /app/backfill-period-assignments -r linux-x64 --self-contained false -p:PublishReadyToRun=true
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
@@ -53,6 +55,7 @@ COPY --from=builder /app/api ./api
 COPY --from=builder /app/migrator ./migrator
 COPY --from=builder /app/plaid-sync ./plaid-sync
 COPY --from=builder /app/cycle-budgets ./cycle-budgets
+COPY --from=builder /app/backfill-period-assignments ./backfill-period-assignments
 
 # The migrator locates its schema source of truth (the existing goose SQL
 # files) by walking up from its own binary to find WellSpent.slnx — the same

@@ -18,5 +18,18 @@ public sealed class IncomeSource
     public string PaymentFrequency { get; set; } = "monthly";
 
     public bool BeforeTax { get; set; }
+
+    /// <summary>Scheduled pay-day anchor. NULL = no regular schedule (irregular income).</summary>
+    public DateOnly? AnchorDate { get; set; }
+
+    /// <summary>Days before AnchorDate a deposit still counts as on-time for period funding. 0 = no tolerance.</summary>
+    public int EarlyArrivalToleranceDays { get; set; }
+
+    /// <summary>When this schedule version takes effect. NULL = effective since creation.</summary>
+    public DateOnly? EffectiveFrom { get; set; }
+
+    /// <summary>When this schedule version stops being current. NULL = currently effective.</summary>
+    public DateOnly? EffectiveTo { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }

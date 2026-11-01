@@ -2,6 +2,9 @@ using WellSpent.Domain.Entities;
 
 namespace WellSpent.Domain.Abstractions;
 
+/// <summary>A transaction whose BudgetPeriodId is null or doesn't contain its own Date. BudgetProfileId is null when BudgetPeriodId itself was null — there is no FK to resolve the profile from in that case.</summary>
+public sealed record MismatchedPeriodAssignmentRow(Guid TransactionId, DateOnly? Date, Guid? CurrentBudgetPeriodId, Guid? BudgetProfileId);
+
 /// <summary>Covers Transaction, Category, and PaymentMethod — mirroring Go's single transactionRepository grouping all three.</summary>
 public interface ITransactionRepository
 {
@@ -69,6 +72,12 @@ public interface ITransactionRepository
 
     /// <summary>Sets FixedExpensePaidOffEarly on exactly this transaction — the payment that brought its FixedExpense's remaining balance to zero strictly before EndDate.</summary>
     Task SetFixedExpensePaidOffEarlyAsync(Guid id, CancellationToken ct);
+
+    /// <summary>Every non-overridden transaction with no period or whose Date falls outside its assigned period's range — candidates for PeriodAssignmentBackfill.</summary>
+    Task<List<MismatchedPeriodAssignmentRow>> ListMismatchedPeriodAssignmentsAsync(CancellationToken ct);
+
+    /// <summary>Points a transaction at a different period — used by PeriodAssignmentBackfill. Does not touch PeriodOverridden.</summary>
+    Task ReassignPeriodAsync(Guid transactionId, Guid budgetPeriodId, CancellationToken ct);
 
     // ── Categories ───────────────────────────────────────────────────────────
     Task<Category> GetCategoryAsync(int id, CancellationToken ct);

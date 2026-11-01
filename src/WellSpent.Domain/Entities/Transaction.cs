@@ -41,4 +41,7 @@ public sealed class Transaction
 
     /// <summary>True on exactly the one payment that brought its linked FixedExpense's remaining balance to zero, strictly before EndDate.</summary>
     public bool FixedExpensePaidOffEarly { get; set; }
+
+    /// <summary>Set by a manual override of period assignment; any reassignment/backfill logic must never touch a row where this is true.</summary>
+    public bool PeriodOverridden { get; set; }
 }
