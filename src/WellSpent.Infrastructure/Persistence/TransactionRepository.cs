@@ -179,6 +179,20 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         await db.Transactions.Where(t => t.Id == id)
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.FixedExpensePaidOffEarly, true), ct);
 
+    public async Task<List<MismatchedPeriodAssignmentRow>> ListMismatchedPeriodAssignmentsAsync(CancellationToken ct) =>
+        await (
+            from t in db.Transactions
+            where !t.PeriodOverridden
+            join p in db.BudgetPeriods on t.BudgetPeriodId equals p.Id into periods
+            from p in periods.DefaultIfEmpty()
+            where t.BudgetPeriodId == null || p == null || t.Date == null || t.Date < p.StartDate || t.Date > p.EndDate
+            select new MismatchedPeriodAssignmentRow(t.Id, t.Date, t.BudgetPeriodId, p == null ? (Guid?)null : p.BudgetProfileId)
+        ).ToListAsync(ct);
+
+    public async Task ReassignPeriodAsync(Guid transactionId, Guid budgetPeriodId, CancellationToken ct) =>
+        await db.Transactions.Where(t => t.Id == transactionId)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.BudgetPeriodId, budgetPeriodId), ct);
+
     // ── Categories ───────────────────────────────────────────────────────────
 
     public async Task<Category> GetCategoryAsync(int id, CancellationToken ct) =>
