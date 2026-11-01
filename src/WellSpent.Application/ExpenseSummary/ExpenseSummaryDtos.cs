@@ -4,6 +4,8 @@ namespace WellSpent.Application.ExpenseSummary;
 
 public sealed record PersonExpenseSummaryDto(long BudgetPersonId, Money PlannedTotal, Money ActualTotal);
 
+public sealed record PersonActualIncomeDto(long BudgetPersonId, Money ActualIncome);
+
 /// <summary>
 /// ActualTotal/IsOver/NotDuePlannedTotal/NextDueDate are only ever populated
 /// on overview rows — plan rows are planned-side only, matching the Expense
@@ -21,4 +23,5 @@ public sealed record GetExpenseSummaryDto(
     List<CategoryExpenseSummaryDto> PlanCategories, List<CategoryExpenseSummaryDto> OverviewCategories,
     Money FixedActualTotal, Money VariableActualTotal, List<Guid> OverBudgetTransactionIds,
     Money TotalCommittedIncludingSavings, Money TotalPlannedIncludingSavings, Money TotalActualIncludingSavings,
-    Money SavingsPlannedTotal, Money SavingsActualTotal);
+    Money SavingsPlannedTotal, Money SavingsActualTotal,
+    Money ActualIncomeTotal, Money RemainderActualIncome, List<PersonActualIncomeDto> ActualIncomeByPerson);

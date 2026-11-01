@@ -23,6 +23,9 @@ public sealed class ExpenseSummaryData
     /// <summary>Already exclusion-filtered (IsExcluded, or a non-spend category) — every downstream computation can assume every row here is real spending activity.</summary>
     public required List<Transaction> Transactions { get; set; }
 
+    /// <summary>Non-excluded "Income"-category transactions assigned to this period — the actual-income figure's input, separate from Transactions (which already has Income filtered OUT as a non-spend category).</summary>
+    public required List<Transaction> IncomeTransactions { get; set; }
+
     /// <summary>Null when the Savings system category hasn't been seeded yet in this environment.</summary>
     public int? SavingsCategoryId { get; init; }
 

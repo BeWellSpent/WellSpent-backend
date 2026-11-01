@@ -52,6 +52,10 @@ public sealed class ExpenseSummaryCalculator
 
     private readonly Dictionary<Guid, int> _pmPersonMap = new();
 
+    // Actual income: sum of non-excluded Income-category transactions assigned to this period.
+    private decimal _actualIncomeTotal;
+    private readonly Dictionary<int, decimal> _actualIncomeByPerson = new();
+
     public ExpenseSummaryCalculator(ExpenseSummaryData data)
     {
         _data = data;
@@ -59,6 +63,7 @@ public sealed class ExpenseSummaryCalculator
         ComputeActuals();
         ComputePlannedTiers();
         ComputeSavings();
+        ComputeActualIncome();
         // Depends on both planned tiers and savings, so it runs last.
         ComputeOverBudget();
     }
@@ -164,6 +169,17 @@ public sealed class ExpenseSummaryCalculator
             {
                 _savingsByPerson[personId] = _savingsByPerson.GetValueOrDefault(personId) + ss.Amount;
             }
+        }
+    }
+
+    /// <summary>Sums actual income the same way ComputeActuals sums spend: unattributed (no payment method, or a method with no person) still counts in the total but not in any person's line.</summary>
+    private void ComputeActualIncome()
+    {
+        foreach (var tx in _data.IncomeTransactions)
+        {
+            _actualIncomeTotal += tx.Amount;
+            if (tx.PaymentMethodId is { } pmId && _pmPersonMap.TryGetValue(pmId, out var personId))
+                _actualIncomeByPerson[personId] = _actualIncomeByPerson.GetValueOrDefault(personId) + tx.Amount;
         }
     }
 
@@ -347,6 +363,10 @@ public sealed class ExpenseSummaryCalculator
         var incomeFromEntries = _data.IncomeEntries.Sum(e => e.Amount);
         var savingsActual = _data.SavingsCategoryId is { } savingsCatId ? _actualByCat.GetValueOrDefault(savingsCatId) : 0m;
 
+        var actualIncomeByPerson = _actualIncomeByPerson
+            .Select(kv => new PersonActualIncomeDto(kv.Key, Money.FromDecimal(kv.Value)))
+            .ToList();
+
         return new GetExpenseSummaryDto(
             Money.FromDecimal(incomeFromSources), Money.FromDecimal(incomeFromEntries),
             Money.FromDecimal(totalCommitted), Money.FromDecimal(totalPlanned), Money.FromDecimal(totalActual),
@@ -356,6 +376,7 @@ public sealed class ExpenseSummaryCalculator
             planCategories, overviewCategories,
             Money.FromDecimal(_fixedActual), Money.FromDecimal(_variableActual), _overBudgetTxIds,
             Money.FromDecimal(totalCommittedIncludingSavings), Money.FromDecimal(totalPlannedIncludingSavings),
-            Money.FromDecimal(totalActualIncludingSavings), Money.FromDecimal(_savingsTotal), Money.FromDecimal(savingsActual));
+            Money.FromDecimal(totalActualIncludingSavings), Money.FromDecimal(_savingsTotal), Money.FromDecimal(savingsActual),
+            Money.FromDecimal(_actualIncomeTotal), Money.FromDecimal(_actualIncomeTotal - totalActual), actualIncomeByPerson);
     }
 }

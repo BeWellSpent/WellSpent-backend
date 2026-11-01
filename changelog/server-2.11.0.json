@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.11.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "The Expense Summary now reports actual income (money actually received this period) alongside planned income, including a breakdown by person. This is the backend half of the work only — no client surfaces it yet." } }
+  ]
+}
