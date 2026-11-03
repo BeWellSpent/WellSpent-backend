@@ -406,6 +406,23 @@ public sealed class ExpenseSummaryCalculatorTests
     }
 
     [Fact]
+    public void ActualIncome_RemainderAlsoSubtractsRealSavings()
+    {
+        const int catId = 9, savingsCatId = 20;
+        var data = Data(
+            allocations: [new ExpenseAllocation { CategoryId = catId, PlannedAmount = 100.00m }],
+            transactions: [Tx(catId, 60.00m, 60.00m, isPaid: true), Tx(savingsCatId, 150.00m, 150.00m, isPaid: true)],
+            savingsCategoryId: savingsCatId,
+            incomeTransactions: [Tx(amount: -500.00m)]);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(60.00m, resp.TotalActual.ToDecimal());
+        Assert.Equal(210.00m, resp.TotalActualIncludingSavings.ToDecimal());
+        Assert.Equal(290.00m, resp.RemainderActualIncome.ToDecimal());
+    }
+
+    [Fact]
     public void ActualIncome_NoIncomeTransactions_ZeroTotalAndEmptyList()
     {
         var data = Data();

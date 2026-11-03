@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.16.0",
+  "items": [
+    { "changeType": "fixed", "summary": { "en": "Remaining actual income now also subtracts the savings that actually left your account, instead of counting only expenses, so the amount left is no longer overstated.", "es": "El ingreso real restante ahora también resta los ahorros que realmente salieron de tu cuenta, en lugar de contar solo los gastos, para que lo que queda ya no aparezca inflado." } }
+  ]
+}
