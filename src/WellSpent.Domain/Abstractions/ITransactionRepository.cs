@@ -79,6 +79,9 @@ public interface ITransactionRepository
     /// <summary>Points a transaction at a different period — used by PeriodAssignmentBackfill. Does not touch PeriodOverridden.</summary>
     Task ReassignPeriodAsync(Guid transactionId, Guid budgetPeriodId, CancellationToken ct);
 
+    /// <summary>Manual override (SetTransactionPeriod) — points a transaction at a different period AND sets PeriodOverridden, so no later automatic reassignment ever moves it again.</summary>
+    Task<Transaction> SetTransactionPeriodOverrideAsync(Guid transactionId, Guid newBudgetPeriodId, CancellationToken ct);
+
     // ── Categories ───────────────────────────────────────────────────────────
     Task<Category> GetCategoryAsync(int id, CancellationToken ct);
 

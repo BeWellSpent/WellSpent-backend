@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.14.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "An income source's monthly or yearly pay date can now be set to automatically move to the preceding Friday whenever it would otherwise land on a Saturday or Sunday, matching how most paychecks actually arrive. On by default for new and existing schedules; weekly and bi-weekly schedules are unaffected." } }
+  ]
+}

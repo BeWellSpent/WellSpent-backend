@@ -193,6 +193,16 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         await db.Transactions.Where(t => t.Id == transactionId)
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.BudgetPeriodId, budgetPeriodId), ct);
 
+    public async Task<Transaction> SetTransactionPeriodOverrideAsync(Guid transactionId, Guid newBudgetPeriodId, CancellationToken ct)
+    {
+        var tx = await db.Transactions.FirstOrDefaultAsync(t => t.Id == transactionId, ct)
+            ?? throw new NotFoundException("transaction", transactionId.ToString());
+        tx.BudgetPeriodId = newBudgetPeriodId;
+        tx.PeriodOverridden = true;
+        await SaveChangesCatchingConflictAsync(ct);
+        return tx;
+    }
+
     // ── Categories ───────────────────────────────────────────────────────────
 
     public async Task<Category> GetCategoryAsync(int id, CancellationToken ct) =>

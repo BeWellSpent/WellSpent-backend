@@ -19,6 +19,7 @@ public sealed class GetExpenseSummaryQueryHandler(
     : IRequestHandler<GetExpenseSummaryQuery, GetExpenseSummaryDto>
 {
     private const string SavingsSystemKey = "savings";
+    private const string IncomeSystemKey = "income";
 
     public async Task<GetExpenseSummaryDto> Handle(GetExpenseSummaryQuery request, CancellationToken ct)
     {
@@ -28,6 +29,7 @@ public sealed class GetExpenseSummaryQueryHandler(
         var systemCategories = await transactions.ListSystemCategoriesAsync(ct);
         var nonSpend = SpendFilter.NonSpendCategoryIds(systemCategories);
         int? savingsCategoryId = systemCategories.TryGetValue(SavingsSystemKey, out var savingsId) ? savingsId : null;
+        int? incomeCategoryId = systemCategories.TryGetValue(IncomeSystemKey, out var incomeId) ? incomeId : null;
 
         var profileId = period.BudgetProfileId;
         var rawTransactions = await transactions.ListTransactionsAsync(period.Id, null, null, null, ct);
@@ -39,10 +41,13 @@ public sealed class GetExpenseSummaryQueryHandler(
             Allocations = await allocations.ListAsync(profileId, ct),
             SavingsSources = await profiles.ListSavingsSourcesAsync(profileId, ct),
             ActiveFixedExpenses = await fixedExpenses.ListAsync(profileId, ct),
-            IncomeSources = await profiles.ListIncomeSourcesAsync(profileId, ct),
+            IncomeSources = (await profiles.ListIncomeSourcesAsync(profileId, ct) ?? []).Where(s => s.EffectiveTo is null).ToList(),
             IncomeEntries = await profiles.ListIncomeEntriesAsync(period.Id, ct),
             PaymentMethods = await transactions.ListPaymentMethodsAsync(profileId, ct),
             Transactions = rawTransactions.Where(t => !SpendFilter.IsNonSpendTransaction(t, nonSpend)).ToList(),
+            IncomeTransactions = incomeCategoryId is { } incId
+                ? rawTransactions.Where(t => !t.IsExcluded && t.CategoryId == incId).ToList()
+                : [],
             SavingsCategoryId = savingsCategoryId,
             Now = DateOnly.FromDateTime(DateTime.UtcNow),
         };
@@ -68,6 +73,7 @@ public sealed class GetExpenseSummaryQueryHandler(
             methodId is null || !pmPersonMap.TryGetValue(methodId.Value, out var personId) || personId == myPersonId;
 
         data.Transactions = data.Transactions.Where(t => MineViaMethod(t.PaymentMethodId)).ToList();
+        data.IncomeTransactions = data.IncomeTransactions.Where(t => MineViaMethod(t.PaymentMethodId)).ToList();
         data.Allocations = data.Allocations.Where(a => Mine(a.BudgetPersonId)).ToList();
         data.SavingsSources = data.SavingsSources.Where(s => Mine(s.BudgetPersonId)).ToList();
         data.ActiveFixedExpenses = data.ActiveFixedExpenses.Where(fe => MineViaMethod(fe.PaymentMethodId)).ToList();

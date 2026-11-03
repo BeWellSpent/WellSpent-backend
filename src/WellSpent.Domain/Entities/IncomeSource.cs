@@ -31,5 +31,8 @@ public sealed class IncomeSource
     /// <summary>When this schedule version stops being current. NULL = currently effective.</summary>
     public DateOnly? EffectiveTo { get; set; }
 
+    /// <summary>Monthly/yearly anchor landing on a weekend rolls back to the preceding Friday. Meaningless for weekly/bi-weekly.</summary>
+    public bool AdjustForWeekends { get; set; } = true;
+
     public DateTime CreatedAt { get; set; }
 }

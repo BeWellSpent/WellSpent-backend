@@ -9,6 +9,7 @@ using WellSpent.Application.Transactions.DeleteTransaction;
 using WellSpent.Application.Transactions.ListTransactions;
 using WellSpent.Application.Transactions.MarkTransactionAsPaid;
 using WellSpent.Application.Transactions.SetTransactionExcluded;
+using WellSpent.Application.Transactions.SetTransactionPeriod;
 using WellSpent.Application.Transactions.UnmarkTransactionAsPaid;
 using WellSpent.Application.Transactions.UpdateTransaction;
 using WellSpent.Application.TransactionReviews.ConfirmTransactionReview;
@@ -74,6 +75,13 @@ public static class TransactionEndpoints
             return Results.Ok(new { transaction });
         });
 
+        group.MapPut("/{id:guid}/period", async (Guid id, SetTransactionPeriodRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var transaction = await sender.Send(new SetTransactionPeriodCommand(
+                CurrentUser.GetId(ctx), id, body.BudgetPeriodId, body.NewBudgetPeriodId), ct);
+            return Results.Ok(new { transaction });
+        });
+
         group.MapPost("/{id:guid}/installment-plan", async (
             Guid id, Guid budgetPeriodId, CreateInstallmentPlanRequestBody body, HttpContext ctx, ISender sender, CancellationToken ct) =>
         {
@@ -131,6 +139,7 @@ public static class TransactionEndpoints
     private sealed record MarkPaidRequestBody(Guid BudgetPeriodId, Money PaidAmount, DateOnly PaidDate);
     private sealed record BudgetPeriodRequestBody(Guid BudgetPeriodId);
     private sealed record SetExcludedRequestBody(Guid BudgetPeriodId, bool Excluded);
+    private sealed record SetTransactionPeriodRequestBody(Guid BudgetPeriodId, Guid NewBudgetPeriodId);
     private sealed record CreateInstallmentPlanRequestBody(DateOnly FirstPaymentDate, int TotalPayments, DateOnly? EndDate);
     private sealed record FlagForReviewRequestBody(Guid MatchedTransactionId, Guid BudgetProfileId);
 

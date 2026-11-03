@@ -34,13 +34,16 @@ public static class FixedExpenseScheduling
         return diff >= 0 && diff % interval == 0;
     }
 
-    /// <summary>fe's transaction date within monthStart's month, DayOfMonth clamped to that month's last day.</summary>
-    public static DateOnly DateInMonth(FixedExpense fe, DateOnly monthStart)
+    /// <summary>The date within monthStart's month for the given day-of-month, clamped to that month's last day.</summary>
+    public static DateOnly DateInMonth(int dayOfMonth, DateOnly monthStart)
     {
         var lastDay = DateTime.DaysInMonth(monthStart.Year, monthStart.Month);
-        var day = Math.Clamp(fe.DayOfMonth < 1 ? 1 : fe.DayOfMonth, 1, lastDay);
+        var day = Math.Clamp(dayOfMonth < 1 ? 1 : dayOfMonth, 1, lastDay);
         return new DateOnly(monthStart.Year, monthStart.Month, day);
     }
+
+    /// <summary>fe's transaction date within monthStart's month, DayOfMonth clamped to that month's last day.</summary>
+    public static DateOnly DateInMonth(FixedExpense fe, DateOnly monthStart) => DateInMonth(fe.DayOfMonth, monthStart);
 
     /// <summary>The Monday of d's week.</summary>
     public static DateOnly WeekStart(DateOnly d)

@@ -24,10 +24,16 @@ public static class BudgetPeriodRollover
             // No previous period — first period for this profile.
         }
 
+        // Full, unfiltered history — IncomePeriodDates does its own point-in-time
+        // resolution against whichever reference date it's given, so a superseded
+        // schedule version still needs to be visible to it. Also reused below for
+        // the recurring-income prefill, which filters this same list itself.
+        var sources = await profiles.ListIncomeSourcesAsync(profile.Id, ct) ?? [];
+
         DateOnly start, end;
         if (latest is null)
         {
-            (start, end) = BudgetPeriodDates.ComputeFirst(profile.Cycle, today);
+            (start, end) = IncomePeriodDates.ComputeFirst(sources, profile.Cycle, today);
         }
         else if (latest.EndDate >= today)
         {
@@ -36,7 +42,7 @@ public static class BudgetPeriodRollover
         }
         else
         {
-            (start, end) = BudgetPeriodDates.ComputeNext(profile.Cycle, latest.EndDate);
+            (start, end) = IncomePeriodDates.ComputeNext(sources, profile.Cycle, latest.EndDate);
         }
 
         var period = await profiles.CreatePeriodAsync(new BudgetPeriod
@@ -71,8 +77,7 @@ public static class BudgetPeriodRollover
         }
 
         // Pre-fill recurring income sources as entries.
-        var sources = await profiles.ListIncomeSourcesAsync(profile.Id, ct);
-        foreach (var src in sources.Where(s => s.Recurring))
+        foreach (var src in sources.Where(s => s.Recurring && s.EffectiveTo is null))
         {
             try
             {

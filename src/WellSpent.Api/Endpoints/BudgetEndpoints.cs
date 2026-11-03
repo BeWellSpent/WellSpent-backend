@@ -175,7 +175,8 @@ public static class BudgetEndpoints
         {
             var source = await sender.Send(new AddIncomeSourceCommand(
                 CurrentUser.GetId(ctx), id, body.Name, body.IncomeType, body.DefaultAmount,
-                body.Recurring, body.BudgetPersonId, body.PaymentFrequency, body.BeforeTax), ct);
+                body.Recurring, body.BudgetPersonId, body.PaymentFrequency, body.BeforeTax,
+                body.AnchorDate, body.EarlyArrivalToleranceDays, body.AdjustForWeekends), ct);
             return Results.Ok(new { source });
         });
 
@@ -190,7 +191,8 @@ public static class BudgetEndpoints
         {
             var source = await sender.Send(new UpdateIncomeSourceCommand(
                 CurrentUser.GetId(ctx), sourceId, id, body.Name, body.IncomeType, body.DefaultAmount,
-                body.Recurring, body.BudgetPersonId, body.PaymentFrequency, body.BeforeTax), ct);
+                body.Recurring, body.BudgetPersonId, body.PaymentFrequency, body.BeforeTax,
+                body.AnchorDate, body.EarlyArrivalToleranceDays, body.AdjustForWeekends), ct);
             return Results.Ok(new { source });
         });
 
@@ -344,7 +346,8 @@ public static class BudgetEndpoints
 
     private sealed record IncomeSourceRequestBody(
         string Name, string IncomeType, Money DefaultAmount, bool Recurring,
-        int? BudgetPersonId, string PaymentFrequency, bool BeforeTax);
+        int? BudgetPersonId, string PaymentFrequency, bool BeforeTax,
+        DateOnly? AnchorDate = null, int EarlyArrivalToleranceDays = 0, bool AdjustForWeekends = true);
 
     private sealed record SavingsSourceRequestBody(string Name, Money Amount, Guid? PaymentMethodId, int[]? PaymentDays);
 

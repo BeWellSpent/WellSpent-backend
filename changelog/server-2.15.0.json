@@ -1,0 +1,34 @@
+{
+  "component": "server",
+  "version": "2.15.0",
+  "items": [
+    {
+      "changeType": "changed",
+      "summary": {
+        "en": "A job paid more than once per period (e.g. the 15th and the last day of the month) no longer splits a monthly budget into half-month periods. Each period starts the day after the previous one ends and runs until the day before the earliest payday near one full cycle later, so a partner paid a day earlier is never missed.",
+        "es": "Un trabajo que paga más de una vez por período (por ejemplo, el 15 y el último día del mes) ya no divide un presupuesto mensual en períodos de medio mes. Cada período empieza el día después de que termina el anterior y dura hasta el día antes del primer pago cercano a un ciclo completo después, así que un pago de tu pareja un día antes nunca se pierde."
+      }
+    },
+    {
+      "changeType": "changed",
+      "summary": {
+        "en": "An income source's early-arrival tolerance now also ends the period that many days earlier, so a paycheck arriving early already sits in the period it funds.",
+        "es": "La tolerancia de llegada anticipada de una fuente de ingreso ahora también termina el período esa misma cantidad de días antes, para que un pago que llega antes ya quede en el período que financia."
+      }
+    },
+    {
+      "changeType": "fixed",
+      "summary": {
+        "en": "Switching a budget onto an income schedule mid-month no longer leaves a stretch of days that belong to no period.",
+        "es": "Pasar un presupuesto a un calendario de ingresos a mitad de mes ya no deja días que no pertenecen a ningún período."
+      }
+    },
+    {
+      "changeType": "fixed",
+      "summary": {
+        "en": "The income that actually arrived this period no longer shows as a negative amount. Bank deposits and \"Money In\" entries are stored as negatives, and the total now reflects that.",
+        "es": "El ingreso que realmente llegó este período ya no aparece como un monto negativo. Los depósitos bancarios y las entradas de \"Dinero recibido\" se guardan como negativos, y el total ahora lo refleja."
+      }
+    }
+  ]
+}

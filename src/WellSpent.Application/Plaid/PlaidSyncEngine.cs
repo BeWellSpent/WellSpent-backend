@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WellSpent.Application.Abstractions;
+using WellSpent.Application.Budgets;
 using WellSpent.Application.Configuration;
 using WellSpent.Application.FixedExpenses;
 using WellSpent.Application.Notifications;
@@ -170,7 +171,7 @@ public sealed class PlaidSyncEngine(
             item.Id, sync.Added.Count, sync.Modified.Count, sync.RemovedIds.Count);
 
         // Resolved once per Plaid account: payment method + name to report it under.
-        var pmCache = new Dictionary<string, (Guid? PaymentMethodId, string Name)>();
+        var pmCache = new Dictionary<string, (Guid? PaymentMethodId, string Name, int? BudgetPersonId)>();
         var byAccount = new Dictionary<string, int>();
 
         var fixedExpenseList = await fixedExpenses.ListAsync(item.BudgetProfileId, ct);
@@ -179,6 +180,12 @@ public sealed class PlaidSyncEngine(
         {
             aliasesByFe[fe.Id] = await reviews.ListAliasesAsync(fe.Id, ct);
         }
+
+        // Read once per item, not per transaction: used to resolve the *funded* period for an
+        // Income-categorized import (early-arriving payroll). Every other category is unaffected.
+        var regularIncomeSources = (await budgets.ListIncomeSourcesAsync(item.BudgetProfileId, ct) ?? [])
+            .Where(IncomePeriodDates.IsRegular)
+            .ToList();
 
         var importedAdded = 0;
         var autoConfirmed = 0;
@@ -192,15 +199,6 @@ public sealed class PlaidSyncEngine(
 
         foreach (var tx in sync.Added)
         {
-            var period = await budgets.GetPeriodByDateAsync(item.BudgetProfileId, tx.Date, ct);
-            if (period is null)
-            {
-                skippedNoPeriod++;
-                logger.LogInformation("plaid.sync_skipped_no_period plaid_item_id={PlaidItemId} name={Name} date={Date} amount={Amount} plaid_id={PlaidId}",
-                    item.Id, tx.Name, tx.Date, tx.Amount, tx.PlaidId);
-                continue;
-            }
-
             // A settled pending transaction arrives under a new PlaidId — repoint in place (issue #67).
             if (!string.IsNullOrEmpty(tx.PendingTransactionId))
             {
@@ -225,17 +223,20 @@ public sealed class PlaidSyncEngine(
 
             var (categoryKey, categoryId) = PlaidSyncCategoryResolution.ResolveId(tx.Name, tx.PfcPrimary, tx.PfcDetailed, categoryIds);
 
+            // Resolved before period assignment: an Income deposit's funded-date resolution
+            // prefers an income source attributed to the same person as this payment method.
             Guid? paymentMethodId = null;
+            int? paymentMethodPersonId = null;
             var accountName = result.InstitutionName;
             if (!string.IsNullOrEmpty(tx.AccountId))
             {
                 if (!pmCache.TryGetValue(tx.AccountId, out var cached))
                 {
-                    cached = (null, result.InstitutionName);
+                    cached = (null, result.InstitutionName, null);
                     var pm = await transactions.GetPaymentMethodByPlaidAccountIdAsync(tx.AccountId, ct);
                     if (pm is not null)
                     {
-                        cached = (pm.Id, pm.Name);
+                        cached = (pm.Id, pm.Name, pm.BudgetPersonId);
                     }
 
                     pmCache[tx.AccountId] = cached;
@@ -243,11 +244,40 @@ public sealed class PlaidSyncEngine(
 
                 paymentMethodId = cached.PaymentMethodId;
                 accountName = cached.Name;
+                paymentMethodPersonId = cached.BudgetPersonId;
             }
 
             if (string.IsNullOrEmpty(accountName))
             {
                 accountName = "Unknown account";
+            }
+
+            // Income-categorized deposits resolve to the period they *fund*, which may be
+            // earlier than the raw deposit date (early-arriving payroll). Every other
+            // category keeps resolving by the raw date, unchanged.
+            var effectiveDate = tx.Date;
+            if (categoryKey == "income" && regularIncomeSources.Count > 0)
+            {
+                var bestSource = PickBestIncomeSource(regularIncomeSources, paymentMethodPersonId, tx.Date);
+                if (bestSource is not null)
+                {
+                    effectiveDate = IncomePeriodDates.ResolveFundedDate(bestSource, tx.Date);
+                    if (effectiveDate != tx.Date)
+                    {
+                        logger.LogInformation(
+                            "plaid.sync_income_early_arrival plaid_item_id={PlaidItemId} name={Name} plaid_id={PlaidId} raw_date={RawDate} funded_date={FundedDate}",
+                            item.Id, tx.Name, tx.PlaidId, tx.Date, effectiveDate);
+                    }
+                }
+            }
+
+            var period = await budgets.GetPeriodByDateAsync(item.BudgetProfileId, effectiveDate, ct);
+            if (period is null)
+            {
+                skippedNoPeriod++;
+                logger.LogInformation("plaid.sync_skipped_no_period plaid_item_id={PlaidItemId} name={Name} date={Date} amount={Amount} plaid_id={PlaidId}",
+                    item.Id, tx.Name, tx.Date, tx.Amount, tx.PlaidId);
+                continue;
             }
 
             Transaction inserted;
@@ -577,6 +607,22 @@ public sealed class PlaidSyncEngine(
         logger.LogInformation("plaid.settle_paid_amount_updated plaid_item_id={PlaidItemId} matched_transaction_id={MatchedTransactionId} amount={Amount}",
             itemId, review.MatchedTransactionId, tx.Amount);
         return true;
+    }
+
+    /// <summary>
+    /// The regular income source whose own schedule's next occurrence on/after <paramref name="depositDate"/>
+    /// is closest to it — preferring a source attributed to the same person as the payment method, falling
+    /// back to every regular source when none match (or the payment method has no person).
+    /// </summary>
+    private static IncomeSource? PickBestIncomeSource(List<IncomeSource> sources, int? personId, DateOnly depositDate)
+    {
+        var effective = sources.Where(s => IncomePeriodDates.IsEffectiveAt(s, depositDate)).ToList();
+        var candidates = personId is { } pid ? effective.Where(s => s.BudgetPersonId == pid).ToList() : [];
+        if (candidates.Count == 0) candidates = effective;
+
+        return candidates
+            .OrderBy(s => Math.Abs(IncomePeriodDates.NextPayDate(s, depositDate).DayNumber - depositDate.DayNumber))
+            .FirstOrDefault();
     }
 
     private static string? EmptyToNull(string v) => string.IsNullOrEmpty(v) ? null : v;

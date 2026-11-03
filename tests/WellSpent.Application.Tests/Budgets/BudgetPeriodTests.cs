@@ -236,6 +236,85 @@ public sealed class BudgetPeriodRolloverTests
         await _fixedExpenses.Received(1).DeactivateAsync(expired.Id, profile.Id, Arg.Any<CancellationToken>());
         await _transactions.DidNotReceive().CreateTransactionAsync(Arg.Any<WellSpent.Domain.Entities.Transaction>(), Arg.Any<CancellationToken>());
     }
+
+    // ── #105: income-defined period boundaries wired into rollover ─────────
+
+    [Fact]
+    public async Task NoIncomeSources_FirstPeriod_MatchesCalendarFallbackExactly()
+    {
+        var profile = new BudgetProfile { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Name = "x", Cycle = "monthly" };
+        _profiles.GetLatestPeriodAsync(profile.Id, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<BudgetPeriod>(new NotFoundException("budget_period", "latest")));
+        _profiles.CreatePeriodAsync(Arg.Any<BudgetPeriod>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<BudgetPeriod>());
+        _profiles.ListIncomeSourcesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
+
+        var period = await CreateNextPeriod(profile);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var expected = BudgetPeriodDates.ComputeFirst(profile.Cycle, today);
+        Assert.Equal(expected.Start, period.StartDate);
+        Assert.Equal(expected.End, period.EndDate);
+    }
+
+    [Fact]
+    public async Task RegularIncomeSource_NextPeriod_UsesIncomeDefinedBoundaryNotCalendar()
+    {
+        var profile = new BudgetProfile { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Name = "x", Cycle = "monthly" };
+        var ended = new BudgetPeriod
+        {
+            Id = Guid.NewGuid(), BudgetProfileId = profile.Id,
+            StartDate = new DateOnly(2026, 9, 30), EndDate = new DateOnly(2026, 10, 30),
+        };
+        _profiles.GetLatestPeriodAsync(profile.Id, Arg.Any<CancellationToken>()).Returns(ended);
+        _profiles.CreatePeriodAsync(Arg.Any<BudgetPeriod>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<BudgetPeriod>());
+        _profiles.ListIncomeSourcesAsync(profile.Id, Arg.Any<CancellationToken>()).Returns([
+            new IncomeSource { Id = 1, BudgetProfileId = profile.Id, Name = "Salary", PaymentFrequency = "monthly", AnchorDate = new DateOnly(2026, 10, 31) },
+        ]);
+
+        var period = await CreateNextPeriod(profile);
+
+        // #100's worked example: calendar-month fallback would give (Nov 1, Nov 30) — the
+        // schedule instead governs, giving (Oct 31, Nov 29).
+        Assert.Equal(new DateOnly(2026, 10, 31), period.StartDate);
+        Assert.Equal(new DateOnly(2026, 11, 29), period.EndDate);
+    }
+
+    [Fact]
+    public async Task SupersededScheduleVersion_NextPeriod_ResolvesTheVersionInForceAtThatBoundary()
+    {
+        // Old version governed up to (exclusive) Dec 1; new version takes over from Dec 1.
+        // The boundary being computed here (prevEnd = Oct 30) falls under the old version —
+        // passing the full unfiltered history (not just the "current" row) is what lets the
+        // calculator's own point-in-time check resolve that correctly.
+        var profile = new BudgetProfile { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Name = "x", Cycle = "monthly" };
+        var ended = new BudgetPeriod
+        {
+            Id = Guid.NewGuid(), BudgetProfileId = profile.Id,
+            StartDate = new DateOnly(2026, 9, 30), EndDate = new DateOnly(2026, 10, 30),
+        };
+        _profiles.GetLatestPeriodAsync(profile.Id, Arg.Any<CancellationToken>()).Returns(ended);
+        _profiles.CreatePeriodAsync(Arg.Any<BudgetPeriod>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<BudgetPeriod>());
+        _profiles.ListIncomeSourcesAsync(profile.Id, Arg.Any<CancellationToken>()).Returns([
+            new IncomeSource
+            {
+                Id = 1, BudgetProfileId = profile.Id, Name = "Salary", PaymentFrequency = "monthly",
+                AnchorDate = new DateOnly(2026, 10, 31), EffectiveTo = new DateOnly(2026, 12, 1),
+            },
+            new IncomeSource
+            {
+                Id = 2, BudgetProfileId = profile.Id, Name = "Salary", PaymentFrequency = "monthly",
+                AnchorDate = new DateOnly(2026, 10, 28), EffectiveFrom = new DateOnly(2026, 12, 1),
+            },
+        ]);
+
+        var period = await CreateNextPeriod(profile);
+
+        // If the old (superseded) row had been filtered out before reaching the calculator,
+        // neither row would qualify for Oct 31 and this would fall back to the calendar
+        // instead: (Nov 1, Nov 30).
+        Assert.Equal(new DateOnly(2026, 10, 31), period.StartDate);
+        Assert.Equal(new DateOnly(2026, 11, 29), period.EndDate);
+    }
 }
 
 public sealed class CreateBudgetPeriodCommandHandlerTests

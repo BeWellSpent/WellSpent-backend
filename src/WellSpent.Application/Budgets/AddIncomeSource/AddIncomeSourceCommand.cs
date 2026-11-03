@@ -8,7 +8,8 @@ namespace WellSpent.Application.Budgets.AddIncomeSource;
 
 public sealed record AddIncomeSourceCommand(
     Guid UserId, Guid BudgetProfileId, string Name, string IncomeType, Money DefaultAmount,
-    bool Recurring, int? BudgetPersonId, string PaymentFrequency, bool BeforeTax)
+    bool Recurring, int? BudgetPersonId, string PaymentFrequency, bool BeforeTax,
+    DateOnly? AnchorDate = null, int EarlyArrivalToleranceDays = 0, bool AdjustForWeekends = true)
     : IRequest<IncomeSourceDto>;
 
 public sealed class AddIncomeSourceCommandHandler(
@@ -23,8 +24,8 @@ public sealed class AddIncomeSourceCommandHandler(
         var owner = await users.GetByIdAsync(profile.UserId, ct);
         if (owner.Plan == "free")
         {
-            var existing = await profiles.ListIncomeSourcesAsync(request.BudgetProfileId, ct);
-            var count = existing.Count(src => src.BudgetPersonId == request.BudgetPersonId);
+            var existing = await profiles.ListIncomeSourcesAsync(request.BudgetProfileId, ct) ?? [];
+            var count = existing.Count(src => src.EffectiveTo is null && src.BudgetPersonId == request.BudgetPersonId);
             if (count >= 2)
             {
                 throw new AppValidationException("free tier: income sources are limited to 2 per person; upgrade to Pro for unlimited");
@@ -41,6 +42,9 @@ public sealed class AddIncomeSourceCommandHandler(
             Recurring = request.Recurring,
             PaymentFrequency = request.PaymentFrequency,
             BeforeTax = request.BeforeTax,
+            AnchorDate = request.AnchorDate,
+            EarlyArrivalToleranceDays = request.EarlyArrivalToleranceDays,
+            AdjustForWeekends = request.AdjustForWeekends,
         }, ct);
 
         await taxReserve.RecalculateAsync(request.BudgetProfileId, ct);

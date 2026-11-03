@@ -15,7 +15,7 @@ public sealed class ExpenseSummaryCalculatorTests
         List<SavingsSource>? savingsSources = null, List<FixedExpense>? activeFixedExpenses = null,
         List<IncomeSource>? incomeSources = null, List<IncomeEntry>? incomeEntries = null,
         List<PaymentMethod>? paymentMethods = null, List<Transaction>? transactions = null,
-        int? savingsCategoryId = null) =>
+        int? savingsCategoryId = null, List<Transaction>? incomeTransactions = null) =>
         new()
         {
             Period = new BudgetPeriod { Id = PeriodId, BudgetProfileId = ProfileId },
@@ -27,6 +27,7 @@ public sealed class ExpenseSummaryCalculatorTests
             IncomeEntries = incomeEntries ?? [],
             PaymentMethods = paymentMethods ?? [],
             Transactions = transactions ?? [],
+            IncomeTransactions = incomeTransactions ?? [],
             SavingsCategoryId = savingsCategoryId,
             Now = Today,
         };
@@ -348,5 +349,72 @@ public sealed class ExpenseSummaryCalculatorTests
         // The due bill alone is the plan; an upcoming one is never a planned tier.
         Assert.Equal(15.00m, row.PlannedTotal.ToDecimal());
         Assert.NotNull(row.NextDueDate);
+    }
+
+    [Fact]
+    public void ActualIncome_TotalAndPerPersonAttribution()
+    {
+        const int person1 = 1, person2 = 2;
+        var pm1 = Guid.NewGuid();
+        var pm2 = Guid.NewGuid();
+        var data = Data(
+            people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = person1, Role = "admin" }, new BudgetPerson { BudgetProfileId = ProfileId, Id = person2, Role = "collaborator" }],
+            paymentMethods: [new PaymentMethod { Id = pm1, Name = "Chase", BudgetPersonId = person1 }, new PaymentMethod { Id = pm2, Name = "Amex", BudgetPersonId = person2 }],
+            incomeTransactions: [
+                Tx(amount: -1000.00m, paymentMethodId: pm1),
+                Tx(amount: -500.00m, paymentMethodId: pm2),
+                // Unattributed: no payment method — counts in the total, not in any person's line.
+                Tx(amount: -50.00m),
+            ]);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(1550.00m, resp.ActualIncomeTotal.ToDecimal());
+        Assert.Equal(2, resp.ActualIncomeByPerson.Count);
+        Assert.Equal(1000.00m, resp.ActualIncomeByPerson.Single(p => p.BudgetPersonId == person1).ActualIncome.ToDecimal());
+        Assert.Equal(500.00m, resp.ActualIncomeByPerson.Single(p => p.BudgetPersonId == person2).ActualIncome.ToDecimal());
+    }
+
+    [Fact]
+    public void ActualIncome_UnattributedPaymentMethodCountsInTotalOnly()
+    {
+        var pmNoPerson = Guid.NewGuid();
+        var data = Data(
+            paymentMethods: [new PaymentMethod { Id = pmNoPerson, Name = "Cash" }],
+            incomeTransactions: [Tx(amount: -300.00m, paymentMethodId: pmNoPerson)]);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(300.00m, resp.ActualIncomeTotal.ToDecimal());
+        Assert.Empty(resp.ActualIncomeByPerson);
+    }
+
+    [Fact]
+    public void ActualIncome_RemainderComputedAgainstTotalActual()
+    {
+        const int catId = 9;
+        var data = Data(
+            allocations: [new ExpenseAllocation { CategoryId = catId, PlannedAmount = 100.00m }],
+            transactions: [Tx(catId, 60.00m, 60.00m, isPaid: true)],
+            incomeTransactions: [Tx(amount: -500.00m)]);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(500.00m, resp.ActualIncomeTotal.ToDecimal());
+        Assert.Equal(60.00m, resp.TotalActual.ToDecimal());
+        Assert.Equal(440.00m, resp.RemainderActualIncome.ToDecimal());
+    }
+
+    [Fact]
+    public void ActualIncome_NoIncomeTransactions_ZeroTotalAndEmptyList()
+    {
+        var data = Data();
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(0m, resp.ActualIncomeTotal.ToDecimal());
+        Assert.Equal(0m, resp.RemainderActualIncome.ToDecimal());
+        Assert.NotNull(resp.ActualIncomeByPerson);
+        Assert.Empty(resp.ActualIncomeByPerson);
     }
 }

@@ -82,6 +82,9 @@ public interface IBudgetProfileRepository
     Task<IncomeSource> UpdateIncomeSourceAsync(IncomeSource source, CancellationToken ct);
     Task DeleteIncomeSourceAsync(int id, Guid profileId, CancellationToken ct);
 
+    /// <summary>Caps a superseded schedule version when updateIncomeSource forks a new one.</summary>
+    Task SetIncomeSourceEffectiveToAsync(int id, DateOnly effectiveTo, CancellationToken ct);
+
     // ── Income entries ───────────────────────────────────────────────────────
     Task<List<IncomeEntry>> ListIncomeEntriesAsync(Guid periodId, CancellationToken ct);
     Task<IncomeEntry> CreateIncomeEntryAsync(IncomeEntry entry, CancellationToken ct);

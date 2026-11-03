@@ -50,7 +50,7 @@ public sealed class TaxReserveRecalculator(
         List<BudgetPerson> people;
         try
         {
-            sources = await profiles.ListIncomeSourcesAsync(profileId, ct);
+            sources = (await profiles.ListIncomeSourcesAsync(profileId, ct) ?? []).Where(s => s.EffectiveTo is null).ToList();
             people = await profiles.ListPeopleAsync(profileId, ct);
         }
         catch (Exception ex)

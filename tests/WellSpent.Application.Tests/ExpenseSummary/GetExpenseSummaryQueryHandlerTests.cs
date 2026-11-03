@@ -192,4 +192,88 @@ public sealed class GetExpenseSummaryQueryHandlerTests
 
         Assert.Equal(100.00m, resp.TotalActual.ToDecimal());
     }
+
+    [Fact]
+    public async Task ActualIncome_PopulatedFromNonExcludedIncomeCategoryTransactions()
+    {
+        var profileId = Guid.NewGuid();
+        var periodId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        const int incomeCatId = 6;
+        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId });
+        _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = profileId, UserId = userId, Name = "B" });
+        _transactions.ListSystemCategoriesAsync(Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, int> { ["income"] = incomeCatId });
+        _transactions.ListTransactionsAsync(periodId, null, null, null, Arg.Any<CancellationToken>()).Returns([
+            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, Amount = -2000.00m, PlannedAmount = -2000.00m, TransactionTypeId = 2 },
+            // Excluded payroll deposit — must not count toward actual income.
+            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, Amount = -300.00m, PlannedAmount = -300.00m, TransactionTypeId = 2, IsExcluded = true },
+        ]);
+
+        var resp = await CreateHandler().Handle(new GetExpenseSummaryQuery(userId, periodId, false), CancellationToken.None);
+
+        Assert.Equal(2000.00m, resp.ActualIncomeTotal.ToDecimal());
+    }
+
+    [Fact]
+    public async Task FocusedView_RestrictsActualIncomeToCallerAndUnattributed()
+    {
+        var profileId = Guid.NewGuid();
+        var periodId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var spouseUserId = Guid.NewGuid();
+        const int incomeCatId = 6, myPersonId = 1, spousePersonId = 2;
+        var myPmId = Guid.NewGuid();
+        var spousePmId = Guid.NewGuid();
+        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId });
+        _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = profileId, UserId = userId, Name = "B" });
+        _profiles.ListPeopleAsync(profileId, Arg.Any<CancellationToken>()).Returns([
+            new BudgetPerson { Id = myPersonId, BudgetProfileId = profileId, UserId = userId, Role = "admin" },
+            new BudgetPerson { Id = spousePersonId, BudgetProfileId = profileId, UserId = spouseUserId, Role = "collaborator" },
+        ]);
+        _transactions.ListSystemCategoriesAsync(Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, int> { ["income"] = incomeCatId });
+        _transactions.ListPaymentMethodsAsync(profileId, Arg.Any<CancellationToken>()).Returns([
+            new PaymentMethod { Id = myPmId, Name = "Mine", BudgetPersonId = myPersonId },
+            new PaymentMethod { Id = spousePmId, Name = "Spouse", BudgetPersonId = spousePersonId },
+        ]);
+        _transactions.ListTransactionsAsync(periodId, null, null, null, Arg.Any<CancellationToken>()).Returns([
+            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, PaymentMethodId = myPmId, Amount = -1000.00m, PlannedAmount = -1000.00m, TransactionTypeId = 2 },
+            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, PaymentMethodId = spousePmId, Amount = -800.00m, PlannedAmount = -800.00m, TransactionTypeId = 2 },
+            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, Amount = -20.00m, PlannedAmount = -20.00m, TransactionTypeId = 2 },
+        ]);
+
+        var resp = await CreateHandler().Handle(new GetExpenseSummaryQuery(userId, periodId, true), CancellationToken.None);
+
+        // Spouse's income is scoped out; mine + unattributed remain.
+        Assert.Equal(1020.00m, resp.ActualIncomeTotal.ToDecimal());
+        var breakdown = Assert.Single(resp.ActualIncomeByPerson);
+        Assert.Equal(myPersonId, breakdown.BudgetPersonId);
+        Assert.Equal(1000.00m, breakdown.ActualIncome.ToDecimal());
+    }
+
+    [Fact]
+    public async Task SupersededIncomeSource_ExcludedFromIncomeFromSources()
+    {
+        var profileId = Guid.NewGuid();
+        var periodId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId });
+        _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = profileId, UserId = userId, Name = "B" });
+        _profiles.ListIncomeSourcesAsync(profileId, Arg.Any<CancellationToken>()).Returns([
+            new IncomeSource { Id = 1, BudgetProfileId = profileId, Name = "Old schedule", DefaultAmount = 500.00m, EffectiveTo = new DateOnly(2026, 2, 1) },
+            new IncomeSource { Id = 2, BudgetProfileId = profileId, Name = "Current schedule", DefaultAmount = 600.00m, EffectiveFrom = new DateOnly(2026, 2, 1) },
+        ]);
+
+        var resp = await CreateHandler().Handle(new GetExpenseSummaryQuery(userId, periodId, false), CancellationToken.None);
+
+        // Only the current (EffectiveTo == null) row counts — the superseded one must not double it up.
+        Assert.Equal(600.00m, resp.IncomeFromSources.ToDecimal());
+    }
 }
