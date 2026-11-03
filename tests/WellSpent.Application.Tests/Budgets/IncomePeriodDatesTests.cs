@@ -26,10 +26,10 @@ public sealed class IncomePeriodDatesTests
     {
         var sources = new[] { Source("monthly", new DateOnly(2026, 10, 31)) };
 
-        var first = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 9, 30), new DateOnly(2026, 10, 30));
+        var first = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 10, 30));
         Assert.Equal((new DateOnly(2026, 10, 31), new DateOnly(2026, 11, 29)), first);
 
-        var second = IncomePeriodDates.ComputeNext(sources, "monthly", first.Start, first.End);
+        var second = IncomePeriodDates.ComputeNext(sources, "monthly", first.End);
         Assert.Equal((new DateOnly(2026, 11, 30), new DateOnly(2026, 12, 30)), second);
     }
 
@@ -51,13 +51,13 @@ public sealed class IncomePeriodDatesTests
             Source("monthly", new DateOnly(2026, 10, 28)),
         };
 
-        var p1 = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 9, 30), new DateOnly(2026, 10, 30));
+        var p1 = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 10, 30));
         Assert.Equal((new DateOnly(2026, 10, 31), new DateOnly(2026, 11, 27)), p1);
 
-        var p2 = IncomePeriodDates.ComputeNext(sources, "monthly", p1.Start, p1.End);
+        var p2 = IncomePeriodDates.ComputeNext(sources, "monthly", p1.End);
         Assert.Equal((new DateOnly(2026, 11, 28), new DateOnly(2026, 12, 27)), p2);
 
-        var p3 = IncomePeriodDates.ComputeNext(sources, "monthly", p2.Start, p2.End);
+        var p3 = IncomePeriodDates.ComputeNext(sources, "monthly", p2.End);
         Assert.Equal((new DateOnly(2026, 12, 28), new DateOnly(2027, 1, 27)), p3);
     }
 
@@ -73,13 +73,13 @@ public sealed class IncomePeriodDatesTests
             Source("monthly", new DateOnly(2026, 1, 31)),
         };
 
-        var p1 = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 9, 30), new DateOnly(2026, 10, 30));
+        var p1 = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 10, 30));
         Assert.Equal((new DateOnly(2026, 10, 31), new DateOnly(2026, 11, 29)), p1);
 
         // Nov 15 (the other payday) falls inside this period, not at a boundary.
         Assert.NotNull(IncomePeriodDates.GetPeriodForDate([p1], new DateOnly(2026, 11, 15)));
 
-        var p2 = IncomePeriodDates.ComputeNext(sources, "monthly", p1.Start, p1.End);
+        var p2 = IncomePeriodDates.ComputeNext(sources, "monthly", p1.End);
         Assert.Equal((new DateOnly(2026, 11, 30), new DateOnly(2026, 12, 30)), p2);
     }
 
@@ -88,7 +88,7 @@ public sealed class IncomePeriodDatesTests
     {
         var sources = new[] { Source("monthly", new DateOnly(2026, 1, 1)) };
 
-        var p = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30));
+        var p = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 9, 30));
 
         Assert.Equal((new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31)), p);
     }
@@ -102,10 +102,10 @@ public sealed class IncomePeriodDatesTests
             Source("monthly", new DateOnly(2026, 1, 31), toleranceDays: 1),
         };
 
-        var p1 = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 9, 29), new DateOnly(2026, 10, 29));
+        var p1 = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 10, 29));
         Assert.Equal((new DateOnly(2026, 10, 30), new DateOnly(2026, 11, 28)), p1);
 
-        var p2 = IncomePeriodDates.ComputeNext(sources, "monthly", p1.Start, p1.End);
+        var p2 = IncomePeriodDates.ComputeNext(sources, "monthly", p1.End);
         Assert.Equal(p1.End.AddDays(1), p2.Start);
         Assert.Equal((new DateOnly(2026, 11, 29), new DateOnly(2026, 12, 29)), p2);
     }
@@ -178,7 +178,7 @@ public sealed class IncomePeriodDatesTests
         var prevEnd = new DateOnly(2026, 6, 30);
         var sources = new[] { Source("one_off", new DateOnly(2026, 6, 1)) };
 
-        var result = IncomePeriodDates.ComputeNext(sources, "weekly", prevEnd.AddDays(-7), prevEnd);
+        var result = IncomePeriodDates.ComputeNext(sources, "weekly", prevEnd);
         var expected = BudgetPeriodDates.ComputeNext("weekly", prevEnd);
 
         Assert.Equal(expected, result);
@@ -193,8 +193,8 @@ public sealed class IncomePeriodDatesTests
         var irregularOneOff = Source("one_off", new DateOnly(2026, 11, 5));
         var irregularNoAnchor = Source("monthly", null);
 
-        var withOnlyRegular = IncomePeriodDates.ComputeNext([regular], "monthly", new DateOnly(2026, 9, 30), new DateOnly(2026, 10, 30));
-        var withIrregularsToo = IncomePeriodDates.ComputeNext([regular, irregularOneOff, irregularNoAnchor], "monthly", new DateOnly(2026, 9, 30), new DateOnly(2026, 10, 30));
+        var withOnlyRegular = IncomePeriodDates.ComputeNext([regular], "monthly", new DateOnly(2026, 10, 30));
+        var withIrregularsToo = IncomePeriodDates.ComputeNext([regular, irregularOneOff, irregularNoAnchor], "monthly", new DateOnly(2026, 10, 30));
 
         Assert.Equal(withOnlyRegular, withIrregularsToo);
     }
@@ -208,15 +208,17 @@ public sealed class IncomePeriodDatesTests
         var newSchedule = Source("monthly", new DateOnly(2026, 10, 28), effectiveFrom: new DateOnly(2026, 11, 1));
 
         // start0 (Oct 31) is before EffectiveFrom (Nov 1) -> source doesn't qualify -> falls back to calendar.
-        var beforeEffective = IncomePeriodDates.ComputeNext([newSchedule], "monthly", prevEnd.AddMonths(-1), prevEnd);
+        var beforeEffective = IncomePeriodDates.ComputeNext([newSchedule], "monthly", prevEnd);
         Assert.Equal(BudgetPeriodDates.ComputeNext("monthly", prevEnd), beforeEffective);
 
-        // A later prevEnd whose start0 is on/after EffectiveFrom -> source governs: the next
-        // period's boundaries follow the schedule's own paydays (Nov 28, then Dec 28) rather
-        // than the calendar-month fallback ((Nov 11, Nov 30) that applied above).
+        // A later prevEnd whose start0 is on/after EffectiveFrom -> source governs: the period
+        // still starts the day after prevEnd (no gap), but ends the day before the schedule's
+        // own payday (Nov 28) instead of the calendar-month end (Nov 30). This is the one
+        // transitional short period; the next one runs Nov 28 -> Dec 27.
         var laterPrevEnd = new DateOnly(2026, 11, 10); // start0 = Nov 11, >= EffectiveFrom
-        var afterEffective = IncomePeriodDates.ComputeNext([newSchedule], "monthly", laterPrevEnd.AddMonths(-1), laterPrevEnd);
-        Assert.Equal((new DateOnly(2026, 11, 28), new DateOnly(2026, 12, 27)), afterEffective);
+        var afterEffective = IncomePeriodDates.ComputeNext([newSchedule], "monthly", laterPrevEnd);
+        Assert.Equal((new DateOnly(2026, 11, 11), new DateOnly(2026, 11, 27)), afterEffective);
+        Assert.Equal((new DateOnly(2026, 11, 28), new DateOnly(2026, 12, 27)), IncomePeriodDates.ComputeNext([newSchedule], "monthly", afterEffective.End));
         Assert.NotEqual(BudgetPeriodDates.ComputeNext("monthly", laterPrevEnd), afterEffective);
     }
 
@@ -227,7 +229,7 @@ public sealed class IncomePeriodDatesTests
         var oldSchedule = Source("monthly", new DateOnly(2026, 10, 31), effectiveTo: new DateOnly(2026, 10, 31));
 
         // EffectiveTo is exclusive: asOf (Oct 31) is not < EffectiveTo (Oct 31) -> no longer effective.
-        var result = IncomePeriodDates.ComputeNext([oldSchedule], "monthly", prevEnd.AddMonths(-1), prevEnd);
+        var result = IncomePeriodDates.ComputeNext([oldSchedule], "monthly", prevEnd);
         Assert.Equal(BudgetPeriodDates.ComputeNext("monthly", prevEnd), result);
     }
 

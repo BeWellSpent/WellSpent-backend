@@ -42,7 +42,7 @@ public static class BudgetPeriodRollover
         }
         else
         {
-            (start, end) = IncomePeriodDates.ComputeNext(sources, profile.Cycle, latest.StartDate, latest.EndDate);
+            (start, end) = IncomePeriodDates.ComputeNext(sources, profile.Cycle, latest.EndDate);
         }
 
         var period = await profiles.CreatePeriodAsync(new BudgetPeriod
