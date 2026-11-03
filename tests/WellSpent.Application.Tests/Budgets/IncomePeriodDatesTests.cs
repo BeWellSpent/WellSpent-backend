@@ -84,6 +84,21 @@ public sealed class IncomePeriodDatesTests
     }
 
     [Fact]
+    public void ComputeNext_SpousePaidADayEarlier_EarlierPaydayEndsThePeriod()
+    {
+        // Her deposit must land in the new period, so the old one ends before *her* payday.
+        var sources = new[]
+        {
+            Source("monthly", new DateOnly(2026, 1, 31)), Source("monthly", new DateOnly(2026, 1, 15)),
+            Source("monthly", new DateOnly(2026, 1, 29)), Source("monthly", new DateOnly(2026, 1, 14)),
+        };
+
+        var p = IncomePeriodDates.ComputeNext(sources, "monthly", new DateOnly(2026, 10, 29));
+
+        Assert.Equal((new DateOnly(2026, 10, 30), new DateOnly(2026, 11, 28)), p);
+    }
+
+    [Fact]
     public void ComputeNext_PayOnThe1st_EndsLastDayOfThatMonth()
     {
         var sources = new[] { Source("monthly", new DateOnly(2026, 1, 1)) };

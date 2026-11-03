@@ -103,21 +103,26 @@ public static class IncomePeriodDates
 
     /// <summary>
     /// A period always starts the day after the previous one ends, so the timeline never has
-    /// holes; paydays only decide where it ends. The end is the day before the payday closest
-    /// to one full <c>cycle</c> after `start`, pulled earlier by that payday's
-    /// <see cref="IncomeSource.EarlyArrivalToleranceDays"/> — so a monthly budget paid on the
-    /// 15th and the last day gets month-long periods, not half-month ones, and an early deposit
-    /// already sits in the period it funds (the same rule <see cref="ResolveFundedDate"/> applies
-    /// per transaction). A payday whose early window already covers `start` belongs to this
-    /// period's start, so it's skipped as an end candidate.
+    /// holes; paydays only decide where it ends. Every payday within a quarter-cycle of one
+    /// full <c>cycle</c> after `start` counts as "the next payday", and the earliest of them
+    /// wins — a spouse paid a day before you must end the period first, or her deposit would
+    /// fall in the old period and vanish from the new one's numbers. Paydays further out (the
+    /// 15th of a monthly budget paid on the 15th and the last day) land inside the period
+    /// instead of splitting it. The end is the day before that payday, pulled earlier by its
+    /// <see cref="IncomeSource.EarlyArrivalToleranceDays"/> (the rule <see cref="ResolveFundedDate"/>
+    /// applies per transaction).
     /// </summary>
     private static DateOnly EndFor(List<IncomeSource> qualifying, string cycle, DateOnly start)
     {
         var ideal = BudgetPeriodDates.AddCycle(start, cycle);
-        var next = qualifying
+        var window = (ideal.DayNumber - start.DayNumber) / 4;
+        var candidates = qualifying
             .Select(s => (Date: NextPayDate(s, start.AddDays(1 + s.EarlyArrivalToleranceDays)), Tolerance: s.EarlyArrivalToleranceDays))
-            .OrderBy(x => Math.Abs(x.Date.DayNumber - ideal.DayNumber))
-            .ThenBy(x => x.Date.DayNumber)
+            .ToList();
+        var closest = candidates.Min(x => Math.Abs(x.Date.DayNumber - ideal.DayNumber));
+        var next = candidates
+            .Where(x => Math.Abs(x.Date.DayNumber - ideal.DayNumber) <= Math.Max(window, closest))
+            .OrderBy(x => x.Date.DayNumber - x.Tolerance)
             .First();
         var end = next.Date.AddDays(-1 - next.Tolerance);
         return end < start ? start : end;

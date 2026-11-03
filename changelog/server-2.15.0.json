@@ -5,8 +5,8 @@
     {
       "changeType": "changed",
       "summary": {
-        "en": "A job paid more than once per period (e.g. the 15th and the last day of the month) no longer splits a monthly budget into half-month periods. Each period starts the day after the previous one ends and runs until the day before the payday closest to one full cycle later; the other paydays land as income inside it.",
-        "es": "Un trabajo que paga más de una vez por período (por ejemplo, el 15 y el último día del mes) ya no divide un presupuesto mensual en períodos de medio mes. Cada período empieza el día después de que termina el anterior y dura hasta el día antes del pago más cercano a un ciclo completo después; los demás días de pago quedan como ingresos dentro de él."
+        "en": "A job paid more than once per period (e.g. the 15th and the last day of the month) no longer splits a monthly budget into half-month periods. Each period starts the day after the previous one ends and runs until the day before the earliest payday near one full cycle later, so a partner paid a day earlier is never missed.",
+        "es": "Un trabajo que paga más de una vez por período (por ejemplo, el 15 y el último día del mes) ya no divide un presupuesto mensual en períodos de medio mes. Cada período empieza el día después de que termina el anterior y dura hasta el día antes del primer pago cercano a un ciclo completo después, así que un pago de tu pareja un día antes nunca se pierde."
       }
     },
     {
