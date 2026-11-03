@@ -22,6 +22,7 @@ COPY src/WellSpent.Migrator/WellSpent.Migrator.csproj src/WellSpent.Migrator/
 COPY src/WellSpent.Jobs.PlaidSync/WellSpent.Jobs.PlaidSync.csproj src/WellSpent.Jobs.PlaidSync/
 COPY src/WellSpent.Jobs.CycleBudgets/WellSpent.Jobs.CycleBudgets.csproj src/WellSpent.Jobs.CycleBudgets/
 COPY src/WellSpent.Jobs.BackfillPeriodAssignments/WellSpent.Jobs.BackfillPeriodAssignments.csproj src/WellSpent.Jobs.BackfillPeriodAssignments/
+COPY src/WellSpent.Jobs.RebuildPeriods/WellSpent.Jobs.RebuildPeriods.csproj src/WellSpent.Jobs.RebuildPeriods/
 COPY tests/WellSpent.Api.Tests/WellSpent.Api.Tests.csproj tests/WellSpent.Api.Tests/
 COPY tests/WellSpent.Application.Tests/WellSpent.Application.Tests.csproj tests/WellSpent.Application.Tests/
 COPY tests/WellSpent.Infrastructure.Tests/WellSpent.Infrastructure.Tests.csproj tests/WellSpent.Infrastructure.Tests/
