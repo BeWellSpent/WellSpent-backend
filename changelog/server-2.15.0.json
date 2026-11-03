@@ -1,0 +1,8 @@
+{
+  "component": "server",
+  "version": "2.15.0",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "A job paid more than once per period (e.g. the 15th and the last day of the month) no longer splits a monthly budget into half-month periods. The payday closest to one full cycle after the previous period starts the next one; the others land as income inside it.", "es": "Un trabajo que paga más de una vez por período (por ejemplo, el 15 y el último día del mes) ya no divide un presupuesto mensual en períodos de medio mes. El día de pago más cercano a un ciclo completo después del período anterior inicia el siguiente; los demás quedan como ingresos dentro de él." } },
+    { "changeType": "changed", "summary": { "en": "An income source's early-arrival tolerance now also moves the period boundary itself earlier by that many days, so a paycheck arriving early already sits in the period it funds.", "es": "La tolerancia de llegada anticipada de una fuente de ingreso ahora también adelanta el límite del período esa misma cantidad de días, para que un pago que llega antes ya quede en el período que financia." } }
+  ]
+}

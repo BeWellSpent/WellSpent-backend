@@ -94,17 +94,49 @@ public static class IncomePeriodDates
         return (today, end);
     }
 
-    /// <summary>The period following one that ended on `prevEnd`. Falls back to calendar-month math when no income source has a qualifying schedule.</summary>
-    public static (DateOnly Start, DateOnly End) ComputeNext(IReadOnlyList<IncomeSource> sources, string fallbackCycle, DateOnly prevEnd)
+    /// <summary>
+    /// The period following one that started on `prevStart` and ended on `prevEnd`. Falls back
+    /// to calendar-month math when no income source has a qualifying schedule.
+    /// </summary>
+    /// <remarks>
+    /// When more than one qualifying source has a payday due, the period doesn't simply start
+    /// at whichever is soonest — a job paid out more than once per cycle (e.g. a monthly salary
+    /// split across the 15th and the last day) must still produce periods whose length tracks
+    /// the profile's own declared <c>cycle</c>, not the shorter gap between its own paydays. The
+    /// candidate closest to exactly one cycle after `prevStart` wins; the others still land as
+    /// ordinary income arrivals inside whichever period they fall into (see
+    /// <see cref="ResolveFundedDate"/>/<see cref="GetPeriodForDate"/>), they just don't start a
+    /// new one themselves. A genuinely independent source (a different person's own schedule)
+    /// still competes on equal footing — this only stops *multiple paydays landing close
+    /// together* from fragmenting one cycle into several.
+    /// </remarks>
+    public static (DateOnly Start, DateOnly End) ComputeNext(IReadOnlyList<IncomeSource> sources, string cycle, DateOnly prevStart, DateOnly prevEnd)
     {
         var start0 = prevEnd.AddDays(1);
         var qualifying = Qualifying(sources, start0);
-        if (qualifying.Count == 0) return BudgetPeriodDates.ComputeNext(fallbackCycle, prevEnd);
+        if (qualifying.Count == 0) return BudgetPeriodDates.ComputeNext(cycle, prevEnd);
 
-        var start = qualifying.Min(s => NextPayDate(s, start0));
-        var nextStart = qualifying.Min(s => NextPayDate(s, start.AddDays(1)));
-        return (start, nextStart.AddDays(-1));
+        // Paydays are compared on their real dates; the anchoring source's
+        // EarlyArrivalToleranceDays then pulls the boundary earlier, so a deposit arriving
+        // within that window already sits in the period it funds (same rule ResolveFundedDate
+        // applies per transaction). Applied to both ends so periods stay contiguous.
+        var anchor = Closest(qualifying, start0, BudgetPeriodDates.AddCycle(prevStart, cycle));
+        var start = Max(start0, Offset(anchor));
+        var next = Closest(qualifying, anchor.Date.AddDays(1), BudgetPeriodDates.AddCycle(anchor.Date, cycle));
+        return (start, Offset(next).AddDays(-1));
     }
+
+    private static (DateOnly Date, IncomeSource Source) Closest(List<IncomeSource> qualifying, DateOnly onOrAfter, DateOnly ideal) =>
+        qualifying
+            .Select(s => (Date: NextPayDate(s, onOrAfter), Source: s))
+            .OrderBy(x => Math.Abs(x.Date.DayNumber - ideal.DayNumber))
+            .ThenBy(x => x.Date.DayNumber)
+            .First();
+
+    private static DateOnly Offset((DateOnly Date, IncomeSource Source) payday) =>
+        payday.Date.AddDays(-payday.Source.EarlyArrivalToleranceDays);
+
+    private static DateOnly Max(DateOnly a, DateOnly b) => a > b ? a : b;
 
     /// <summary>
     /// Which of the already-generated `periods` (contiguous, non-overlapping, inclusive ranges)

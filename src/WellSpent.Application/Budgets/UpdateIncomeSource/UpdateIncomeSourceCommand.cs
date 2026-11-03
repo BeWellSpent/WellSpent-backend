@@ -55,7 +55,7 @@ public sealed class UpdateIncomeSourceCommandHandler(
         }
         else
         {
-            var predictedNextStart = IncomePeriodDates.ComputeNext(allSources, profile.Cycle, currentPeriod.EndDate).Start;
+            var predictedNextStart = IncomePeriodDates.ComputeNext(allSources, profile.Cycle, currentPeriod.StartDate, currentPeriod.EndDate).Start;
             await profiles.SetIncomeSourceEffectiveToAsync(existing.Id, predictedNextStart, ct);
 
             source = await profiles.AddIncomeSourceAsync(new IncomeSource

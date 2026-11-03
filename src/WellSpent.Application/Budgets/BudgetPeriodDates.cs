@@ -22,4 +22,17 @@ public static class BudgetPeriodDates
             _ => (start, new DateOnly(start.Year, start.Month, 1).AddMonths(1).AddDays(-1)),
         };
     }
+
+    /// <summary>
+    /// `date` advanced by exactly one cycle. Used by <see cref="IncomePeriodDates.ComputeNext"/>
+    /// as the target a real payday is judged against — not to compute a period's boundaries
+    /// directly, since those come from actual pay dates, not the calendar.
+    /// </summary>
+    public static DateOnly AddCycle(DateOnly date, string cycle) => cycle switch
+    {
+        "weekly" => date.AddDays(7),
+        "bi_weekly" => date.AddDays(14),
+        "yearly" => date.AddYears(1),
+        _ => date.AddMonths(1),
+    };
 }
