@@ -207,9 +207,9 @@ public sealed class GetExpenseSummaryQueryHandlerTests
         _transactions.ListSystemCategoriesAsync(Arg.Any<CancellationToken>())
             .Returns(new Dictionary<string, int> { ["income"] = incomeCatId });
         _transactions.ListTransactionsAsync(periodId, null, null, null, Arg.Any<CancellationToken>()).Returns([
-            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, Amount = 2000.00m, PlannedAmount = 2000.00m, TransactionTypeId = 2 },
+            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, Amount = -2000.00m, PlannedAmount = -2000.00m, TransactionTypeId = 2 },
             // Excluded payroll deposit — must not count toward actual income.
-            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, Amount = 300.00m, PlannedAmount = 300.00m, TransactionTypeId = 2, IsExcluded = true },
+            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, Amount = -300.00m, PlannedAmount = -300.00m, TransactionTypeId = 2, IsExcluded = true },
         ]);
 
         var resp = await CreateHandler().Handle(new GetExpenseSummaryQuery(userId, periodId, false), CancellationToken.None);
@@ -242,9 +242,9 @@ public sealed class GetExpenseSummaryQueryHandlerTests
             new PaymentMethod { Id = spousePmId, Name = "Spouse", BudgetPersonId = spousePersonId },
         ]);
         _transactions.ListTransactionsAsync(periodId, null, null, null, Arg.Any<CancellationToken>()).Returns([
-            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, PaymentMethodId = myPmId, Amount = 1000.00m, PlannedAmount = 1000.00m, TransactionTypeId = 2 },
-            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, PaymentMethodId = spousePmId, Amount = 800.00m, PlannedAmount = 800.00m, TransactionTypeId = 2 },
-            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, Amount = 20.00m, PlannedAmount = 20.00m, TransactionTypeId = 2 },
+            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, PaymentMethodId = myPmId, Amount = -1000.00m, PlannedAmount = -1000.00m, TransactionTypeId = 2 },
+            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, PaymentMethodId = spousePmId, Amount = -800.00m, PlannedAmount = -800.00m, TransactionTypeId = 2 },
+            new Transaction { Id = Guid.NewGuid(), CategoryId = incomeCatId, Amount = -20.00m, PlannedAmount = -20.00m, TransactionTypeId = 2 },
         ]);
 
         var resp = await CreateHandler().Handle(new GetExpenseSummaryQuery(userId, periodId, true), CancellationToken.None);

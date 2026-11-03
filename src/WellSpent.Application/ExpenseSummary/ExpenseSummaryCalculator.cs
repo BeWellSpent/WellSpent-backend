@@ -175,11 +175,13 @@ public sealed class ExpenseSummaryCalculator
     /// <summary>Sums actual income the same way ComputeActuals sums spend: unattributed (no payment method, or a method with no person) still counts in the total but not in any person's line.</summary>
     private void ComputeActualIncome()
     {
+        // Money in is stored negative (Plaid's sign, and the app's own "Money In"), so income is the negated amount.
         foreach (var tx in _data.IncomeTransactions)
         {
-            _actualIncomeTotal += tx.Amount;
+            var received = -tx.Amount;
+            _actualIncomeTotal += received;
             if (tx.PaymentMethodId is { } pmId && _pmPersonMap.TryGetValue(pmId, out var personId))
-                _actualIncomeByPerson[personId] = _actualIncomeByPerson.GetValueOrDefault(personId) + tx.Amount;
+                _actualIncomeByPerson[personId] = _actualIncomeByPerson.GetValueOrDefault(personId) + received;
         }
     }
 

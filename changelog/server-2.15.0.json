@@ -22,6 +22,13 @@
         "en": "Switching a budget onto an income schedule mid-month no longer leaves a stretch of days that belong to no period.",
         "es": "Pasar un presupuesto a un calendario de ingresos a mitad de mes ya no deja días que no pertenecen a ningún período."
       }
+    },
+    {
+      "changeType": "fixed",
+      "summary": {
+        "en": "The income that actually arrived this period no longer shows as a negative amount. Bank deposits and \"Money In\" entries are stored as negatives, and the total now reflects that.",
+        "es": "El ingreso que realmente llegó este período ya no aparece como un monto negativo. Los depósitos bancarios y las entradas de \"Dinero recibido\" se guardan como negativos, y el total ahora lo refleja."
+      }
     }
   ]
 }

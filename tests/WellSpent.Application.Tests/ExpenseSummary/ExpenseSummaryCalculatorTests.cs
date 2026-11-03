@@ -361,10 +361,10 @@ public sealed class ExpenseSummaryCalculatorTests
             people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = person1, Role = "admin" }, new BudgetPerson { BudgetProfileId = ProfileId, Id = person2, Role = "collaborator" }],
             paymentMethods: [new PaymentMethod { Id = pm1, Name = "Chase", BudgetPersonId = person1 }, new PaymentMethod { Id = pm2, Name = "Amex", BudgetPersonId = person2 }],
             incomeTransactions: [
-                Tx(amount: 1000.00m, paymentMethodId: pm1),
-                Tx(amount: 500.00m, paymentMethodId: pm2),
+                Tx(amount: -1000.00m, paymentMethodId: pm1),
+                Tx(amount: -500.00m, paymentMethodId: pm2),
                 // Unattributed: no payment method — counts in the total, not in any person's line.
-                Tx(amount: 50.00m),
+                Tx(amount: -50.00m),
             ]);
 
         var resp = new ExpenseSummaryCalculator(data).Response();
@@ -381,7 +381,7 @@ public sealed class ExpenseSummaryCalculatorTests
         var pmNoPerson = Guid.NewGuid();
         var data = Data(
             paymentMethods: [new PaymentMethod { Id = pmNoPerson, Name = "Cash" }],
-            incomeTransactions: [Tx(amount: 300.00m, paymentMethodId: pmNoPerson)]);
+            incomeTransactions: [Tx(amount: -300.00m, paymentMethodId: pmNoPerson)]);
 
         var resp = new ExpenseSummaryCalculator(data).Response();
 
@@ -396,7 +396,7 @@ public sealed class ExpenseSummaryCalculatorTests
         var data = Data(
             allocations: [new ExpenseAllocation { CategoryId = catId, PlannedAmount = 100.00m }],
             transactions: [Tx(catId, 60.00m, 60.00m, isPaid: true)],
-            incomeTransactions: [Tx(amount: 500.00m)]);
+            incomeTransactions: [Tx(amount: -500.00m)]);
 
         var resp = new ExpenseSummaryCalculator(data).Response();
 
