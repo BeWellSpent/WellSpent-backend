@@ -177,7 +177,9 @@ public sealed class IncomeSourceTests
         var newAnchor = new DateOnly(2026, 1, 15);
         var periodEnd = new DateOnly(2026, 1, 31);
         _profiles.ListIncomeSourcesAsync(profileId, Arg.Any<CancellationToken>()).Returns([
-            new IncomeSource { Id = 1, BudgetProfileId = profileId, Name = "Salary", AnchorDate = oldAnchor, PaymentFrequency = "monthly" },
+            // AdjustForWeekends: false — this test pins the fork-on-AnchorDate-change date math,
+            // unrelated to and predating the weekend-adjustment feature.
+            new IncomeSource { Id = 1, BudgetProfileId = profileId, Name = "Salary", AnchorDate = oldAnchor, PaymentFrequency = "monthly", AdjustForWeekends = false },
         ]);
         _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
             .Returns(new BudgetProfile { Id = profileId, UserId = adminId, Name = "x", Cycle = "monthly" });
@@ -217,6 +219,31 @@ public sealed class IncomeSourceTests
         Assert.Equal(2, result.Id);
         Assert.Equal(3, result.EarlyArrivalToleranceDays);
         await _profiles.Received(1).SetIncomeSourceEffectiveToAsync(1, Arg.Any<DateOnly>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_AdjustForWeekendsOnlyChanged_ForksNewRow()
+    {
+        var (adminId, profileId) = SetUpOwner();
+        var anchor = new DateOnly(2026, 1, 1);
+        var periodEnd = new DateOnly(2026, 1, 31);
+        _profiles.ListIncomeSourcesAsync(profileId, Arg.Any<CancellationToken>()).Returns([
+            new IncomeSource { Id = 1, BudgetProfileId = profileId, Name = "Salary", AnchorDate = anchor, PaymentFrequency = "monthly", AdjustForWeekends = false },
+        ]);
+        _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = profileId, UserId = adminId, Name = "x", Cycle = "monthly" });
+        _profiles.GetLatestPeriodAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = Guid.NewGuid(), BudgetProfileId = profileId, EndDate = periodEnd });
+        _profiles.AddIncomeSourceAsync(Arg.Any<IncomeSource>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { var s = ci.Arg<IncomeSource>(); s.Id = 2; return s; });
+
+        var result = await new UpdateIncomeSourceCommandHandler(Access, _profiles, TaxReserve)
+            .Handle(new UpdateIncomeSourceCommand(adminId, 1, profileId, "Salary", "salary", new Money(6000, 0), true, null, "monthly", true, anchor, 0, AdjustForWeekends: true), CancellationToken.None);
+
+        Assert.Equal(2, result.Id);
+        Assert.True(result.AdjustForWeekends);
+        await _profiles.Received(1).SetIncomeSourceEffectiveToAsync(1, Arg.Any<DateOnly>(), Arg.Any<CancellationToken>());
+        await _profiles.DidNotReceive().UpdateIncomeSourceAsync(Arg.Any<IncomeSource>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

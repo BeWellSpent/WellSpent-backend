@@ -9,7 +9,7 @@ namespace WellSpent.Application.Budgets.UpdateIncomeSource;
 public sealed record UpdateIncomeSourceCommand(
     Guid UserId, int Id, Guid BudgetProfileId, string Name, string IncomeType, Money DefaultAmount,
     bool Recurring, int? BudgetPersonId, string PaymentFrequency, bool BeforeTax,
-    DateOnly? AnchorDate = null, int EarlyArrivalToleranceDays = 0)
+    DateOnly? AnchorDate = null, int EarlyArrivalToleranceDays = 0, bool AdjustForWeekends = true)
     : IRequest<IncomeSourceDto>;
 
 /// <summary>
@@ -32,7 +32,8 @@ public sealed class UpdateIncomeSourceCommandHandler(
             ?? throw new NotFoundException("income_source", request.Id.ToString());
 
         var scheduleChanged = existing.AnchorDate != request.AnchorDate
-            || existing.EarlyArrivalToleranceDays != request.EarlyArrivalToleranceDays;
+            || existing.EarlyArrivalToleranceDays != request.EarlyArrivalToleranceDays
+            || existing.AdjustForWeekends != request.AdjustForWeekends;
 
         BudgetPeriod? currentPeriod = null;
         if (scheduleChanged)
@@ -69,6 +70,7 @@ public sealed class UpdateIncomeSourceCommandHandler(
                 BeforeTax = request.BeforeTax,
                 AnchorDate = request.AnchorDate,
                 EarlyArrivalToleranceDays = request.EarlyArrivalToleranceDays,
+                AdjustForWeekends = request.AdjustForWeekends,
                 EffectiveFrom = predictedNextStart,
                 EffectiveTo = null,
             }, ct);
@@ -93,5 +95,6 @@ public sealed class UpdateIncomeSourceCommandHandler(
             BeforeTax = request.BeforeTax,
             AnchorDate = request.AnchorDate,
             EarlyArrivalToleranceDays = request.EarlyArrivalToleranceDays,
+            AdjustForWeekends = request.AdjustForWeekends,
         }, ct);
 }

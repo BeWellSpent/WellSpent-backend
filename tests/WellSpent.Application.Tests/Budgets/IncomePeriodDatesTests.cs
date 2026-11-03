@@ -8,11 +8,15 @@ public sealed class IncomePeriodDatesTests
 {
     private static IncomeSource Source(
         string frequency, DateOnly? anchor, int toleranceDays = 0,
-        DateOnly? effectiveFrom = null, DateOnly? effectiveTo = null) =>
+        DateOnly? effectiveFrom = null, DateOnly? effectiveTo = null, bool adjustForWeekends = false) =>
         new()
         {
+            // Defaults to false here, unlike the entity (true) — every pre-existing test below
+            // pins raw calendar-math results computed before this flag existed; only the cases
+            // exercising the flag itself opt in explicitly.
             Name = "income", PaymentFrequency = frequency, AnchorDate = anchor,
             EarlyArrivalToleranceDays = toleranceDays, EffectiveFrom = effectiveFrom, EffectiveTo = effectiveTo,
+            AdjustForWeekends = adjustForWeekends,
         };
 
     // ── Worked example #1 (spec's own example) ─────────────────────────────
@@ -275,6 +279,65 @@ public sealed class IncomePeriodDatesTests
         var result = IncomePeriodDates.ResolveFundedDate(source, new DateOnly(2026, 6, 1));
 
         Assert.Equal(new DateOnly(2026, 6, 1), result);
+    }
+
+    // ── AdjustForWeekends: monthly/yearly day-of-month landing on a weekend ─
+
+    [Fact]
+    public void NextPayDate_Monthly_AdjustForWeekendsTrue_RollsWeekendCandidateBackToFriday()
+    {
+        // Anchor day 31; Jan 31, 2027 is the next occurrence after the anchor month.
+        var source = Source("monthly", new DateOnly(2026, 12, 31), adjustForWeekends: true);
+        var rawCandidate = new DateOnly(2027, 1, 31);
+        Assert.Equal(DayOfWeek.Sunday, rawCandidate.DayOfWeek); // prove the premise, not hand-calculate it
+
+        var result = IncomePeriodDates.NextPayDate(source, new DateOnly(2027, 1, 1));
+
+        var expected = new DateOnly(2027, 1, 29);
+        Assert.Equal(DayOfWeek.Friday, expected.DayOfWeek);
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void NextPayDate_Monthly_AdjustForWeekendsFalse_ReturnsRawWeekendDateUnchanged()
+    {
+        var source = Source("monthly", new DateOnly(2026, 12, 31), adjustForWeekends: false);
+
+        var result = IncomePeriodDates.NextPayDate(source, new DateOnly(2027, 1, 1));
+
+        Assert.Equal(new DateOnly(2027, 1, 31), result);
+    }
+
+    [Fact]
+    public void NextPayDate_WeeklyOrBiWeekly_UnaffectedByAdjustForWeekends()
+    {
+        var anchor = new DateOnly(2026, 10, 31); // Saturday
+        var onOrAfter = new DateOnly(2026, 11, 1);
+
+        var weeklyAdjusted = IncomePeriodDates.NextPayDate(Source("weekly", anchor, adjustForWeekends: true), onOrAfter);
+        var weeklyUnadjusted = IncomePeriodDates.NextPayDate(Source("weekly", anchor, adjustForWeekends: false), onOrAfter);
+        Assert.Equal(weeklyUnadjusted, weeklyAdjusted);
+
+        var biWeeklyAdjusted = IncomePeriodDates.NextPayDate(Source("bi_weekly", anchor, adjustForWeekends: true), onOrAfter);
+        var biWeeklyUnadjusted = IncomePeriodDates.NextPayDate(Source("bi_weekly", anchor, adjustForWeekends: false), onOrAfter);
+        Assert.Equal(biWeeklyUnadjusted, biWeeklyAdjusted);
+    }
+
+    [Fact]
+    public void NextPayDate_Monthly_BackwardAdjustmentCrossesOnOrAfter_RollsToNextMonthInstead()
+    {
+        // Anchor day 28; asking for the date exactly on this month's (weekend) candidate.
+        // Adjusting it backward would land before `onOrAfter`, which must never happen —
+        // the result has to roll forward to next month's occurrence instead.
+        var source = Source("monthly", new DateOnly(2026, 10, 28), adjustForWeekends: true);
+        var onOrAfter = new DateOnly(2026, 11, 28);
+        Assert.Equal(DayOfWeek.Saturday, onOrAfter.DayOfWeek); // this month's raw candidate == onOrAfter itself
+
+        var result = IncomePeriodDates.NextPayDate(source, onOrAfter);
+
+        var expected = new DateOnly(2026, 12, 28);
+        Assert.True(expected >= onOrAfter);
+        Assert.Equal(expected, result);
     }
 
     // ── IsRegular ────────────────────────────────────────────────────────────

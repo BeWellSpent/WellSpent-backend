@@ -9,7 +9,7 @@ namespace WellSpent.Application.Budgets.AddIncomeSource;
 public sealed record AddIncomeSourceCommand(
     Guid UserId, Guid BudgetProfileId, string Name, string IncomeType, Money DefaultAmount,
     bool Recurring, int? BudgetPersonId, string PaymentFrequency, bool BeforeTax,
-    DateOnly? AnchorDate = null, int EarlyArrivalToleranceDays = 0)
+    DateOnly? AnchorDate = null, int EarlyArrivalToleranceDays = 0, bool AdjustForWeekends = true)
     : IRequest<IncomeSourceDto>;
 
 public sealed class AddIncomeSourceCommandHandler(
@@ -44,6 +44,7 @@ public sealed class AddIncomeSourceCommandHandler(
             BeforeTax = request.BeforeTax,
             AnchorDate = request.AnchorDate,
             EarlyArrivalToleranceDays = request.EarlyArrivalToleranceDays,
+            AdjustForWeekends = request.AdjustForWeekends,
         }, ct);
 
         await taxReserve.RecalculateAsync(request.BudgetProfileId, ct);

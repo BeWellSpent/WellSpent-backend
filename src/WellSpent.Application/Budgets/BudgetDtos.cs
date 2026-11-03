@@ -5,7 +5,8 @@ namespace WellSpent.Application.Budgets;
 public sealed record IncomeSourceDto(
     long Id, Guid BudgetProfileId, string Name, string IncomeType, Money DefaultAmount,
     bool Recurring, long BudgetPersonId, string PaymentFrequency, bool BeforeTax,
-    DateOnly? AnchorDate, int EarlyArrivalToleranceDays, DateOnly? EffectiveFrom, DateOnly? EffectiveTo);
+    DateOnly? AnchorDate, int EarlyArrivalToleranceDays, DateOnly? EffectiveFrom, DateOnly? EffectiveTo,
+    bool AdjustForWeekends);
 
 public sealed record IncomeEntryDto(
     long Id, Guid BudgetPeriodId, long IncomeSourceId, string? Name, Money Amount, long BudgetPersonId);

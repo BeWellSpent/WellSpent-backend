@@ -29,8 +29,8 @@ public static class IncomePeriodDates
         {
             "weekly" => NextIntervalDays(anchor, onOrAfter, 7),
             "bi_weekly" => NextIntervalDays(anchor, onOrAfter, 14),
-            "yearly" => NextYearly(anchor, onOrAfter),
-            _ => NextMonthly(anchor, onOrAfter), // "monthly" and any unrecognized value default to monthly
+            "yearly" => NextYearly(source, onOrAfter),
+            _ => NextMonthly(source, onOrAfter), // "monthly" and any unrecognized value default to monthly
         };
     }
 
@@ -41,26 +41,42 @@ public static class IncomePeriodDates
         return anchor.AddDays(steps * intervalDays);
     }
 
-    private static DateOnly NextMonthly(DateOnly anchor, DateOnly onOrAfter)
+    /// <summary>Saturday rolls back 1 day, Sunday rolls back 2 days, to the preceding Friday. Anything else is unchanged.</summary>
+    private static DateOnly AdjustToWeekday(DateOnly date) => date.DayOfWeek switch
     {
+        DayOfWeek.Saturday => date.AddDays(-1),
+        DayOfWeek.Sunday => date.AddDays(-2),
+        _ => date,
+    };
+
+    private static DateOnly MaybeAdjust(IncomeSource source, DateOnly date) =>
+        source.AdjustForWeekends ? AdjustToWeekday(date) : date;
+
+    private static DateOnly NextMonthly(IncomeSource source, DateOnly onOrAfter)
+    {
+        var anchor = source.AnchorDate!.Value;
         var monthStart = new DateOnly(onOrAfter.Year, onOrAfter.Month, 1);
-        var candidate = FixedExpenseScheduling.DateInMonth(anchor.Day, monthStart);
+        var candidate = MaybeAdjust(source, FixedExpenseScheduling.DateInMonth(anchor.Day, monthStart));
+        // Weekend adjustment only ever moves a candidate backward, so it can push an
+        // on-or-after-qualifying date into the past relative to `onOrAfter` — same fix as
+        // the pre-existing "already passed" case below: roll to next month instead.
         if (candidate < onOrAfter)
         {
             monthStart = monthStart.AddMonths(1);
-            candidate = FixedExpenseScheduling.DateInMonth(anchor.Day, monthStart);
+            candidate = MaybeAdjust(source, FixedExpenseScheduling.DateInMonth(anchor.Day, monthStart));
         }
         return candidate;
     }
 
-    private static DateOnly NextYearly(DateOnly anchor, DateOnly onOrAfter)
+    private static DateOnly NextYearly(IncomeSource source, DateOnly onOrAfter)
     {
+        var anchor = source.AnchorDate!.Value;
         var monthStart = new DateOnly(onOrAfter.Year, anchor.Month, 1);
-        var candidate = FixedExpenseScheduling.DateInMonth(anchor.Day, monthStart);
+        var candidate = MaybeAdjust(source, FixedExpenseScheduling.DateInMonth(anchor.Day, monthStart));
         if (candidate < onOrAfter)
         {
             monthStart = new DateOnly(onOrAfter.Year + 1, anchor.Month, 1);
-            candidate = FixedExpenseScheduling.DateInMonth(anchor.Day, monthStart);
+            candidate = MaybeAdjust(source, FixedExpenseScheduling.DateInMonth(anchor.Day, monthStart));
         }
         return candidate;
     }

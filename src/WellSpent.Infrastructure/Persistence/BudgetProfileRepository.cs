@@ -106,6 +106,7 @@ public sealed class BudgetProfileRepository(WellSpentDbContext db) : IBudgetProf
         existing.BeforeTax = source.BeforeTax;
         existing.AnchorDate = source.AnchorDate;
         existing.EarlyArrivalToleranceDays = source.EarlyArrivalToleranceDays;
+        existing.AdjustForWeekends = source.AdjustForWeekends;
         await db.SaveChangesAsync(ct);
         return existing;
     }

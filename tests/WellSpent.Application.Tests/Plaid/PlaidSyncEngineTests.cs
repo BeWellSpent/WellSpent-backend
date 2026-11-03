@@ -488,7 +488,10 @@ public sealed class PlaidSyncEngineTests
         var fundedPeriodId = Guid.NewGuid();
 
         _budgets.ListIncomeSourcesAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
-            .Returns([new IncomeSource { Id = 1, BudgetProfileId = item.BudgetProfileId, Name = "Paycheck", PaymentFrequency = "monthly", AnchorDate = new DateOnly(2025, 1, 15), EarlyArrivalToleranceDays = 3 }]);
+            // AdjustForWeekends: false — this test pins early-arrival-tolerance math, unrelated to
+            // and predating the weekend-adjustment feature (which would otherwise shift the
+            // schedule's computed pay date out from under the hardcoded tolerance assertions here).
+            .Returns([new IncomeSource { Id = 1, BudgetProfileId = item.BudgetProfileId, Name = "Paycheck", PaymentFrequency = "monthly", AnchorDate = new DateOnly(2025, 1, 15), EarlyArrivalToleranceDays = 3, AdjustForWeekends = false }]);
         _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
             .Returns(new PlaidSyncResult([Tx("plaid-tx-1", "ACME Payroll", 1500.00m, rawDate)], [], [], "new-cursor"));
         _budgets.GetPeriodByDateAsync(item.BudgetProfileId, fundedDate, Arg.Any<CancellationToken>())
@@ -521,7 +524,8 @@ public sealed class PlaidSyncEngineTests
         var rawPeriodId = Guid.NewGuid();
 
         _budgets.ListIncomeSourcesAsync(item.BudgetProfileId, Arg.Any<CancellationToken>())
-            .Returns([new IncomeSource { Id = 1, BudgetProfileId = item.BudgetProfileId, Name = "Paycheck", PaymentFrequency = "monthly", AnchorDate = new DateOnly(2025, 1, 15), EarlyArrivalToleranceDays = 3 }]);
+            // AdjustForWeekends: false — see the matching comment in the "early enough" case above.
+            .Returns([new IncomeSource { Id = 1, BudgetProfileId = item.BudgetProfileId, Name = "Paycheck", PaymentFrequency = "monthly", AnchorDate = new DateOnly(2025, 1, 15), EarlyArrivalToleranceDays = 3, AdjustForWeekends = false }]);
         _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
             .Returns(new PlaidSyncResult([Tx("plaid-tx-1", "ACME Payroll", 1500.00m, rawDate)], [], [], "new-cursor"));
         _budgets.GetPeriodByDateAsync(item.BudgetProfileId, rawDate, Arg.Any<CancellationToken>())
