@@ -127,6 +127,18 @@ Console.WriteLine($"income entries: {oldPeriods.Sum(o => Convert.ToInt32(o[7]))}
 
 if (!apply) { Console.WriteLine("\nDRY RUN: nothing written. Re-run with --apply to perform it."); return 0; }
 
+// Everything --apply is about to overwrite, saved first so a manual undo is possible.
+var backupPath = opts.GetValueOrDefault("backup") ?? $"rebuild-periods-backup-{profileId}-{DateTime.UtcNow:yyyyMMddHHmmss}.json";
+var backup = new Dictionary<string, object>
+{
+    ["periods"] = await Rows("SELECT * FROM budget_period WHERE budget_profile_id = @p ORDER BY start_date", null, ("p", profileId)),
+    ["transactions"] = await Rows("SELECT id, budget_period_id, carried_from_budget_period_id FROM transaction WHERE budget_period_id = ANY(@ids)", null, ("ids", oldIds)),
+    ["reviews"] = await Rows("SELECT id, budget_period_id FROM transaction_review WHERE budget_period_id = ANY(@ids)", null, ("ids", oldIds)),
+    ["incomeEntries"] = await Rows("SELECT * FROM income_entry WHERE budget_period_id = ANY(@ids)", null, ("ids", oldIds)),
+    ["incomeSourceEffectiveFrom"] = await Rows("SELECT id, effective_from FROM income_source WHERE budget_profile_id = @p", null, ("p", profileId)),
+};
+await File.WriteAllTextAsync(backupPath, System.Text.Json.JsonSerializer.Serialize(backup));
+Console.WriteLine($"backup written: {Path.GetFullPath(backupPath)}");
 await using var tx = await conn.BeginTransactionAsync();
 var newIds = plan.Select(_ => Guid.NewGuid()).ToArray();
 for (var i = 0; i < plan.Count; i++)
