@@ -423,6 +423,22 @@ public sealed class ExpenseSummaryCalculatorTests
     }
 
     [Fact]
+    public void RemainderPlanIncludingSavings_SubtractsPlannedSavingsToo()
+    {
+        const int catId = 9, savingsCatId = 20;
+        var data = Data(
+            incomeSources: [new IncomeSource { Id = 1, Name = "Pay", DefaultAmount = 1000.00m, PaymentFrequency = "monthly", Recurring = true }],
+            allocations: [new ExpenseAllocation { CategoryId = catId, PlannedAmount = 400.00m }],
+            savingsSources: [new SavingsSource { Name = "Save", Amount = 150.00m }],
+            savingsCategoryId: savingsCatId);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(600.00m, resp.RemainderPlan.ToDecimal());
+        Assert.Equal(450.00m, resp.RemainderPlanIncludingSavings.ToDecimal());
+    }
+
+    [Fact]
     public void ActualIncome_NoIncomeTransactions_ZeroTotalAndEmptyList()
     {
         var data = Data();
