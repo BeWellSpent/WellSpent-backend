@@ -24,4 +24,5 @@ public sealed record GetExpenseSummaryDto(
     Money FixedActualTotal, Money VariableActualTotal, List<Guid> OverBudgetTransactionIds,
     Money TotalCommittedIncludingSavings, Money TotalPlannedIncludingSavings, Money TotalActualIncludingSavings,
     Money SavingsPlannedTotal, Money SavingsActualTotal,
-    Money ActualIncomeTotal, Money RemainderActualIncome, List<PersonActualIncomeDto> ActualIncomeByPerson);
+    Money ActualIncomeTotal, Money RemainderActualIncome, List<PersonActualIncomeDto> ActualIncomeByPerson,
+    Money RemainderPlanIncludingSavings);

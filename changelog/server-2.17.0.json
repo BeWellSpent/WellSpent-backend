@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.17.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "The Plan totals can now show what is left of your planned income both with and without the planned savings.", "es": "Los totales del Plan ahora pueden mostrar cuánto queda de tu ingreso planeado con y sin los ahorros planeados." } }
+  ]
+}

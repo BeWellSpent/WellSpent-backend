@@ -380,6 +380,7 @@ public sealed class ExpenseSummaryCalculator
             Money.FromDecimal(totalCommittedIncludingSavings), Money.FromDecimal(totalPlannedIncludingSavings),
             Money.FromDecimal(totalActualIncludingSavings), Money.FromDecimal(_savingsTotal), Money.FromDecimal(savingsActual),
             // Savings that actually left the account are gone, so the remainder subtracts them too; subtracting expenses only overstated what is left.
-            Money.FromDecimal(_actualIncomeTotal), Money.FromDecimal(_actualIncomeTotal - totalActualIncludingSavings), actualIncomeByPerson);
+            Money.FromDecimal(_actualIncomeTotal), Money.FromDecimal(_actualIncomeTotal - totalActualIncludingSavings), actualIncomeByPerson,
+            Money.FromDecimal(incomeFromSources - totalCommittedIncludingSavings));
     }
 }
