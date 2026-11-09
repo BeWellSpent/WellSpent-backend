@@ -13,7 +13,7 @@ public sealed record ResyncPlaidConnectionCommand(Guid UserId, Guid ConnectionId
 public sealed class ResyncPlaidConnectionCommandHandler(
     PlaidAccessGuard plaidAccess,
     IPlaidItemRepository items,
-    PlaidBackgroundSync backgroundSync,
+    PlaidItemSync itemSync,
     ILogger<ResyncPlaidConnectionCommandHandler> logger) : IRequestHandler<ResyncPlaidConnectionCommand, PlaidConnectionDto>
 {
     public async Task<PlaidConnectionDto> Handle(ResyncPlaidConnectionCommand request, CancellationToken ct)
@@ -42,8 +42,8 @@ public sealed class ResyncPlaidConnectionCommandHandler(
         var reset = await items.ResetCursorAsync(request.ConnectionId, ct);
         logger.LogInformation("plaid.resync_requested plaid_item_id={PlaidItemId} user_id={UserId}", reset.Id, request.UserId);
 
-        // Detached: replaying a full history outlives the RPC that asked for it.
-        backgroundSync.FireAndForgetSyncItem(reset.Id);
+        // Awaited: a detached full-history replay is throttled and then killed once this request ends.
+        await itemSync.SyncItemAsync(reset.Id);
 
         var ownerName = UserDisplayRules.DisplayName(owner);
         return PlaidConnectionMapping.ToDto(reset, ownerName, true, true, PlaidConnectionRules.ResyncAvailableAt(reset, DateTime.UtcNow));

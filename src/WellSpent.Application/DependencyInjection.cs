@@ -28,7 +28,7 @@ public static class DependencyInjection
         services.AddScoped<Plaid.PlaidAccessGuard>();
         services.AddScoped<Plaid.PlaidPaymentMethodSync>();
         services.AddScoped<Plaid.PlaidSyncEngine>();
-        services.AddSingleton<Plaid.PlaidBackgroundSync>();
+        services.AddSingleton<Plaid.PlaidItemSync>();
 
         return services;
     }

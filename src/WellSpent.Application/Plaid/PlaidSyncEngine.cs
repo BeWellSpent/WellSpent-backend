@@ -193,6 +193,8 @@ public sealed class PlaidSyncEngine(
         var skippedNoPeriod = 0;
         var skippedDuplicate = 0;
         var repointedCount = 0;
+        // A failed write below is not retried here: the cursor is held back so Plaid redelivers the row next sync.
+        var failedWrites = 0;
 
         // Read once per item, not per transaction: it cannot change mid-run, and a sync can import hundreds of rows.
         var autoUpdatePlanned = await FixedExpensePaymentSync.AutoUpdatePlannedAmountForAsync(budgets, item.BudgetProfileId, ct);
@@ -208,6 +210,10 @@ public sealed class PlaidSyncEngine(
                     if (await SettlePendingTransactionAsync(item.Id, tx, existing, autoUpdatePlanned, ct))
                     {
                         repointedCount++;
+                    }
+                    else
+                    {
+                        failedWrites++;
                     }
 
                     continue;
@@ -305,6 +311,7 @@ public sealed class PlaidSyncEngine(
             catch (Exception ex)
             {
                 logger.LogError(ex, "plaid.sync_insert_failed plaid_item_id={PlaidItemId} plaid_id={PlaidId}", item.Id, tx.PlaidId);
+                failedWrites++;
                 continue;
             }
 
@@ -402,6 +409,7 @@ public sealed class PlaidSyncEngine(
             catch (Exception ex)
             {
                 logger.LogError(ex, "plaid.sync_update_failed plaid_item_id={PlaidItemId} plaid_id={PlaidId}", item.Id, tx.PlaidId);
+                failedWrites++;
                 continue;
             }
 
@@ -418,6 +426,7 @@ public sealed class PlaidSyncEngine(
             catch (Exception ex)
             {
                 logger.LogError(ex, "plaid.sync_delete_failed plaid_item_id={PlaidItemId} plaid_id={PlaidId}", item.Id, plaidId);
+                failedWrites++;
                 continue;
             }
 
@@ -426,14 +435,23 @@ public sealed class PlaidSyncEngine(
 
         // A cursor-persist failure re-fetches the same batch next run (harmless) but must still surface.
         Exception? cursorError = null;
-        try
+        if (failedWrites > 0)
         {
-            await items.UpdateSyncAsync(item.Id, sync.NextCursor, ct);
+            // Advancing past a row that failed to write would lose it for good; held back, it comes again next sync and rows already written are skipped as duplicates.
+            cursorError = new InvalidOperationException($"{failedWrites} transaction write(s) failed; cursor not advanced");
+            logger.LogError("plaid.sync_cursor_held plaid_item_id={PlaidItemId} failed_writes={FailedWrites}", item.Id, failedWrites);
         }
-        catch (Exception ex)
+        else
         {
-            logger.LogError(ex, "plaid.sync_update_cursor_failed plaid_item_id={PlaidItemId}", item.Id);
-            cursorError = ex;
+            try
+            {
+                await items.UpdateSyncAsync(item.Id, sync.NextCursor, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "plaid.sync_update_cursor_failed plaid_item_id={PlaidItemId}", item.Id);
+                cursorError = ex;
+            }
         }
 
         result.Imported = importedAdded;
