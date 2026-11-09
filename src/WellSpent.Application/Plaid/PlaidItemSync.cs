@@ -11,14 +11,15 @@ namespace WellSpent.Application.Plaid;
 /// flight, which killed syncs mid-run. Overlapping calls for one item (a Plaid webhook retry)
 /// share a single run. Never throws — a failed sync is logged, and the cursor stays put.
 /// </summary>
-public sealed class PlaidItemSync(IServiceScopeFactory scopeFactory, ILogger<PlaidItemSync> logger)
+public class PlaidItemSync(IServiceScopeFactory scopeFactory, ILogger<PlaidItemSync> logger)
 {
-    private readonly ConcurrentDictionary<Guid, Lazy<Task>> inFlight = new();
+    private readonly ConcurrentDictionary<Guid, Lazy<Task<bool>>> inFlight = new();
 
-    public Task SyncItemAsync(Guid plaidItemId) =>
-        inFlight.GetOrAdd(plaidItemId, id => new Lazy<Task>(() => RunAsync(id))).Value;
+    /// <summary>True when the run completed cleanly. Webhook and link callers ignore it; "Sync now" turns false into an error.</summary>
+    public virtual Task<bool> SyncItemAsync(Guid plaidItemId) =>
+        inFlight.GetOrAdd(plaidItemId, id => new Lazy<Task<bool>>(() => RunAsync(id))).Value;
 
-    private async Task RunAsync(Guid plaidItemId)
+    private async Task<bool> RunAsync(Guid plaidItemId)
     {
         try
         {
@@ -31,11 +32,15 @@ public sealed class PlaidItemSync(IServiceScopeFactory scopeFactory, ILogger<Pla
             if (result.Error is not null)
             {
                 logger.LogError(result.Error, "plaid.item_sync_failed plaid_item_id={PlaidItemId}", plaidItemId);
+                return false;
             }
+
+            return true;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "plaid.item_sync_failed plaid_item_id={PlaidItemId}", plaidItemId);
+            return false;
         }
         finally
         {

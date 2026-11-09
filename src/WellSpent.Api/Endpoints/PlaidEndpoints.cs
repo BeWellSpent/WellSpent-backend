@@ -7,6 +7,7 @@ using WellSpent.Application.Plaid.ExchangePublicToken;
 using WellSpent.Application.Plaid.GetPlaidConnections;
 using WellSpent.Application.Plaid.RefreshPlaidAccounts;
 using WellSpent.Application.Plaid.ResyncPlaidConnection;
+using WellSpent.Application.Plaid.SyncPlaidConnection;
 
 namespace WellSpent.Api.Endpoints;
 
@@ -45,6 +46,12 @@ public static class PlaidEndpoints
         group.MapPost("/connections/{id:guid}/refresh-accounts", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
         {
             var connection = await sender.Send(new RefreshPlaidAccountsCommand(CurrentUser.GetId(ctx), id), ct);
+            return Results.Ok(new { connection });
+        });
+
+        group.MapPost("/connections/{id:guid}/sync", async (Guid id, HttpContext ctx, ISender sender, CancellationToken ct) =>
+        {
+            var connection = await sender.Send(new SyncPlaidConnectionCommand(CurrentUser.GetId(ctx), id), ct);
             return Results.Ok(new { connection });
         });
 

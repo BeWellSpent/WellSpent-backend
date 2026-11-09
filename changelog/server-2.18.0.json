@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.18.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "A bank connection can now be synced on demand to fetch only what is new, without replaying its whole history.", "es": "Una conexión bancaria ahora se puede sincronizar a pedido para traer solo lo nuevo, sin repetir todo su historial." } }
+  ]
+}
