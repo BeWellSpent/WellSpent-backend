@@ -356,7 +356,7 @@ public sealed class PlaidSyncEngine(
 
             if (bestAliasHit && bestAmountOk && hasUnpaidTarget)
             {
-                consumed = await TryAutoConfirmAsync(item.Id, tx, period, inserted, unpaid!, bestFe, bestScore, categoryId, paymentMethodId, autoUpdatePlanned, byAccount, accountName, ct);
+                consumed = await TryAutoConfirmAsync(item.Id, tx, period, inserted, unpaid!, bestFe, bestScore, autoUpdatePlanned, byAccount, accountName, ct);
                 if (consumed) autoConfirmed++;
             }
             else if (bestAliasHit && bestAmountOk && alreadyPaid is not null && !alreadyReconciled)
@@ -475,14 +475,14 @@ public sealed class PlaidSyncEngine(
     // Each of the four steps has its own try/catch — collapsing them would hide which one failed.
     private async Task<bool> TryAutoConfirmAsync(
         Guid itemId, PlaidImportedTransaction tx, BudgetPeriod period, Transaction inserted, Transaction unpaid,
-        FixedExpense bestFe, double bestScore, int? categoryId, Guid? paymentMethodId, bool autoUpdatePlanned,
+        FixedExpense bestFe, double bestScore, bool autoUpdatePlanned,
         Dictionary<string, int> byAccount, string accountName, CancellationToken ct)
     {
         try
         {
             await FixedExpensePaymentSync.MarkPaidAsync(
                 transactions, fixedExpenses, unpaid.Id, period.Id, tx.Amount, tx.Date,
-                autoUpdatePlanned, new ObservedPayment(categoryId, paymentMethodId), logger, ct);
+                autoUpdatePlanned, logger, ct);
         }
         catch (Exception ex)
         {
@@ -610,10 +610,10 @@ public sealed class PlaidSyncEngine(
 
         try
         {
-            // Re-syncing a settled amount, not a fresh payment — no ObservedPayment override.
+            // Re-syncing a settled amount, not a fresh payment.
             await FixedExpensePaymentSync.MarkPaidAsync(
                 transactions, fixedExpenses, matchedTx.Id, matchedPeriodId, repointed.Amount,
-                matchedTx.PaidDate ?? tx.Date, autoUpdatePlanned, default, logger, ct);
+                matchedTx.PaidDate ?? tx.Date, autoUpdatePlanned, logger, ct);
         }
         catch (Exception ex)
         {

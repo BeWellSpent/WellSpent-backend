@@ -57,8 +57,7 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
     }
 
     public async Task UpdateFromPaymentAsync(
-        Guid id, decimal plannedAmount, int dayOfMonth, int dayOfWeek, DateOnly? anchorDate,
-        int? categoryId, Guid? paymentMethodId, CancellationToken ct)
+        Guid id, decimal plannedAmount, int dayOfMonth, int dayOfWeek, DateOnly? anchorDate, CancellationToken ct)
     {
         var fe = await db.FixedExpenses.FirstOrDefaultAsync(f => f.Id == id, ct);
         if (fe is null) return;
@@ -66,8 +65,6 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         fe.DayOfMonth = dayOfMonth;
         fe.DayOfWeek = (short)dayOfWeek;
         fe.AnchorDate = anchorDate;
-        fe.CategoryId = categoryId;
-        fe.PaymentMethodId = paymentMethodId;
         await SaveChangesCatchingConflictAsync(ct);
     }
 

@@ -74,12 +74,10 @@ public static class TransactionReviewConfirmation
                 {
                     var paidAmount = matchedTx.PlannedAmount;
                     var paidDate = matchedTx.Date ?? DateOnly.FromDateTime(DateTime.UtcNow);
-                    var observed = default(ObservedPayment);
                     if (importedTx is not null)
                     {
                         paidAmount = importedTx.Amount;
                         paidDate = importedTx.Date ?? paidDate;
-                        observed = new ObservedPayment(importedTx.CategoryId, importedTx.PaymentMethodId);
                     }
                     paidAmount = siblingAmounts.Sum() + paidAmount;
 
@@ -90,7 +88,7 @@ public static class TransactionReviewConfirmation
                     // unpaid. Nothing has been excluded and the review is
                     // still pending, so the user can retry.
                     await FixedExpensePaymentSync.MarkPaidAsync(
-                        transactions, fixedExpenses, matchedTx.Id, matchedPeriodId, paidAmount, paidDate, autoSync, observed, logger, ct);
+                        transactions, fixedExpenses, matchedTx.Id, matchedPeriodId, paidAmount, paidDate, autoSync, logger, ct);
                 }
             }
         }
