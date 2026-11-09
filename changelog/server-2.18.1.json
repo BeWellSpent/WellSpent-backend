@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.18.1",
+  "items": [
+    { "changeType": "fixed", "summary": { "en": "Matching a bank transaction to a fixed expense now updates only its amount and due date. Its category and payment method are no longer changed.", "es": "Al vincular una transacción del banco con un gasto fijo, ahora solo se actualizan su monto y su fecha de vencimiento. Su categoría y su método de pago ya no cambian." } }
+  ]
+}

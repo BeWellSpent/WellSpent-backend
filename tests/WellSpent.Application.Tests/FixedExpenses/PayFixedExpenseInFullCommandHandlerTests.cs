@@ -144,7 +144,7 @@ public sealed class PayFixedExpenseInFullCommandHandlerTests
         Assert.Equal(endDate, result.Expense.EndDate);
         await _fixedExpenses.DidNotReceive().UpdateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>());
         await _fixedExpenses.DidNotReceive().UpdateFromPaymentAsync(
-            Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<DateOnly?>(), Arg.Any<int?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+            Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class PayFixedExpenseInFullCommandHandlerTests
             new PayFixedExpenseInFullCommand(adminId, profileId, feId, 999m, new DateOnly(2026, 3, 1)), CancellationToken.None);
 
         await _fixedExpenses.DidNotReceive().UpdateFromPaymentAsync(
-            Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<DateOnly?>(), Arg.Any<int?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+            Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

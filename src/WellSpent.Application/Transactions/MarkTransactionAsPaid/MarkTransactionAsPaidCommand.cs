@@ -10,9 +10,7 @@ namespace WellSpent.Application.Transactions.MarkTransactionAsPaid;
 /// Mirrors Go's MarkTransactionAsPaid, delegating the template-sync side
 /// effect to FixedExpensePaymentSync.MarkPaidAsync — the same shared path
 /// ConfirmTransactionReview and CreateFixedExpenseFromTransaction use (B5
-/// batch 7). The plain manual button has no separate Plaid import to observe
-/// category/payment method from, so it passes a default ObservedPayment and
-/// lets the paid transaction's own (possibly user-edited) fields speak for it.
+/// batch 7).
 /// </summary>
 public sealed record MarkTransactionAsPaidCommand(Guid UserId, Guid Id, Guid BudgetPeriodId, Money PaidAmount, DateOnly PaidDate)
     : IRequest<TransactionDto>;
@@ -29,7 +27,7 @@ public sealed class MarkTransactionAsPaidCommandHandler(
         var autoSync = await FixedExpensePaymentSync.AutoUpdatePlannedAmountForAsync(profiles, period.BudgetProfileId, ct);
         var tx = await FixedExpensePaymentSync.MarkPaidAsync(
             transactions, fixedExpenses, request.Id, request.BudgetPeriodId, request.PaidAmount.ToDecimal(), request.PaidDate,
-            autoSync, default, logger, ct);
+            autoSync, logger, ct);
 
         return TransactionMapping.ToDto(tx);
     }

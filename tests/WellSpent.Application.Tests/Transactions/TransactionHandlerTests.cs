@@ -428,7 +428,7 @@ public sealed class TransactionHandlerTests
     }
 
     [Fact]
-    public async Task MarkAsPaid_LinkedToFixedExpense_AutoUpdateOn_SyncsTemplateToWhatWasActuallyPaid()
+    public async Task MarkAsPaid_LinkedToFixedExpense_AutoUpdateOn_SyncsTemplateAmountAndDate()
     {
         var (adminId, profileId, periodId) = SetUpOpenPeriod();
         var txId = Guid.NewGuid();
@@ -450,7 +450,7 @@ public sealed class TransactionHandlerTests
             .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(65, 0), new DateOnly(2026, 2, 12)), CancellationToken.None);
 
         await _fixedExpenses.Received(1).UpdateFromPaymentAsync(
-            feId, 65m, 12, Arg.Any<int>(), new DateOnly(2026, 2, 12), categoryId, paymentMethodId, Arg.Any<CancellationToken>());
+            feId, 65m, 12, Arg.Any<int>(), new DateOnly(2026, 2, 12), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -471,7 +471,7 @@ public sealed class TransactionHandlerTests
             .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(65, 0), new DateOnly(2026, 2, 12)), CancellationToken.None);
 
         await _fixedExpenses.DidNotReceive().UpdateFromPaymentAsync(
-            Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<DateOnly?>(), Arg.Any<int?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+            Arg.Any<Guid>(), Arg.Any<decimal>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<DateOnly?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

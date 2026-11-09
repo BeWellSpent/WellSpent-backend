@@ -14,10 +14,9 @@ public interface IFixedExpenseRepository
     /// <summary>Full replace, scoped by (id, budgetProfileId).</summary>
     Task<FixedExpense> UpdateAsync(FixedExpense fixedExpense, CancellationToken ct);
 
-    /// <summary>Brings the template up to what actually happened when a bill was paid: amount, due date, and (when observed) category/payment method.</summary>
+    /// <summary>Brings the template up to what actually happened when a bill was paid: amount and due date only.</summary>
     Task UpdateFromPaymentAsync(
-        Guid id, decimal plannedAmount, int dayOfMonth, int dayOfWeek, DateOnly? anchorDate,
-        int? categoryId, Guid? paymentMethodId, CancellationToken ct);
+        Guid id, decimal plannedAmount, int dayOfMonth, int dayOfWeek, DateOnly? anchorDate, CancellationToken ct);
 
     Task DeactivateAsync(Guid id, Guid budgetProfileId, CancellationToken ct);
 

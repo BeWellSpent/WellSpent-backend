@@ -49,7 +49,7 @@ public sealed class PayFixedExpenseInFullCommandHandler(
         {
             tx = await FixedExpensePaymentSync.MarkPaidAsync(
                 transactions, fixedExpenses, existing.Id, existingPeriodId, request.Amount, request.PaidDate,
-                autoSyncTemplate: false, default, logger, ct);
+                autoSyncTemplate: false, logger, ct);
         }
         else
         {

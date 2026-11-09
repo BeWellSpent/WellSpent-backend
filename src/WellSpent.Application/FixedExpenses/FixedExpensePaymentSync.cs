@@ -6,19 +6,6 @@ using WellSpent.Domain.Exceptions;
 namespace WellSpent.Application.FixedExpenses;
 
 /// <summary>
-/// What was actually observed about a payment, for the two fields where "the
-/// transaction being marked paid" and "the real-world transaction the
-/// payment came from" can differ — confirming a match marks the *matched*
-/// (fixed) transaction paid, but its category/payment method may not be what
-/// was actually seen on the *imported* one. Null means "nothing observed":
-/// the template keeps its existing value rather than being overwritten with
-/// a guess. The plain manual button has no separate import to observe from,
-/// so it always passes default and lets the paid transaction's own fields
-/// speak for it instead.
-/// </summary>
-public readonly record struct ObservedPayment(int? CategoryId, Guid? PaymentMethodId);
-
-/// <summary>
 /// Marking a fixed transaction paid, in one place. Three call sites do this:
 /// MarkTransactionAsPaid (the button), ConfirmTransactionReview (the To
 /// Review tab) and CreateFixedExpenseFromTransaction (same confirm path) —
@@ -31,7 +18,7 @@ public static class FixedExpensePaymentSync
     public static async Task<Transaction> MarkPaidAsync(
         ITransactionRepository transactions, IFixedExpenseRepository fixedExpenses,
         Guid id, Guid budgetPeriodId, decimal amount, DateOnly paidDate,
-        bool autoSyncTemplate, ObservedPayment observed, ILogger logger, CancellationToken ct)
+        bool autoSyncTemplate, ILogger logger, CancellationToken ct)
     {
         var tx = await transactions.MarkTransactionAsPaidAsync(id, budgetPeriodId, amount, paidDate, ct);
 
@@ -57,20 +44,16 @@ public static class FixedExpensePaymentSync
         // EndDate means a payment plan (same signal createNextPeriod uses) — an overpayment there is credit toward a fixed principal, never a new PlannedAmount.
         if (autoSyncTemplate && fe.EndDate is null)
         {
-            // Prefer what was actually observed; otherwise whatever the
-            // just-paid transaction itself carries; otherwise leave the
-            // template's existing value rather than clearing a real one.
-            var categoryId = observed.CategoryId ?? tx.CategoryId ?? fe.CategoryId;
-            var paymentMethodId = observed.PaymentMethodId ?? tx.PaymentMethodId ?? fe.PaymentMethodId;
+            // Only amount and due date follow a payment: category and payment method are the user's classification of the bill, not something a bank import gets to rewrite.
             var (dayOfMonth, dayOfWeek, anchorDate) = FixedExpenseScheduling.ScheduleFromAnchor(paidDate);
 
             try
             {
-                await fixedExpenses.UpdateFromPaymentAsync(feId, amount, dayOfMonth, dayOfWeek, anchorDate, categoryId, paymentMethodId, ct);
+                await fixedExpenses.UpdateFromPaymentAsync(feId, amount, dayOfMonth, dayOfWeek, anchorDate, ct);
             }
             catch (Exception ex)
             {
-                // The template keeps its old plan/date/category/payment method while this period's payment stands regardless.
+                // The template keeps its old plan and date while this period's payment stands regardless.
                 logger.LogError(ex, "fixed_expense.payment_sync_template_update_failed fixed_expense_id={FixedExpenseId} transaction_id={TransactionId}", feId, tx.Id);
             }
         }
