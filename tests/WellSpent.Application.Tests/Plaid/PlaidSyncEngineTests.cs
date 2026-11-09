@@ -78,6 +78,94 @@ public sealed class PlaidSyncEngineTests
         Assert.NotNull(result.Error);
     }
 
+    private static BudgetPeriod OpenPeriod(Guid profileId)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        return new BudgetPeriod { Id = Guid.NewGuid(), BudgetProfileId = profileId, StartDate = today.AddDays(-10), EndDate = today.AddDays(10) };
+    }
+
+    [Fact]
+    public async Task CleanSync_AdvancesCursor()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([], [], [], "new-cursor"));
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.Null(result.Error);
+        await _items.Received(1).UpdateSyncAsync(item.Id, "new-cursor", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InsertFailure_HoldsCursorSoPlaidRedeliversTheRow()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("p1", "Coffee", 4m, today)], [], [], "new-cursor"));
+        _budgets.GetPeriodByDateAsync(item.BudgetProfileId, Arg.Any<DateOnly>(), Arg.Any<CancellationToken>()).Returns(OpenPeriod(item.BudgetProfileId));
+        _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<Transaction>(new TimeoutException("connect timed out")));
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.NotNull(result.Error);
+        await _items.DidNotReceive().UpdateSyncAsync(item.Id, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UpdateFailure_HoldsCursor()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([], [Tx("p1", "Coffee", 4m, DateOnly.FromDateTime(DateTime.Today))], [], "new-cursor"));
+        _transactions.UpdateTransactionFromPlaidAsync("p1", Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new TimeoutException("connect timed out")));
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.NotNull(result.Error);
+        await _items.DidNotReceive().UpdateSyncAsync(item.Id, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteFailure_HoldsCursor()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([], [], ["gone-1"], "new-cursor"));
+        _transactions.DeleteTransactionByPlaidIdAsync("gone-1", Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new TimeoutException("connect timed out")));
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.NotNull(result.Error);
+        await _items.DidNotReceive().UpdateSyncAsync(item.Id, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SettleRepointFailure_HoldsCursor()
+    {
+        var item = NewItem(Guid.NewGuid());
+        SetUpDefaults(item);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _plaid.SyncTransactionsAsync("real-access-token", "", Arg.Any<CancellationToken>())
+            .Returns(new PlaidSyncResult([Tx("settled", "Coffee", 4m, today, pendingId: "pending")], [], [], "new-cursor"));
+        _transactions.GetTransactionByPlaidIdAsync("pending", Arg.Any<CancellationToken>()).Returns(new Transaction { Id = Guid.NewGuid() });
+        _transactions.RepointTransactionPlaidIdAsync("pending", "settled", Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<Transaction>(new TimeoutException("connect timed out")));
+
+        var result = await CreateEngine().SyncItemAsync(item, CancellationToken.None);
+
+        Assert.NotNull(result.Error);
+        await _items.DidNotReceive().UpdateSyncAsync(item.Id, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task AutoConfirmedMatch_ExcludesInsteadOfDeleting()
     {

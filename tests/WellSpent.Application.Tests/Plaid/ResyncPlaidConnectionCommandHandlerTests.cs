@@ -15,12 +15,12 @@ public sealed class ResyncPlaidConnectionCommandHandlerTests
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly IPlaidItemRepository _items = Substitute.For<IPlaidItemRepository>();
 
-    // Unconfigured CreateScope() returns null; PlaidBackgroundSync catches and logs it.
+    // Unconfigured CreateScope() returns null; PlaidItemSync catches and logs it.
     private readonly IServiceScopeFactory _scopeFactory = Substitute.For<IServiceScopeFactory>();
 
     private ResyncPlaidConnectionCommandHandler CreateHandler() =>
         new(new PlaidAccessGuard(_users), _items,
-            new PlaidBackgroundSync(_scopeFactory, NullLogger<PlaidBackgroundSync>.Instance),
+            new PlaidItemSync(_scopeFactory, NullLogger<PlaidItemSync>.Instance),
             NullLogger<ResyncPlaidConnectionCommandHandler>.Instance);
 
     private static User UsUser(string plan = "lifetime") => new() { Id = Guid.NewGuid(), Email = "u@example.com", CountryCode = "US", Plan = plan };

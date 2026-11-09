@@ -18,7 +18,7 @@ public sealed record HandlePlaidWebhookCommand(WebhookBase Payload) : IRequest;
 /// </summary>
 public sealed class HandlePlaidWebhookCommandHandler(
     IPlaidItemRepository items,
-    PlaidBackgroundSync backgroundSync,
+    PlaidItemSync itemSync,
     ILogger<HandlePlaidWebhookCommandHandler> logger) : IRequestHandler<HandlePlaidWebhookCommand>
 {
     public async Task Handle(HandlePlaidWebhookCommand request, CancellationToken ct)
@@ -50,9 +50,10 @@ public sealed class HandlePlaidWebhookCommandHandler(
             return;
         }
 
-        // Unconditional now — the old "only if never synced" gate existed solely to avoid double-syncing against the Mon/Wed/Fri cron, which no longer exists.
+        // Awaited so the instance keeps its CPU until the sync finishes; a Plaid retry of a slow reply joins the run already going.
         logger.LogInformation("plaid.webhook.sync_requested plaid_item_id={PlaidItemId} item_id={ItemId}", item.Id, itemId);
-        backgroundSync.FireAndForgetSyncItem(item.Id);
+        await itemSync.SyncItemAsync(item.Id);
+        logger.LogInformation("plaid.webhook.sync_finished plaid_item_id={PlaidItemId} item_id={ItemId}", item.Id, itemId);
     }
 
     private async Task HandleItemErrorAsync(string itemId, CancellationToken ct)
