@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.21.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "The plan now reports each person's planned expenses and what is left of their income, the planned amounts shared by no one, and which fixed bills are due this period.", "es": "El plan ahora informa los gastos planeados de cada persona y cuánto queda de su ingreso, los montos planeados que no son de nadie, y qué gastos fijos vencen en este período." } }
+  ]
+}
