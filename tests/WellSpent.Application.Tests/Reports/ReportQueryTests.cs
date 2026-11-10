@@ -135,6 +135,8 @@ public sealed class ReportQueryTests
 
         Assert.Equal(3, report.Periods.Count); // only the requested 3, though 4 were loaded for the baseline
         Assert.Equal(885m, report.Periods[^1].Total!.Value.ToDecimal());
+        Assert.All(report.Periods, p => Assert.NotNull(p.TotalPercentOfIncome)); // no income received, still a percent
+        Assert.Equal(22.1, report.Periods[^1].TotalPercentOfIncome); // 885 of the 4000 planned
         var groceries = report.Movers.First();
         Assert.Equal(GroceriesId, groceries.CategoryId);
         Assert.Equal(700m, groceries.Average.ToDecimal());
@@ -165,5 +167,6 @@ public sealed class ReportQueryTests
         var current = Assert.Single(report.Periods);
         Assert.Equal(70m, current.Total!.Value.ToDecimal());
         Assert.Equal(70m, Assert.Single(current.Categories).Amount.ToDecimal());
+        Assert.Equal(7.0, current.TotalPercentOfIncome); // 70 of Sam's 1000 planned
     }
 }

@@ -20,7 +20,7 @@ public sealed class GetCategoryTrendsQueryHandler(
     private const int MoverBaselinePeriods = 3;
     private const int MaxMovers = 5;
 
-    private sealed record PeriodSpend(Dictionary<int, decimal> ByCategory, decimal Total, decimal Income);
+    private sealed record PeriodSpend(Dictionary<int, decimal> ByCategory, decimal Total, decimal PlannedIncome);
 
     public async Task<CategoryTrendsReportDto> Handle(GetCategoryTrendsQuery request, CancellationToken ct)
     {
@@ -49,9 +49,9 @@ public sealed class GetCategoryTrendsQueryHandler(
         var shown = periods.Count - Math.Min(requested, periods.Count);
         var periodDtos = periods.Select((p, i) => spend[i] is not { } s
                 ? new TrendPeriodDto(p.Id, p.StartDate, p.EndDate, true, null, null, [])
-                : new TrendPeriodDto(p.Id, p.StartDate, p.EndDate, false, Money.FromDecimal(s.Total), ReportRules.Percent(s.Total, s.Income),
+                : new TrendPeriodDto(p.Id, p.StartDate, p.EndDate, false, Money.FromDecimal(s.Total), ReportRules.Percent(s.Total, s.PlannedIncome),
                     s.ByCategory.Where(c => c.Value != 0).OrderByDescending(c => c.Value)
-                        .Select(c => new CategoryAmountDto(c.Key, Money.FromDecimal(c.Value), ReportRules.Percent(c.Value, s.Income))).ToList()))
+                        .Select(c => new CategoryAmountDto(c.Key, Money.FromDecimal(c.Value), ReportRules.Percent(c.Value, s.PlannedIncome))).ToList()))
             .Skip(shown)
             .ToList();
 
@@ -67,13 +67,13 @@ public sealed class GetCategoryTrendsQueryHandler(
             var byCategory = summary.OverviewCategories.ToDictionary(
                 c => c.CategoryId,
                 c => c.PersonBreakdowns.FirstOrDefault(b => b.BudgetPersonId == person)?.ActualTotal.ToDecimal() ?? 0m);
-            return new PeriodSpend(byCategory, mine?.SpentActual.ToDecimal() ?? 0m, mine?.IncomeActual.ToDecimal() ?? 0m);
+            return new PeriodSpend(byCategory, mine?.SpentActual.ToDecimal() ?? 0m, mine?.IncomePlanned.ToDecimal() ?? 0m);
         }
 
         var all = summary.OverviewCategories.ToDictionary(c => c.CategoryId, c => c.ActualTotal?.ToDecimal() ?? 0m);
         var uncategorized = summary.UncategorizedActual.ToDecimal();
         if (uncategorized != 0) all[0] = uncategorized;
-        return new PeriodSpend(all, summary.TotalActualIncludingSavings.ToDecimal(), summary.ActualIncomeTotal.ToDecimal());
+        return new PeriodSpend(all, summary.TotalActualIncludingSavings.ToDecimal(), summary.IncomeFromSources.ToDecimal());
     }
 
     private static List<CategoryMoverDto> Movers(List<PeriodSpend?> spend)
@@ -93,7 +93,7 @@ public sealed class GetCategoryTrendsQueryHandler(
             .OrderByDescending(m => Math.Abs(m.Delta))
             .Take(MaxMovers)
             .Select(m => new CategoryMoverDto(m.Id, Money.FromDecimal(m.Now), Money.FromDecimal(Math.Round(m.Average, 2)),
-                Money.FromDecimal(Math.Round(m.Delta, 2)), ReportRules.Percent(m.Delta, current.Income)))
+                Money.FromDecimal(Math.Round(m.Delta, 2)), ReportRules.Percent(m.Delta, current.PlannedIncome)))
             .ToList();
     }
 }
