@@ -25,6 +25,4 @@ public static class ReportRules
     public static double? Percent(decimal part, decimal whole) =>
         whole > 0 ? Math.Round((double)(part / whole * 100), 1) : null;
 
-    /// <summary>A template is a plan when it ends: installments, a payment count, or an end date.</summary>
-    public static bool IsPlan(FixedExpense fe) => fe.IsInstallmentPlan || (fe.TotalPayments ?? 0) > 0 || fe.EndDate is not null;
 }

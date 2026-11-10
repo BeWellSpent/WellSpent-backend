@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.23.0",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "When payment plans end and your fixed bills drop now feeds Plan's Commitment tab; the separate Commitments report was removed.", "es": "Cuándo terminan tus planes de pago y bajan tus gastos fijos ahora alimenta la pestaña Compromiso del Plan; se eliminó el informe Compromisos aparte." } }
+  ]
+}
