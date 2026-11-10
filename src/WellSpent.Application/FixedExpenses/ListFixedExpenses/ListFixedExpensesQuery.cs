@@ -2,7 +2,6 @@ using MediatR;
 using WellSpent.Application.Common;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
-using WellSpent.Domain.Exceptions;
 
 namespace WellSpent.Application.FixedExpenses.ListFixedExpenses;
 
@@ -15,20 +14,7 @@ public sealed class ListFixedExpensesQueryHandler(BudgetAccessGuard access, IFix
     {
         await access.EnsureMemberAsync(request.BudgetProfileId, request.UserId, ct);
 
-        int? focusedPersonId = null;
-        if (request.FocusedView)
-        {
-            BudgetPerson person;
-            try
-            {
-                person = await profiles.GetPersonByUserIdAsync(request.BudgetProfileId, request.UserId, ct);
-            }
-            catch (NotFoundException)
-            {
-                throw new ForbiddenException("access denied");
-            }
-            focusedPersonId = person.Id;
-        }
+        var focusedPersonId = await FocusedPerson.ResolveAsync(profiles, request.BudgetProfileId, request.UserId, request.FocusedView, ct);
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var rows = await fixedExpenses.ListAsync(request.BudgetProfileId, ct, focusedPersonId);

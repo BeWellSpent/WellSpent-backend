@@ -2,7 +2,8 @@ using NSubstitute;
 using WellSpent.Application.Common;
 using WellSpent.Application.Reports;
 using WellSpent.Application.Reports.GetCategoryTrends;
-using WellSpent.Application.Reports.GetCommitmentReport;
+using Microsoft.Extensions.Logging.Abstractions;
+using WellSpent.Application.FixedExpenses.GetFixedExpenseProjection;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
 using Xunit;
@@ -64,63 +65,52 @@ public sealed class ReportQueryTests
     private void Bills(BudgetPeriod period, params Transaction[] txs) =>
         _transactions.ListTransactionsAsync(period.Id, null, null, null, Arg.Any<CancellationToken>()).Returns(txs.ToList());
 
-    private Transaction Fixed(int category, decimal planned, Guid card) =>
-        new() { Id = Guid.NewGuid(), CategoryId = category, Amount = 0, PlannedAmount = planned, TransactionTypeId = 1, PaymentMethodId = card };
-
     private Transaction Spent(int category, decimal amount, Guid card) =>
         new() { Id = Guid.NewGuid(), CategoryId = category, Amount = amount, PlannedAmount = amount, TransactionTypeId = 2, PaymentMethodId = card };
 
-    private GetCommitmentReportQueryHandler Commitments => new(new BudgetAccessGuard(_profiles), _profiles, _transactions, _allocations, _fixedExpenses, _users);
+    private GetFixedExpenseProjectionQueryHandler Projection => new(new BudgetAccessGuard(_profiles), _fixedExpenses, _profiles, _users, NullLogger<GetFixedExpenseProjectionQueryHandler>.Instance);
     private GetCategoryTrendsQueryHandler Trends => new(new BudgetAccessGuard(_profiles), _profiles, _transactions, _allocations, _fixedExpenses, _users);
 
     [Fact]
-    public async Task Commitments_Pro_SixStartedPeriods_CurrentByCategory_AndProjection()
+    public async Task Projection_Pro_GroupsEndingPlansByMonth_AndSkipsOpenEndedBills()
     {
-        Bills(Started(0), Fixed(RentId, 1850m, _myCard), Fixed(GroceriesId, 100m, _samCard));
         var loanEnd = DateOnly.FromDateTime(DateTime.UtcNow).AddMonths(2);
-        _fixedExpenses.ListAsync(_profileId, Arg.Any<CancellationToken>()).Returns([
+        _fixedExpenses.ListAsync(_profileId, Arg.Any<CancellationToken>(), null).Returns([
             new FixedExpense { Id = Guid.NewGuid(), BudgetProfileId = _profileId, Name = "Car loan", PlannedAmount = 420m, TotalPayments = 36, EndDate = loanEnd, PaymentMethodId = _myCard },
+            new FixedExpense { Id = Guid.NewGuid(), BudgetProfileId = _profileId, Name = "Phone", PlannedAmount = 30m, EndDate = loanEnd.AddDays(1 - loanEnd.Day), PaymentMethodId = _myCard },
+            new FixedExpense { Id = Guid.NewGuid(), BudgetProfileId = _profileId, Name = "Ended", PlannedAmount = 99m, EndDate = loanEnd.AddMonths(-4), PaymentMethodId = _myCard },
             new FixedExpense { Id = Guid.NewGuid(), BudgetProfileId = _profileId, Name = "Rent", PlannedAmount = 1850m, PaymentMethodId = _myCard },
         ]);
 
-        var report = await Commitments.Handle(new GetCommitmentReportQuery(_userId, _profileId, null), CancellationToken.None);
+        var result = await Projection.Handle(new GetFixedExpenseProjectionQuery(_userId, _profileId), CancellationToken.None);
 
-        Assert.Equal(6, report.Periods.Count);
-        Assert.DoesNotContain(report.Periods, p => p.BudgetPeriodId == _periods[^1].Id); // the future period
-        Assert.All(report.Periods, p => Assert.False(p.Locked));
-        Assert.Equal(1950m, report.Periods[^1].Committed!.Value.ToDecimal());
-        Assert.Equal([RentId, GroceriesId], report.Categories.Select(c => c.CategoryId));
-        Assert.Equal(2, report.BillCount);
-        Assert.Equal(1, report.PlanCount);
-        Assert.Equal(48.8, report.CommittedPercentOfIncome); // 1950 of 4000
-        var drop = Assert.Single(report.Projection!);
+        Assert.False(result.Locked);
+        var drop = Assert.Single(result.Projection!);
         Assert.Equal(new DateOnly(loanEnd.Year, loanEnd.Month, 1), drop.EndsOn);
-        Assert.Equal(420m, drop.Amount.ToDecimal());
-        Assert.False(report.ProjectionLocked);
+        Assert.Equal(450m, drop.Amount.ToDecimal());
+        Assert.Equal(["Car loan", "Phone"], drop.Names);
     }
 
     [Fact]
-    public async Task Commitments_Free_LocksOlderPeriodsAndTheProjection()
+    public async Task Projection_Free_IsLockedWithNoData()
     {
         SetPlan("free");
 
-        var report = await Commitments.Handle(new GetCommitmentReportQuery(_userId, _profileId, null), CancellationToken.None);
+        var result = await Projection.Handle(new GetFixedExpenseProjectionQuery(_userId, _profileId), CancellationToken.None);
 
-        Assert.Equal([true, true, false, false, false, false], report.Periods.Select(p => p.Locked));
-        Assert.All(report.Periods.Where(p => p.Locked), p => Assert.Null(p.Committed));
-        Assert.Null(report.Projection);
-        Assert.True(report.ProjectionLocked);
+        Assert.True(result.Locked);
+        Assert.Null(result.Projection);
+        await _fixedExpenses.DidNotReceive().ListAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
     }
 
     [Fact]
-    public async Task Commitments_PersonFilter_CountsOnlyTheirBillsAndIncome()
+    public async Task Projection_FocusedView_ListsOnlyTheCallersPlans()
     {
-        Bills(Started(0), Fixed(RentId, 1850m, _myCard), Fixed(GroceriesId, 100m, _samCard));
+        _profiles.GetPersonByUserIdAsync(_profileId, _userId, Arg.Any<CancellationToken>()).Returns(new BudgetPerson { Id = Me, BudgetProfileId = _profileId, Role = "admin" });
 
-        var report = await Commitments.Handle(new GetCommitmentReportQuery(_userId, _profileId, Sam), CancellationToken.None);
+        await Projection.Handle(new GetFixedExpenseProjectionQuery(_userId, _profileId, FocusedView: true), CancellationToken.None);
 
-        Assert.Equal(100m, report.Periods[^1].Committed!.Value.ToDecimal());
-        Assert.Equal(1000m, report.IncomePlanned.ToDecimal());
+        await _fixedExpenses.Received(1).ListAsync(_profileId, Arg.Any<CancellationToken>(), Me);
     }
 
     [Fact]
