@@ -1,3 +1,5 @@
+using WellSpent.Application.Reports.GetCategoryTrends;
+using WellSpent.Application.Reports.GetCommitmentReport;
 using MediatR;
 using WellSpent.Api.Auth;
 using WellSpent.Application.Budgets.AddBudgetPeople;
@@ -326,6 +328,13 @@ public static class BudgetEndpoints
             var entry = await sender.Send(new UpdateIncomeEntryCommand(CurrentUser.GetId(ctx), entryId, id, body.Amount), ct);
             return Results.Ok(new { entry });
         });
+
+        // ── Reports ──────────────────────────────────────────────────────
+        group.MapGet("/{id:guid}/reports/commitments", async (Guid id, long? budgetPersonId, HttpContext ctx, ISender sender, CancellationToken ct) =>
+            Results.Ok(await sender.Send(new GetCommitmentReportQuery(CurrentUser.GetId(ctx), id, budgetPersonId), ct)));
+
+        group.MapGet("/{id:guid}/reports/category-trends", async (Guid id, int? periods, long? budgetPersonId, HttpContext ctx, ISender sender, CancellationToken ct) =>
+            Results.Ok(await sender.Send(new GetCategoryTrendsQuery(CurrentUser.GetId(ctx), id, periods ?? 6, budgetPersonId), ct)));
 
         // ── Expense summary ──────────────────────────────────────────────
         periodGroup.MapGet("/{id:guid}/expense-summary", async (Guid id, bool? focusedView, HttpContext ctx, ISender sender, CancellationToken ct) =>

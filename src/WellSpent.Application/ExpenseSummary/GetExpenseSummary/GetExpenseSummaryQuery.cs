@@ -18,39 +18,13 @@ public sealed class GetExpenseSummaryQueryHandler(
     IExpenseAllocationRepository allocations, IFixedExpenseRepository fixedExpenses)
     : IRequestHandler<GetExpenseSummaryQuery, GetExpenseSummaryDto>
 {
-    private const string SavingsSystemKey = "savings";
-    private const string IncomeSystemKey = "income";
-
     public async Task<GetExpenseSummaryDto> Handle(GetExpenseSummaryQuery request, CancellationToken ct)
     {
         var period = await profiles.GetPeriodByIdAsync(request.BudgetPeriodId, ct);
         await access.EnsureMemberAsync(period.BudgetProfileId, request.UserId, ct);
 
-        var systemCategories = await transactions.ListSystemCategoriesAsync(ct);
-        var nonSpend = SpendFilter.NonSpendCategoryIds(systemCategories);
-        int? savingsCategoryId = systemCategories.TryGetValue(SavingsSystemKey, out var savingsId) ? savingsId : null;
-        int? incomeCategoryId = systemCategories.TryGetValue(IncomeSystemKey, out var incomeId) ? incomeId : null;
-
-        var profileId = period.BudgetProfileId;
-        var rawTransactions = await transactions.ListTransactionsAsync(period.Id, null, null, null, ct);
-
-        var data = new ExpenseSummaryData
-        {
-            Period = period,
-            People = await profiles.ListPeopleAsync(profileId, ct),
-            Allocations = await allocations.ListAsync(profileId, ct),
-            SavingsSources = await profiles.ListSavingsSourcesAsync(profileId, ct),
-            ActiveFixedExpenses = await fixedExpenses.ListAsync(profileId, ct),
-            IncomeSources = (await profiles.ListIncomeSourcesAsync(profileId, ct) ?? []).Where(s => s.EffectiveTo is null).ToList(),
-            IncomeEntries = await profiles.ListIncomeEntriesAsync(period.Id, ct),
-            PaymentMethods = await transactions.ListPaymentMethodsAsync(profileId, ct),
-            Transactions = rawTransactions.Where(t => !SpendFilter.IsNonSpendTransaction(t, nonSpend)).ToList(),
-            IncomeTransactions = incomeCategoryId is { } incId
-                ? rawTransactions.Where(t => !t.IsExcluded && t.CategoryId == incId).ToList()
-                : [],
-            SavingsCategoryId = savingsCategoryId,
-            Now = DateOnly.FromDateTime(DateTime.UtcNow),
-        };
+        var loader = new ExpenseSummaryDataLoader(profiles, transactions, allocations, fixedExpenses);
+        var data = await loader.LoadPeriodAsync(period, await loader.LoadProfileAsync(period.BudgetProfileId, ct), ct);
 
         if (request.FocusedView)
         {
@@ -62,7 +36,7 @@ public sealed class GetExpenseSummaryQueryHandler(
     }
 
     /// <summary>Restricts data in place to rows attributed to myPersonId plus unattributed ones, before the calculator ever sees it — every total downstream is scoped for free.</summary>
-    private static void ApplyFocusedView(ExpenseSummaryData data, int myPersonId)
+    internal static void ApplyFocusedView(ExpenseSummaryData data, int myPersonId)
     {
         var pmPersonMap = data.PaymentMethods
             .Where(pm => pm.BudgetPersonId is not null)
