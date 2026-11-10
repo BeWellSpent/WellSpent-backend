@@ -105,6 +105,71 @@ public sealed class ExpenseSummaryCalculatorTests
     }
 
     [Fact]
+    public void PlanRow_ManualOnly_ReportsAllocatedTotalAndNoFixed()
+    {
+        var data = Data(allocations: [new ExpenseAllocation { CategoryId = 1, PlannedAmount = 100.00m }]);
+
+        var row = Assert.Single(new ExpenseSummaryCalculator(data).Response().PlanCategories);
+
+        Assert.Equal(100.00m, row.AllocatedTotal!.Value.ToDecimal());
+        Assert.Null(row.FixedDueTotal);
+    }
+
+    [Fact]
+    public void PlanRow_FixedOnly_ReportsFixedDueTotalAndNoAllocation()
+    {
+        var data = Data(transactions: [Tx(2, 0m, 30.00m, transactionTypeId: 1, isPaid: false)]);
+
+        var row = Assert.Single(new ExpenseSummaryCalculator(data).Response().PlanCategories);
+
+        Assert.Equal(30.00m, row.FixedDueTotal!.Value.ToDecimal());
+        Assert.Null(row.AllocatedTotal);
+    }
+
+    [Fact]
+    public void PlanRow_ManualAndFixed_ReportsBothAndTheAllocationStillWins()
+    {
+        var data = Data(
+            allocations: [new ExpenseAllocation { CategoryId = 1, PlannedAmount = 500.00m }],
+            transactions: [Tx(1, 0m, 268.00m, transactionTypeId: 1, isPaid: false)]);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+        var row = Assert.Single(resp.PlanCategories);
+
+        Assert.Equal(500.00m, row.AllocatedTotal!.Value.ToDecimal());
+        Assert.Equal(268.00m, row.FixedDueTotal!.Value.ToDecimal());
+        Assert.Equal(500.00m, row.PlannedTotal.ToDecimal()); // unchanged rule: manual wins, they don't add
+        Assert.Equal(500.00m, resp.TotalCommitted.ToDecimal());
+    }
+
+    [Fact]
+    public void PlanRow_FixedLargerThanManual_ReportsBothWhileTheManualAmountStillWins()
+    {
+        var data = Data(
+            allocations: [new ExpenseAllocation { CategoryId = 1, PlannedAmount = 200.00m }],
+            transactions: [Tx(1, 0m, 250.00m, transactionTypeId: 1, isPaid: false)]);
+
+        var row = Assert.Single(new ExpenseSummaryCalculator(data).Response().PlanCategories);
+
+        Assert.Equal(200.00m, row.PlannedTotal.ToDecimal());
+        Assert.Equal(200.00m, row.AllocatedTotal!.Value.ToDecimal());
+        Assert.Equal(250.00m, row.FixedDueTotal!.Value.ToDecimal());
+    }
+
+    [Fact]
+    public void OverviewRows_DoNotCarryTheSourceBreakdown()
+    {
+        var data = Data(
+            allocations: [new ExpenseAllocation { CategoryId = 1, PlannedAmount = 500.00m }],
+            transactions: [Tx(1, 0m, 268.00m, transactionTypeId: 1, isPaid: false)]);
+
+        var row = Assert.Single(new ExpenseSummaryCalculator(data).Response().OverviewCategories);
+
+        Assert.Null(row.AllocatedTotal);
+        Assert.Null(row.FixedDueTotal);
+    }
+
+    [Fact]
     public void NotDueFixedTemplate_InformationalOnly()
     {
         const int catId = 3;
