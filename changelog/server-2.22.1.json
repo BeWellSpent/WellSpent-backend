@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.22.1",
+  "items": [
+    { "changeType": "fixed", "summary": { "en": "Category trends in % now measure spending against planned income, so every period shows a column, matching the $ view.", "es": "Las tendencias por categoría en % ahora miden el gasto frente al ingreso planificado, así que cada período muestra su columna, igual que en la vista en $." } }
+  ]
+}
