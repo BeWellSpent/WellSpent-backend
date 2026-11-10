@@ -1,4 +1,5 @@
 using WellSpent.Application.Reports.GetCategoryTrends;
+using WellSpent.Application.Reports.GetPlanScorecard;
 using WellSpent.Application.FixedExpenses.GetFixedExpenseProjection;
 using MediatR;
 using WellSpent.Api.Auth;
@@ -333,6 +334,9 @@ public static class BudgetEndpoints
         });
 
         // ── Reports ──────────────────────────────────────────────────────
+        group.MapGet("/{id:guid}/reports/plan-scorecard", async (Guid id, int? periods, long? budgetPersonId, HttpContext ctx, ISender sender, CancellationToken ct) =>
+            Results.Ok(await sender.Send(new GetPlanScorecardQuery(CurrentUser.GetId(ctx), id, periods ?? 6, budgetPersonId), ct)));
+
         group.MapGet("/{id:guid}/reports/category-trends", async (Guid id, int? periods, long? budgetPersonId, HttpContext ctx, ISender sender, CancellationToken ct) =>
             Results.Ok(await sender.Send(new GetCategoryTrendsQuery(CurrentUser.GetId(ctx), id, periods ?? 6, budgetPersonId), ct)));
 
