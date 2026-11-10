@@ -302,8 +302,13 @@ public sealed class ExpenseSummaryCalculator
 
             var planned = PlannedTotal(catId);
             var (notDue, nextDue) = NotDueSummary(catId);
+            // The two inputs behind `planned`, so a client can say where it came from. Savings is neither.
+            var allocated = IsSavingsCategory(catId) ? 0m : _allocByCat.GetValueOrDefault(catId);
+            var fixedDue = IsSavingsCategory(catId) ? 0m : _fixedDueByCat.GetValueOrDefault(catId);
             categories.Add(new CategoryExpenseSummaryDto(
-                catId, Money.FromDecimal(planned), null, false, BuildPersonBreakdowns(catId), notDue, nextDue));
+                catId, Money.FromDecimal(planned), null, false, BuildPersonBreakdowns(catId), notDue, nextDue,
+                allocated != 0 ? Money.FromDecimal(allocated) : null,
+                fixedDue != 0 ? Money.FromDecimal(fixedDue) : null));
             // Savings is an allocation, not an expense (issue #94) — kept out of totalCommitted, folded into the *IncludingSavings twin.
             if (!IsSavingsCategory(catId)) totalCommitted += planned;
             totalCommittedIncludingSavings += planned;

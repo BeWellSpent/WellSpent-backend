@@ -13,7 +13,8 @@ public sealed record PersonActualIncomeDto(long BudgetPersonId, Money ActualInco
 /// </summary>
 public sealed record CategoryExpenseSummaryDto(
     int CategoryId, Money PlannedTotal, Money? ActualTotal, bool IsOver,
-    List<PersonExpenseSummaryDto> PersonBreakdowns, Money? NotDuePlannedTotal, DateOnly? NextDueDate);
+    List<PersonExpenseSummaryDto> PersonBreakdowns, Money? NotDuePlannedTotal, DateOnly? NextDueDate,
+    Money? AllocatedTotal = null, Money? FixedDueTotal = null);
 
 public sealed record GetExpenseSummaryDto(
     Money IncomeFromSources, Money IncomeFromEntries,
