@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.22.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "Two new reports: what you owe each period before spending anything, with when payment plans end, and how spending per category has moved over recent periods.", "es": "Dos informes nuevos: lo que debes cada período antes de gastar, con cuándo terminan los planes de pago, y cómo ha cambiado el gasto por categoría en los últimos períodos." } }
+  ]
+}
