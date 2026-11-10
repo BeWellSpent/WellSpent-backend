@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<ITransactionRepository, TransactionRepository>();
         services.AddScoped<IFixedExpenseRepository, FixedExpenseRepository>();
         services.AddScoped<IExpenseAllocationRepository, ExpenseAllocationRepository>();
+        services.AddScoped<IBudgetPeriodPlanRepository, BudgetPeriodPlanRepository>();
         services.AddScoped<ITransactionReviewRepository, TransactionReviewRepository>();
         services.AddScoped<IPlaidItemRepository, PlaidItemRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();

@@ -11,7 +11,7 @@ public static class BudgetPeriodRollover
 {
     public static async Task<BudgetPeriod> CreateNextPeriodAsync(
         IBudgetProfileRepository profiles, ITransactionRepository transactions, IFixedExpenseRepository fixedExpenses,
-        TaxReserveRecalculator taxReserve, ILogger logger, BudgetProfile profile, CancellationToken ct)
+        TaxReserveRecalculator taxReserve, PeriodPlanSnapshotter snapshotter, ILogger logger, BudgetProfile profile, CancellationToken ct)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         BudgetPeriod? latest = null;
@@ -42,6 +42,8 @@ public static class BudgetPeriodRollover
         }
         else
         {
+            // Before anything below changes the plan (ended payment plans deactivate).
+            await snapshotter.SnapshotAsync(latest, ct);
             (start, end) = IncomePeriodDates.ComputeNext(sources, profile.Cycle, latest.EndDate);
         }
 

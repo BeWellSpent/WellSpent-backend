@@ -62,7 +62,9 @@ public sealed class BudgetPeriodRolloverTests
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly ITransactionRepository _transactions = Substitute.For<ITransactionRepository>();
     private readonly IFixedExpenseRepository _fixedExpenses = Substitute.For<IFixedExpenseRepository>();
+    private readonly IBudgetPeriodPlanRepository _plans = Substitute.For<IBudgetPeriodPlanRepository>();
     private TaxReserveRecalculator TaxReserve => new(_profiles, _users, NullLogger<TaxReserveRecalculator>.Instance);
+    private PeriodPlanSnapshotter Snapshotter => new(_profiles, _transactions, Substitute.For<IExpenseAllocationRepository>(), _fixedExpenses, _plans, NullLogger<PeriodPlanSnapshotter>.Instance);
 
     public BudgetPeriodRolloverTests()
     {
@@ -72,7 +74,7 @@ public sealed class BudgetPeriodRolloverTests
     }
 
     private Task<BudgetPeriod> CreateNextPeriod(BudgetProfile profile) =>
-        BudgetPeriodRollover.CreateNextPeriodAsync(_profiles, _transactions, _fixedExpenses, TaxReserve, NullLogger.Instance, profile, CancellationToken.None);
+        BudgetPeriodRollover.CreateNextPeriodAsync(_profiles, _transactions, _fixedExpenses, TaxReserve, Snapshotter, NullLogger.Instance, profile, CancellationToken.None);
 
     [Fact]
     public async Task NoExistingPeriod_CreatesFirstPeriod_DoesNotArchiveAnything()
@@ -102,6 +104,34 @@ public sealed class BudgetPeriodRolloverTests
 
         Assert.Equal(latest.Id, period.Id);
         await _profiles.DidNotReceive().CreatePeriodAsync(Arg.Any<BudgetPeriod>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EndedPeriod_SnapshotsItsPlanBeforeCycling()
+    {
+        var profile = new BudgetProfile { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Name = "x", Cycle = "monthly" };
+        var ended = new BudgetPeriod { Id = Guid.NewGuid(), BudgetProfileId = profile.Id, StartDate = new DateOnly(2020, 1, 1), EndDate = new DateOnly(2020, 1, 31) };
+        _profiles.GetLatestPeriodAsync(profile.Id, Arg.Any<CancellationToken>()).Returns(ended);
+        _profiles.CreatePeriodAsync(Arg.Any<BudgetPeriod>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<BudgetPeriod>());
+        _profiles.ListIncomeSourcesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
+
+        await CreateNextPeriod(profile);
+
+        await _plans.Received(1).AddRangeAsync(Arg.Any<IReadOnlyCollection<BudgetPeriodPlan>>(), Arg.Any<CancellationToken>());
+        await _plans.Received(1).ExistsAsync(ended.Id, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ActivePeriod_TakesNoSnapshot()
+    {
+        var profile = new BudgetProfile { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Name = "x", Cycle = "monthly" };
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        _profiles.GetLatestPeriodAsync(profile.Id, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = Guid.NewGuid(), BudgetProfileId = profile.Id, StartDate = today, EndDate = today.AddDays(10) });
+
+        await CreateNextPeriod(profile);
+
+        await _plans.DidNotReceive().ExistsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -340,7 +370,9 @@ public sealed class CreateBudgetPeriodCommandHandlerTests
             Options.Create(new AuthOptions()), NullLogger<NotificationDispatcher>.Instance);
 
         await Assert.ThrowsAsync<ForbiddenException>(() => new CreateBudgetPeriodCommandHandler(
-            new BudgetAccessGuard(profiles), profiles, transactions, fixedExpenses, taxReserve, notifications, mapper, NullLogger<CreateBudgetPeriodCommandHandler>.Instance)
+            new BudgetAccessGuard(profiles), profiles, transactions, fixedExpenses, taxReserve,
+            new PeriodPlanSnapshotter(profiles, transactions, Substitute.For<IExpenseAllocationRepository>(), fixedExpenses, Substitute.For<IBudgetPeriodPlanRepository>(), NullLogger<PeriodPlanSnapshotter>.Instance),
+            notifications, mapper, NullLogger<CreateBudgetPeriodCommandHandler>.Instance)
             .Handle(new CreateBudgetPeriodCommand(viewerId, profileId), CancellationToken.None));
     }
 }

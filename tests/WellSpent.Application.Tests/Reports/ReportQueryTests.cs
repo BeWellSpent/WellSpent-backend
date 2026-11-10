@@ -2,6 +2,7 @@ using NSubstitute;
 using WellSpent.Application.Common;
 using WellSpent.Application.Reports;
 using WellSpent.Application.Reports.GetCategoryTrends;
+using WellSpent.Application.Reports.GetPlanScorecard;
 using Microsoft.Extensions.Logging.Abstractions;
 using WellSpent.Application.FixedExpenses.GetFixedExpenseProjection;
 using WellSpent.Domain.Abstractions;
@@ -18,6 +19,7 @@ public sealed class ReportQueryTests
     private readonly IExpenseAllocationRepository _allocations = Substitute.For<IExpenseAllocationRepository>();
     private readonly IFixedExpenseRepository _fixedExpenses = Substitute.For<IFixedExpenseRepository>();
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
+    private readonly IBudgetPeriodPlanRepository _plans = Substitute.For<IBudgetPeriodPlanRepository>();
     private readonly Guid _profileId = Guid.NewGuid();
     private readonly Guid _userId = Guid.NewGuid();
     private readonly Guid _myCard = Guid.NewGuid();
@@ -69,6 +71,7 @@ public sealed class ReportQueryTests
         new() { Id = Guid.NewGuid(), CategoryId = category, Amount = amount, PlannedAmount = amount, TransactionTypeId = 2, PaymentMethodId = card };
 
     private GetFixedExpenseProjectionQueryHandler Projection => new(new BudgetAccessGuard(_profiles), _fixedExpenses, _profiles, _users, NullLogger<GetFixedExpenseProjectionQueryHandler>.Instance);
+    private GetPlanScorecardQueryHandler Scorecard => new(new BudgetAccessGuard(_profiles), _profiles, _transactions, _allocations, _fixedExpenses, _users, _plans, NullLogger<GetPlanScorecardQueryHandler>.Instance);
     private GetCategoryTrendsQueryHandler Trends => new(new BudgetAccessGuard(_profiles), _profiles, _transactions, _allocations, _fixedExpenses, _users);
 
     [Fact]
@@ -158,5 +161,64 @@ public sealed class ReportQueryTests
         Assert.Equal(70m, current.Total!.Value.ToDecimal());
         Assert.Equal(70m, Assert.Single(current.Categories).Amount.ToDecimal());
         Assert.Equal(7.0, current.TotalPercentOfIncome); // 70 of Sam's 1000 planned
+    }
+
+    private void Saved(BudgetPeriod period, int category, decimal amount, int? person = null) =>
+        _savedPlans.Add(new BudgetPeriodPlan { BudgetPeriodId = period.Id, CategoryId = category, BudgetPersonId = person, PlannedAmount = amount });
+
+    private readonly List<BudgetPeriodPlan> _savedPlans = [];
+
+    [Fact]
+    public async Task Scorecard_ClosedPeriodsUseTheirSavedPlan_CurrentUsesToday()
+    {
+        _plans.ListAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(_savedPlans);
+        _allocations.ListAsync(_profileId, Arg.Any<CancellationToken>()).Returns([
+            new ExpenseAllocation { BudgetProfileId = _profileId, CategoryId = GroceriesId, BudgetPersonId = Me, PlannedAmount = 500m },
+        ]);
+        Saved(Started(2), GroceriesId, 400m); Bills(Started(2), Spent(GroceriesId, 450m, _myCard)); // over its own plan
+        Saved(Started(1), GroceriesId, 900m); Bills(Started(1), Spent(GroceriesId, 450m, _myCard)); // within
+        Bills(Started(0), Spent(GroceriesId, 100m, _myCard));
+
+        var report = await Scorecard.Handle(new GetPlanScorecardQuery(_userId, _profileId, 4, null), CancellationToken.None);
+
+        var (noPlan, over, within, now) = (report.Periods[0], report.Periods[1], report.Periods[2], report.Periods[3]);
+        Assert.False(noPlan.PlanRecorded);
+        Assert.Null(noPlan.OnPlan);
+        Assert.False(over.OnPlan);
+        Assert.Equal(400m, over.PlannedSpending!.Value.ToDecimal());
+        Assert.True(within.OnPlan);
+        Assert.Equal((1, 1), (within.CategoriesWithin, within.CategoriesPlanned));
+        Assert.True(now.InProgress);
+        Assert.Null(now.OnPlan); // not scored yet
+        Assert.Equal(500m, now.PlannedSpending!.Value.ToDecimal());
+        var groceries = Assert.Single(report.Current);
+        Assert.Equal((500m, 100m), (groceries.Planned.ToDecimal(), groceries.Actual.ToDecimal()));
+        Assert.Equal((1, 2, 1), (report.OnPlanCount, report.ScoredCount, report.Streak));
+    }
+
+    [Fact]
+    public async Task Scorecard_PersonFilter_UsesTheirShareOfThePlan()
+    {
+        _plans.ListAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(_savedPlans);
+        Saved(Started(1), GroceriesId, 600m); Saved(Started(1), GroceriesId, 100m, Sam);
+        Bills(Started(1), Spent(GroceriesId, 150m, _samCard), Spent(GroceriesId, 50m, _myCard));
+
+        var report = await Scorecard.Handle(new GetPlanScorecardQuery(_userId, _profileId, 2, Sam), CancellationToken.None);
+
+        var closed = report.Periods[0];
+        Assert.Equal((100m, 150m), (closed.PlannedSpending!.Value.ToDecimal(), closed.ActualSpending!.Value.ToDecimal()));
+        Assert.False(closed.OnPlan);
+    }
+
+    [Fact]
+    public async Task Scorecard_Free_LocksOlderPeriods()
+    {
+        SetPlan("free");
+        _plans.ListAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(_savedPlans);
+
+        var report = await Scorecard.Handle(new GetPlanScorecardQuery(_userId, _profileId, 6, null), CancellationToken.None);
+
+        Assert.Equal([true, true, false, false, false, false], report.Periods.Select(p => p.Locked));
+        Assert.All(report.Periods.Where(p => p.Locked), p => Assert.Null(p.ActualSpending));
     }
 }

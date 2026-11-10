@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.24.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "Each period's plan is now saved when it closes, and a new Plan scorecard report compares every period's spending with the plan it had.", "es": "Ahora el plan de cada período se guarda al cerrarse, y un nuevo informe de cumplimiento del plan compara el gasto de cada período con el plan que tenía." } }
+  ]
+}

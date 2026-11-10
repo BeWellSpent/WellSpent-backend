@@ -29,7 +29,9 @@ public sealed class CreateBudgetProfileCommandHandlerTests
     }
 
     private CreateBudgetProfileCommandHandler CreateHandler() =>
-        new(_profiles, _users, _transactions, _fixedExpenses, Mapper, TaxReserve, NullLogger<CreateBudgetProfileCommandHandler>.Instance);
+        new(_profiles, _users, _transactions, _fixedExpenses, Mapper, TaxReserve,
+            new PeriodPlanSnapshotter(_profiles, _transactions, Substitute.For<IExpenseAllocationRepository>(), _fixedExpenses, Substitute.For<IBudgetPeriodPlanRepository>(), NullLogger<PeriodPlanSnapshotter>.Instance),
+            NullLogger<CreateBudgetProfileCommandHandler>.Instance);
 
     private User SetUpOwner(Guid userId, string? countryCode = "US")
     {
