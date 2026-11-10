@@ -159,6 +159,11 @@ public sealed class GetExpenseSummaryQueryHandlerTests
         Assert.Equal(550.00m, resp.IncomeFromEntries.ToDecimal());
         Assert.Equal(70.00m, resp.TotalActual.ToDecimal());
         Assert.Equal(70.00m, Assert.Single(resp.OverviewCategories).ActualTotal!.Value.ToDecimal());
+        // Only the caller's own card under focused view; the spouse's spending isn't there to show.
+        var mine = Assert.Single(resp.People);
+        Assert.Equal(myPersonId, mine.BudgetPersonId);
+        Assert.Equal(60.00m, mine.SpentActual.ToDecimal());
+        Assert.Equal(10.00m, resp.UnattributedSpent.ToDecimal());
     }
 
     [Fact]

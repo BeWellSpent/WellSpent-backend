@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.20.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "Each person on a budget now has their own totals for the period: what they spent, how much of it was savings, and how much income arrived, each against their plan.", "es": "Cada persona del presupuesto ahora tiene sus propios totales del período: lo que gastó, cuánto fue ahorro y cuánto ingreso llegó, cada uno frente a su plan." } }
+  ]
+}

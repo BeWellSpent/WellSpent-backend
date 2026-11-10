@@ -79,5 +79,7 @@ public sealed class GetExpenseSummaryQueryHandler(
         data.ActiveFixedExpenses = data.ActiveFixedExpenses.Where(fe => MineViaMethod(fe.PaymentMethodId)).ToList();
         data.IncomeSources = data.IncomeSources.Where(s => Mine(s.BudgetPersonId)).ToList();
         data.IncomeEntries = data.IncomeEntries.Where(e => Mine(e.BudgetPersonId)).ToList();
+        // Person cards: only the caller's own, never other members showing zeros.
+        data.People = data.People.Where(p => p.Id == myPersonId).ToList();
     }
 }
