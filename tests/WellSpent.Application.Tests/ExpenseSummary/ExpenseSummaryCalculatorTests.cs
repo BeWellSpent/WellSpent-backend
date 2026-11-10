@@ -315,6 +315,64 @@ public sealed class ExpenseSummaryCalculatorTests
     }
 
     [Fact]
+    public void People_OnePerActivePerson_WithSpendSavingsAndIncomeAgainstPlan()
+    {
+        const int groceries = 1, savingsCat = 99;
+        const int me = 1, sam = 2;
+        var myCard = Guid.NewGuid();
+        var samCard = Guid.NewGuid();
+        var data = Data(
+            people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = me, Role = "admin" }, new BudgetPerson { BudgetProfileId = ProfileId, Id = sam, Role = "collaborator" }],
+            paymentMethods: [new PaymentMethod { Id = myCard, Name = "Mine", BudgetPersonId = me }, new PaymentMethod { Id = samCard, Name = "Sam's", BudgetPersonId = sam }],
+            allocations: [new ExpenseAllocation { CategoryId = groceries, BudgetPersonId = me, PlannedAmount = 500.00m }],
+            savingsSources: [new SavingsSource { BudgetProfileId = ProfileId, Name = "Fund", Amount = 200.00m, BudgetPersonId = me }],
+            incomeSources: [
+                new IncomeSource { BudgetProfileId = ProfileId, Name = "Mine", DefaultAmount = 3000.00m, BudgetPersonId = me },
+                new IncomeSource { BudgetProfileId = ProfileId, Name = "Sam", DefaultAmount = 2000.00m, BudgetPersonId = sam },
+            ],
+            transactions: [
+                Tx(groceries, 120.00m, paymentMethodId: myCard),
+                Tx(savingsCat, 200.00m, paymentMethodId: myCard),
+                Tx(null, 15.00m, paymentMethodId: myCard), // uncategorized still counts as spent
+            ],
+            incomeTransactions: [Tx(null, -3000.00m, paymentMethodId: myCard)],
+            savingsCategoryId: savingsCat);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(2, resp.People.Count);
+        var mine = resp.People.Single(p => p.BudgetPersonId == me);
+        Assert.Equal(335.00m, mine.SpentActual.ToDecimal()); // 120 + 200 savings + 15 uncategorized
+        Assert.Equal(700.00m, mine.SpentPlanned.ToDecimal()); // 500 allocation + 200 savings
+        Assert.Equal(200.00m, mine.SavedActual.ToDecimal());
+        Assert.Equal(200.00m, mine.SavedPlanned.ToDecimal());
+        Assert.Equal(3000.00m, mine.IncomeActual.ToDecimal());
+        Assert.Equal(3000.00m, mine.IncomePlanned.ToDecimal());
+
+        var sams = resp.People.Single(p => p.BudgetPersonId == sam);
+        Assert.Equal(0m, sams.SpentActual.ToDecimal()); // no activity still gets a card
+        Assert.Equal(2000.00m, sams.IncomePlanned.ToDecimal());
+        Assert.Equal(0m, sams.IncomeActual.ToDecimal());
+    }
+
+    [Fact]
+    public void UnattributedSpent_CountsSpendWithNoPersonAndBelongsToNoOne()
+    {
+        const int dining = 3;
+        const int me = 1;
+        var personless = Guid.NewGuid();
+        var data = Data(
+            people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = me, Role = "admin" }],
+            paymentMethods: [new PaymentMethod { Id = personless, Name = "Shared card" }],
+            transactions: [Tx(dining, 40.00m, paymentMethodId: personless), Tx(dining, 10.00m)]);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(50.00m, resp.UnattributedSpent.ToDecimal());
+        Assert.Equal(0m, Assert.Single(resp.People).SpentActual.ToDecimal());
+    }
+
+    [Fact]
     public void ActualSplitByType_SumsToTotalActual()
     {
         const int catId = 7;

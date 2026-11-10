@@ -22,6 +22,10 @@ public sealed class ExpenseSummaryCalculator
     private readonly Dictionary<(int CatId, int PersonId), decimal> _actualByPersonCat = new();
     private decimal _uncategorized;
 
+    // Per-person spend (savings and uncategorized included) for the Home person cards; no person = unattributed.
+    private readonly Dictionary<int, decimal> _spentByPerson = new();
+    private decimal _unattributedSpent;
+
     // Tier 1: allocations.
     private readonly Dictionary<int, decimal> _allocByCat = new();
     private readonly Dictionary<(int CatId, int PersonId), decimal> _allocByPersonCat = new();
@@ -89,6 +93,11 @@ public sealed class ExpenseSummaryCalculator
             {
                 if (SpendFilter.IsFixed(tx)) _fixedActual += amt; else _variableActual += amt;
             }
+
+            if (tx.PaymentMethodId is { } spenderPmId && _pmPersonMap.TryGetValue(spenderPmId, out var spender))
+                _spentByPerson[spender] = _spentByPerson.GetValueOrDefault(spender) + amt;
+            else
+                _unattributedSpent += amt;
 
             if (tx.CategoryId is not { } catId)
             {
@@ -360,6 +369,23 @@ public sealed class ExpenseSummaryCalculator
         return (categories, totalPlanned, totalActual, totalOverBudget, totalUnplanned, totalPlannedIncludingSavings, totalActualIncludingSavings);
     }
 
+    /// <summary>One entry per person in the data (already just the caller under focused view), including people with no activity.</summary>
+    private List<PersonPeriodSummaryDto> BuildPeople()
+    {
+        var categoryIds = AllCategoryIds();
+        return _data.People.Select(p =>
+        {
+            var planned = categoryIds.Sum(catId => PlannedTotalForPerson(catId, p.Id));
+            var saved = _data.SavingsCategoryId is { } savingsCatId ? _actualByPersonCat.GetValueOrDefault((savingsCatId, p.Id)) : 0m;
+            var incomePlanned = _data.IncomeSources.Where(s => s.BudgetPersonId == p.Id).Sum(s => s.DefaultAmount);
+            return new PersonPeriodSummaryDto(
+                p.Id,
+                Money.FromDecimal(_spentByPerson.GetValueOrDefault(p.Id)), Money.FromDecimal(planned),
+                Money.FromDecimal(saved), Money.FromDecimal(_savingsByPerson.GetValueOrDefault(p.Id)),
+                Money.FromDecimal(_actualIncomeByPerson.GetValueOrDefault(p.Id)), Money.FromDecimal(incomePlanned));
+        }).ToList();
+    }
+
     public GetExpenseSummaryDto Response()
     {
         var (planCategories, totalCommitted, totalCommittedIncludingSavings) = BuildPlanCategories();
@@ -386,6 +412,7 @@ public sealed class ExpenseSummaryCalculator
             Money.FromDecimal(totalActualIncludingSavings), Money.FromDecimal(_savingsTotal), Money.FromDecimal(savingsActual),
             // Savings that actually left the account are gone, so the remainder subtracts them too; subtracting expenses only overstated what is left.
             Money.FromDecimal(_actualIncomeTotal), Money.FromDecimal(_actualIncomeTotal - totalActualIncludingSavings), actualIncomeByPerson,
-            Money.FromDecimal(incomeFromSources - totalCommittedIncludingSavings));
+            Money.FromDecimal(incomeFromSources - totalCommittedIncludingSavings),
+            BuildPeople(), Money.FromDecimal(_unattributedSpent));
     }
 }
