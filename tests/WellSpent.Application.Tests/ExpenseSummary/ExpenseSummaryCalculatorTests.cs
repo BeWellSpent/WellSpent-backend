@@ -373,6 +373,64 @@ public sealed class ExpenseSummaryCalculatorTests
     }
 
     [Fact]
+    public void People_PlannedExpensesAndRemaining_ComeFromTheServer()
+    {
+        const int groceries = 1, savingsCat = 99, me = 1;
+        var data = Data(
+            people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = me, Role = "admin" }],
+            allocations: [new ExpenseAllocation { CategoryId = groceries, BudgetPersonId = me, PlannedAmount = 2500.00m }],
+            savingsSources: [new SavingsSource { BudgetProfileId = ProfileId, Name = "Fund", Amount = 400.00m, BudgetPersonId = me }],
+            incomeSources: [new IncomeSource { BudgetProfileId = ProfileId, Name = "Mine", DefaultAmount = 3400.00m, BudgetPersonId = me }],
+            savingsCategoryId: savingsCat);
+
+        var mine = Assert.Single(new ExpenseSummaryCalculator(data).Response().People);
+
+        Assert.Equal(2900.00m, mine.SpentPlanned.ToDecimal());
+        Assert.Equal(2500.00m, mine.PlannedExpenses.ToDecimal());
+        Assert.Equal(500.00m, mine.PlannedRemaining.ToDecimal());
+    }
+
+    [Fact]
+    public void UnattributedPlanned_UsesManualOverFixedPerCategory_AndIncludesPersonlessSavings()
+    {
+        const int rent = 1, utilities = 2, savingsCat = 99, me = 1;
+        var personless = Guid.NewGuid();
+        var data = Data(
+            people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = me, Role = "admin" }],
+            paymentMethods: [new PaymentMethod { Id = personless, Name = "Joint" }],
+            // Rent: no allocation, a fixed bill on a personless card -> counts as fixed.
+            // Utilities: a personless manual 250 beats a personless fixed 180 -> 250, never 430.
+            allocations: [new ExpenseAllocation { CategoryId = utilities, PlannedAmount = 250.00m }],
+            savingsSources: [new SavingsSource { BudgetProfileId = ProfileId, Name = "Joint fund", Amount = 100.00m }],
+            transactions: [
+                Tx(rent, 0m, 1850.00m, transactionTypeId: 1, paymentMethodId: personless),
+                Tx(utilities, 0m, 180.00m, transactionTypeId: 1, paymentMethodId: personless),
+            ],
+            savingsCategoryId: savingsCat);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(2200.00m, resp.UnattributedPlanned.ToDecimal()); // 1850 + 250 + 100
+    }
+
+    [Fact]
+    public void FixedDue_TotalAndTemplateIds_IncludeUncategorizedBills()
+    {
+        var rentTemplate = Guid.NewGuid();
+        var mysteryTemplate = Guid.NewGuid();
+        var data = Data(transactions: [
+            Tx(1, 0m, 1850.00m, transactionTypeId: 1, fixedExpenseId: rentTemplate),
+            Tx(null, 0m, 40.00m, transactionTypeId: 1, fixedExpenseId: mysteryTemplate),
+            Tx(1, 60.00m), // variable, not a bill
+        ]);
+
+        var resp = new ExpenseSummaryCalculator(data).Response();
+
+        Assert.Equal(1890.00m, resp.FixedDuePlannedTotal.ToDecimal());
+        Assert.Equal(new HashSet<Guid> { rentTemplate, mysteryTemplate }, resp.DueFixedExpenseIds.ToHashSet());
+    }
+
+    [Fact]
     public void ActualSplitByType_SumsToTotalActual()
     {
         const int catId = 7;

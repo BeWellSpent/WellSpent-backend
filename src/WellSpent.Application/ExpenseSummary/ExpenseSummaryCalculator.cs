@@ -33,6 +33,13 @@ public sealed class ExpenseSummaryCalculator
 
     // Tier 2: Fixed transactions due (spawned) this period.
     private readonly Dictionary<int, decimal> _fixedDueByCat = new();
+    private decimal _fixedDueTotal;
+    private readonly HashSet<Guid> _dueFixedExpenseIds = new();
+
+    // Planned amounts with no person, per category, for the Plan's "Shared" line.
+    private readonly Dictionary<int, decimal> _allocUnattributedByCat = new();
+    private readonly Dictionary<int, decimal> _fixedDueUnattributedByCat = new();
+    private decimal _savingsUnattributed;
     private readonly Dictionary<(int CatId, int PersonId), decimal> _fixedDueByPersonCat = new();
 
     // Active Fixed expense templates not yet due this period — informational
@@ -125,19 +132,23 @@ public sealed class ExpenseSummaryCalculator
                 var key = (a.CategoryId, personId);
                 _allocByPersonCat[key] = _allocByPersonCat.GetValueOrDefault(key) + a.PlannedAmount;
             }
+            else
+            {
+                _allocUnattributedByCat[a.CategoryId] = _allocUnattributedByCat.GetValueOrDefault(a.CategoryId) + a.PlannedAmount;
+            }
         }
 
         // Which templates already have a bill spawned into this period.
         // Tracked per template rather than per category because a category
         // routinely holds both a monthly bill and an annual one.
-        var dueFixedExpenseIds = new HashSet<Guid>();
         foreach (var tx in _data.Transactions)
         {
             if (!SpendFilter.IsFixed(tx)) continue;
             // Recorded before the category check: a spawned transaction
             // proves its template is owed this period whether or not it
             // carries a category.
-            if (tx.FixedExpenseId is { } feId) dueFixedExpenseIds.Add(feId);
+            if (tx.FixedExpenseId is { } feId) _dueFixedExpenseIds.Add(feId);
+            _fixedDueTotal += tx.PlannedAmount;
             if (tx.CategoryId is not { } catId) continue;
 
             _fixedDueByCat[catId] = _fixedDueByCat.GetValueOrDefault(catId) + tx.PlannedAmount;
@@ -145,6 +156,10 @@ public sealed class ExpenseSummaryCalculator
             {
                 var key = (catId, personId);
                 _fixedDueByPersonCat[key] = _fixedDueByPersonCat.GetValueOrDefault(key) + tx.PlannedAmount;
+            }
+            else
+            {
+                _fixedDueUnattributedByCat[catId] = _fixedDueUnattributedByCat.GetValueOrDefault(catId) + tx.PlannedAmount;
             }
         }
 
@@ -156,7 +171,7 @@ public sealed class ExpenseSummaryCalculator
             // not every template in a category that has one due (that used
             // to silently swallow an upcoming annual bill sharing a category
             // with a monthly one).
-            if (dueFixedExpenseIds.Contains(fe.Id)) continue;
+            if (_dueFixedExpenseIds.Contains(fe.Id)) continue;
 
             _notDueFixedByCat[catId] = _notDueFixedByCat.GetValueOrDefault(catId) + fe.PlannedAmount;
             // Earliest wins: several templates can share a category, and the
@@ -177,6 +192,10 @@ public sealed class ExpenseSummaryCalculator
             if (ss.BudgetPersonId is { } personId)
             {
                 _savingsByPerson[personId] = _savingsByPerson.GetValueOrDefault(personId) + ss.Amount;
+            }
+            else
+            {
+                _savingsUnattributed += ss.Amount;
             }
         }
     }
@@ -208,6 +227,14 @@ public sealed class ExpenseSummaryCalculator
         if (IsSavingsCategory(catId)) return _savingsTotal;
         if (_allocByCat.TryGetValue(catId, out var alloc) && alloc != 0) return alloc;
         return _fixedDueByCat.GetValueOrDefault(catId);
+    }
+
+    /// <summary>PlannedTotalForPerson's rule for the planned amounts that belong to nobody.</summary>
+    private decimal UnattributedPlannedTotal(int catId)
+    {
+        if (IsSavingsCategory(catId)) return _savingsUnattributed;
+        if (_allocUnattributedByCat.TryGetValue(catId, out var alloc) && alloc != 0) return alloc;
+        return _fixedDueUnattributedByCat.GetValueOrDefault(catId);
     }
 
     private decimal PlannedTotalForPerson(int catId, int personId)
@@ -378,11 +405,13 @@ public sealed class ExpenseSummaryCalculator
             var planned = categoryIds.Sum(catId => PlannedTotalForPerson(catId, p.Id));
             var saved = _data.SavingsCategoryId is { } savingsCatId ? _actualByPersonCat.GetValueOrDefault((savingsCatId, p.Id)) : 0m;
             var incomePlanned = _data.IncomeSources.Where(s => s.BudgetPersonId == p.Id).Sum(s => s.DefaultAmount);
+            var savedPlanned = _savingsByPerson.GetValueOrDefault(p.Id);
             return new PersonPeriodSummaryDto(
                 p.Id,
                 Money.FromDecimal(_spentByPerson.GetValueOrDefault(p.Id)), Money.FromDecimal(planned),
-                Money.FromDecimal(saved), Money.FromDecimal(_savingsByPerson.GetValueOrDefault(p.Id)),
-                Money.FromDecimal(_actualIncomeByPerson.GetValueOrDefault(p.Id)), Money.FromDecimal(incomePlanned));
+                Money.FromDecimal(saved), Money.FromDecimal(savedPlanned),
+                Money.FromDecimal(_actualIncomeByPerson.GetValueOrDefault(p.Id)), Money.FromDecimal(incomePlanned),
+                Money.FromDecimal(planned - savedPlanned), Money.FromDecimal(incomePlanned - planned));
         }).ToList();
     }
 
@@ -413,6 +442,7 @@ public sealed class ExpenseSummaryCalculator
             // Savings that actually left the account are gone, so the remainder subtracts them too; subtracting expenses only overstated what is left.
             Money.FromDecimal(_actualIncomeTotal), Money.FromDecimal(_actualIncomeTotal - totalActualIncludingSavings), actualIncomeByPerson,
             Money.FromDecimal(incomeFromSources - totalCommittedIncludingSavings),
-            BuildPeople(), Money.FromDecimal(_unattributedSpent));
+            BuildPeople(), Money.FromDecimal(_unattributedSpent),
+            Money.FromDecimal(AllCategoryIds().Sum(UnattributedPlannedTotal)), Money.FromDecimal(_fixedDueTotal), _dueFixedExpenseIds.ToList());
     }
 }
