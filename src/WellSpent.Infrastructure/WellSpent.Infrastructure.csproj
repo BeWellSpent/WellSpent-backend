@@ -15,6 +15,8 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="Resend" Version="0.23.0" />
+    <!-- Resend still pulls 10.0.12, which has CVE-2026-114149 (ASP.NET Core DoS); pin the patched version. -->
+    <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="10.0.15" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
   </ItemGroup>
 

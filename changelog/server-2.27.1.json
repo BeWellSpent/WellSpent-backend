@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.27.1",
+  "items": [
+    { "changeType": "fixed", "summary": { "en": "Security update for a denial-of-service issue in a web component the server uses.", "es": "Actualización de seguridad para un problema de denegación de servicio en un componente web que usa el servidor." } }
+  ]
+}
