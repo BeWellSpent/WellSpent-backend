@@ -1,0 +1,8 @@
+{
+  "component": "server",
+  "version": "2.25.0",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "Every transaction now records what kind of movement it was (spending, a refund, income, a transfer or a card payment), separately from its category. Your totals are unchanged.", "es": "Cada transacción ahora registra qué tipo de movimiento fue (gasto, reembolso, ingreso, transferencia o pago de tarjeta), aparte de su categoría. Tus totales no cambian." } },
+    { "changeType": "fixed", "summary": { "en": "Spending alerts no longer count your paycheck or card payments as spending, so they fire when your spending actually crosses the limit.", "es": "Las alertas de gasto ya no cuentan tu sueldo ni los pagos de tarjeta como gasto, así que avisan cuando tu gasto realmente supera el límite." } }
+  ]
+}

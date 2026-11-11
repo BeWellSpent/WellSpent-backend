@@ -47,8 +47,7 @@ public static class PeriodCarryover
             return;
         }
 
-        var nonSpend = SpendFilter.NonSpendCategoryIds(systemCategories);
-        var (remainder, spendByMethod, unattributed) = Carryover.Inputs(txs, incomeEntries, nonSpend);
+        var (remainder, spendByMethod, unattributed) = Carryover.Inputs(txs, incomeEntries);
         var rows = Carryover.Compute(remainder, spendByMethod, unattributed);
         if (rows.Count == 0) return;
 

@@ -154,6 +154,47 @@ public sealed class NotificationDispatcherTests
     }
 
     [Fact]
+    public async Task CheckSpendingThreshold_IgnoresIncomeAndCardPayments()
+    {
+        var profileId = Guid.NewGuid();
+        var periodId = Guid.NewGuid();
+        var subscriberId = Guid.NewGuid();
+        _notifications.GetBudgetSubscribersAsync(profileId, "spending_threshold", Arg.Any<CancellationToken>())
+            .Returns([new AlertSubscription { Id = Guid.NewGuid(), UserId = subscriberId, BudgetProfileId = profileId, AlertType = "spending_threshold", Channel = "in_app", ThresholdPct = 80m, ThresholdScope = "budget" }]);
+        _allocations.ListAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns([new ExpenseAllocation { Id = 1, BudgetProfileId = profileId, CategoryId = 1, PlannedAmount = 100m }]);
+
+        // $85 spent is past 80%; a paycheck used to pull the "spent" total down to -$2915 and hide that.
+        var newTx = new Transaction { Id = Guid.NewGuid(), Name = "Groceries", Amount = 15m, PlannedAmount = 15m, CategoryId = 1, BudgetPeriodId = periodId, TransactionTypeId = 2, Flow = TransactionFlow.Spend };
+        _transactions.ListTransactionsAsync(periodId, null, 2, null, Arg.Any<CancellationToken>()).Returns([
+            new Transaction { Id = Guid.NewGuid(), Amount = 70m, CategoryId = 1, TransactionTypeId = 2, Flow = TransactionFlow.Spend },
+            new Transaction { Id = Guid.NewGuid(), Amount = -3000m, TransactionTypeId = 2, Flow = TransactionFlow.Income },
+            new Transaction { Id = Guid.NewGuid(), Amount = 500m, TransactionTypeId = 2, Flow = TransactionFlow.Payment },
+            newTx,
+        ]);
+        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, StartDate = new DateOnly(2026, 1, 1), EndDate = new DateOnly(2026, 1, 31) });
+
+        await CreateDispatcher().HandleNewTransactionAsync(newTx, periodId, Guid.NewGuid(), CancellationToken.None);
+
+        await _notifications.Received(1).CreateAsync(
+            Arg.Is<Notification>(n => n.UserId == subscriberId && n.AlertType == "spending_threshold"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CheckSpendingThreshold_SkipsAnIncomingPaycheck()
+    {
+        var periodId = Guid.NewGuid();
+        var paycheck = new Transaction { Id = Guid.NewGuid(), Amount = -3000m, BudgetPeriodId = periodId, TransactionTypeId = 2, Flow = TransactionFlow.Income };
+        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = Guid.NewGuid(), StartDate = new DateOnly(2026, 1, 1), EndDate = new DateOnly(2026, 1, 31) });
+
+        await CreateDispatcher().HandleNewTransactionAsync(paycheck, periodId, Guid.NewGuid(), CancellationToken.None);
+
+        await _notifications.DidNotReceive().GetBudgetSubscribersAsync(Arg.Any<Guid>(), "spending_threshold", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task CheckSpendingThreshold_DoesNotFire_WhenAlreadyPastThresholdBeforeThisTransaction()
     {
         var profileId = Guid.NewGuid();

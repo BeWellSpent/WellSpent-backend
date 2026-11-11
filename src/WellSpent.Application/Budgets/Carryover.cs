@@ -21,13 +21,13 @@ public static class Carryover
 
     /// <summary>Reduces a closed period's transactions/income to the three numbers Compute needs, via the same spend filter the Expense Summary uses — so the carried balance matches what the user was shown.</summary>
     public static (decimal Remainder, Dictionary<Guid, decimal> SpendByMethod, decimal UnattributedSpend) Inputs(
-        IEnumerable<Transaction> transactions, IEnumerable<IncomeEntry> incomeEntries, HashSet<int> nonSpendCategoryIds)
+        IEnumerable<Transaction> transactions, IEnumerable<IncomeEntry> incomeEntries)
     {
         var spendByMethod = new Dictionary<Guid, decimal>();
         decimal totalSpend = 0, unattributed = 0;
         foreach (var tx in transactions)
         {
-            if (SpendFilter.IsNonSpendTransaction(tx, nonSpendCategoryIds) || SpendFilter.IsUnpaidFixed(tx)) continue;
+            if (SpendFilter.IsNonSpendTransaction(tx) || SpendFilter.IsUnpaidFixed(tx)) continue;
             totalSpend += tx.Amount;
             if (tx.PaymentMethodId is not { } methodId) { unattributed += tx.Amount; continue; }
             spendByMethod[methodId] = spendByMethod.GetValueOrDefault(methodId) + tx.Amount;

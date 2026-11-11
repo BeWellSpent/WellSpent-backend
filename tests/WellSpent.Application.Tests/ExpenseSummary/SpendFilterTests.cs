@@ -6,59 +6,20 @@ namespace WellSpent.Application.Tests.ExpenseSummary;
 
 public sealed class SpendFilterTests
 {
-    [Fact]
-    public void NonSpendCategoryIds_ResolvesIncomeAndPayment_NotTransfer()
-    {
-        var systemCategories = new Dictionary<string, int> { ["income"] = 1, ["payment"] = 2, ["transfer"] = 3 };
-
-        var ids = SpendFilter.NonSpendCategoryIds(systemCategories);
-
-        Assert.Contains(1, ids);
-        Assert.Contains(2, ids);
-        Assert.DoesNotContain(3, ids);
-    }
+    [Theory]
+    [InlineData(TransactionFlow.Spend, false)]
+    [InlineData(TransactionFlow.Refund, false)]
+    [InlineData(TransactionFlow.Transfer, false)] // transfers count, signed: a Zelle to the landlord is rent
+    [InlineData(TransactionFlow.Income, true)]
+    [InlineData(TransactionFlow.Payment, true)]
+    public void IsNonSpendTransaction_ByFlow(string flow, bool nonSpend) =>
+        Assert.Equal(nonSpend, SpendFilter.IsNonSpendTransaction(new Transaction { Amount = 10m, Flow = flow }));
 
     [Fact]
-    public void NonSpendCategoryIds_MissingKey_IsSkippedNotError()
-    {
-        var ids = SpendFilter.NonSpendCategoryIds(new Dictionary<string, int>());
-        Assert.Empty(ids);
-    }
+    public void IsNonSpendTransaction_ExcludedFlag_WinsOverFlow() =>
+        Assert.True(SpendFilter.IsNonSpendTransaction(new Transaction { Amount = 10m, Flow = TransactionFlow.Spend, IsExcluded = true }));
 
     [Fact]
-    public void IsNonSpendTransaction_ExcludedFlag()
-    {
-        var tx = new Transaction { IsExcluded = true, CategoryId = 99 };
-        Assert.True(SpendFilter.IsNonSpendTransaction(tx, new HashSet<int>()));
-    }
-
-    [Fact]
-    public void IsNonSpendTransaction_NonSpendCategory()
-    {
-        var tx = new Transaction { CategoryId = 5 };
-        Assert.True(SpendFilter.IsNonSpendTransaction(tx, new HashSet<int> { 5 }));
-    }
-
-    [Fact]
-    public void IsNonSpendTransaction_OrdinaryTransaction_IsSpend()
-    {
-        var tx = new Transaction { CategoryId = 5 };
-        Assert.False(SpendFilter.IsNonSpendTransaction(tx, new HashSet<int> { 6 }));
-    }
-
-    [Fact]
-    public void IsUnpaidFixed_TrueOnlyForUnpaidFixedType()
-    {
-        Assert.True(SpendFilter.IsUnpaidFixed(new Transaction { TransactionTypeId = 1, IsPaid = false }));
-        Assert.False(SpendFilter.IsUnpaidFixed(new Transaction { TransactionTypeId = 1, IsPaid = true }));
-        Assert.False(SpendFilter.IsUnpaidFixed(new Transaction { TransactionTypeId = 2, IsPaid = false }));
-    }
-
-    [Fact]
-    public void IsFixed_MatchesTransactionTypeOne()
-    {
-        Assert.True(SpendFilter.IsFixed(new Transaction { TransactionTypeId = 1 }));
-        Assert.False(SpendFilter.IsFixed(new Transaction { TransactionTypeId = 2 }));
-        Assert.False(SpendFilter.IsFixed(new Transaction { TransactionTypeId = null }));
-    }
+    public void IsNonSpendTransaction_UnsavedRowWithNoFlow_IsSpend() =>
+        Assert.False(SpendFilter.IsNonSpendTransaction(new Transaction { Amount = 10m }));
 }

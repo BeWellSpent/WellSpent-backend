@@ -28,6 +28,9 @@ public sealed class Transaction
 
     public bool IsExcluded { get; set; }
 
+    /// <summary>A <see cref="TransactionFlow"/> value. Null only before save: the DbContext derives it then unless set explicitly.</summary>
+    public string? Flow { get; set; }
+
     /// <summary>Set when this transaction was converted into an installment plan. Also IsExcluded.</summary>
     public Guid? InstallmentFixedExpenseId { get; set; }
 

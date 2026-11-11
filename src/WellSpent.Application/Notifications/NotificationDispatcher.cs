@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WellSpent.Application.Abstractions;
 using WellSpent.Application.Configuration;
+using WellSpent.Application.ExpenseSummary;
 using WellSpent.Application.Plaid;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Entities;
@@ -106,6 +107,8 @@ public sealed class NotificationDispatcher(
 
     private async Task CheckSpendingThresholdAsync(Transaction newTx, Guid periodId, Guid profileId, CancellationToken ct)
     {
+        // Income and payments never move spending; same rule as the totals the plan is compared with.
+        if (SpendFilter.IsNonSpendTransaction(newTx)) return;
         var subs = await GetSubscribersSafeAsync(profileId, "spending_threshold", "check_spending_threshold", ct);
         if (subs.Count == 0) return;
 
@@ -126,7 +129,7 @@ public sealed class NotificationDispatcher(
         var totalSum = 0m;
         foreach (var t in txs)
         {
-            if (t.IsExcluded) continue;
+            if (SpendFilter.IsNonSpendTransaction(t)) continue;
             totalSum += t.Amount;
             if (t.CategoryId is { } catId)
             {

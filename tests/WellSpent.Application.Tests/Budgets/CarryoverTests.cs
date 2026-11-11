@@ -146,7 +146,7 @@ public sealed class CarryoverTests
     }
 
     [Fact]
-    public void Inputs_ExcludesExcludedAndUnpaidFixed_SplitsByMethod()
+    public void Inputs_ExcludesExcludedUnpaidFixedIncomeAndPayments_SplitsByMethod()
     {
         var method = Guid.NewGuid();
         var txs = new List<Transaction>
@@ -155,13 +155,16 @@ public sealed class CarryoverTests
             new() { Amount = 999m, IsExcluded = true, PaymentMethodId = method, TransactionTypeId = 2 },
             new() { Amount = 999m, TransactionTypeId = 1, IsPaid = false },
             new() { Amount = 50m, TransactionTypeId = 2 },
+            new() { Amount = -3000m, TransactionTypeId = 2, Flow = TransactionFlow.Income, PaymentMethodId = method },
+            new() { Amount = 400m, TransactionTypeId = 2, Flow = TransactionFlow.Payment, PaymentMethodId = method },
+            new() { Amount = 25m, TransactionTypeId = 2, Flow = TransactionFlow.Transfer, PaymentMethodId = method },
         };
         var income = new List<IncomeEntry> { new() { Amount = 2000m } };
 
-        var (remainder, spendByMethod, unattributed) = Carryover.Inputs(txs, income, []);
+        var (remainder, spendByMethod, unattributed) = Carryover.Inputs(txs, income);
 
-        Assert.Equal(2000m - 150m, remainder);
-        Assert.Equal(100m, spendByMethod[method]);
+        Assert.Equal(2000m - 175m, remainder); // the transfer counts; income and the card payment don't
+        Assert.Equal(125m, spendByMethod[method]);
         Assert.Equal(50m, unattributed);
     }
 }
