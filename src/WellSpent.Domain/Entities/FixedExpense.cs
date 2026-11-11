@@ -8,6 +8,9 @@ public sealed class FixedExpense
     public required string Name { get; set; }
     public decimal PlannedAmount { get; set; }
     public int? CategoryId { get; set; }
+
+    /// <summary>A <see cref="TransactionFlow"/> every spawned bill copies. Null only before insert (the column defaults to spend) or on an edit that keeps it.</summary>
+    public string? Flow { get; set; }
     public Guid? PaymentMethodId { get; set; }
 
     /// <summary>1-31; clamped to the last day of the month when spawning. Meaningful when FrequencyUnit is month-based; kept in sync with AnchorDate when one is set.</summary>

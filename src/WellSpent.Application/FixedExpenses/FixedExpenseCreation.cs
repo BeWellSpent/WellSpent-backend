@@ -58,6 +58,7 @@ public static class FixedExpenseCreation
                 PaymentMethodId = fe.PaymentMethodId,
                 TransactionTypeId = 1,
                 FixedExpenseId = fe.Id,
+                Flow = fe.Flow ?? TransactionFlow.Spend,
             }, ct);
             return (fe, tx);
         }

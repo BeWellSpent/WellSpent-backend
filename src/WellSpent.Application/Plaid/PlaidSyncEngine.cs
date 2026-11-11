@@ -228,6 +228,7 @@ public sealed class PlaidSyncEngine(
             }
 
             var (categoryKey, categoryId) = PlaidSyncCategoryResolution.ResolveId(tx.Name, tx.PfcPrimary, tx.PfcDetailed, categoryIds);
+            var flow = PlaidFlowMapping.Resolve(tx.Name, tx.PfcPrimary, tx.PfcDetailed);
 
             // Resolved before period assignment: an Income deposit's funded-date resolution
             // prefers an income source attributed to the same person as this payment method.
@@ -262,7 +263,7 @@ public sealed class PlaidSyncEngine(
             // earlier than the raw deposit date (early-arriving payroll). Every other
             // category keeps resolving by the raw date, unchanged.
             var effectiveDate = tx.Date;
-            if (categoryKey == "income" && regularIncomeSources.Count > 0)
+            if (flow == TransactionFlow.Income && regularIncomeSources.Count > 0)
             {
                 var bestSource = PickBestIncomeSource(regularIncomeSources, paymentMethodPersonId, tx.Date);
                 if (bestSource is not null)
@@ -301,6 +302,7 @@ public sealed class PlaidSyncEngine(
                     TransactionFrequencyId = OneOffFrequencyId,
                     TransactionTypeId = VariableTypeId,
                     PlaidTransactionId = tx.PlaidId,
+                    Flow = flow, // null: spend or refund, by sign
                     // Plaid's own classification, kept so a later re-classification stays possible.
                     PlaidPfcPrimary = EmptyToNull(tx.PfcPrimary),
                     PlaidPfcDetailed = EmptyToNull(tx.PfcDetailed),

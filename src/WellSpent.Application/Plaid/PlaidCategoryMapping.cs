@@ -18,7 +18,8 @@ public static class PlaidCategoryMapping
         ["TRANSFER_IN_SAVINGS"] = "savings",
         ["TRANSFER_OUT_SAVINGS"] = "savings",
         ["ENTERTAINMENT_TV_AND_MOVIES"] = "subscription",
-        ["LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"] = "payment",
+        // A card payment has no category (its flow says what it is); without this it would fall back to Loan.
+        ["LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"] = "",
     };
 
     private static readonly Dictionary<string, string> PrimaryToCategory = new()
@@ -36,9 +37,6 @@ public static class PlaidCategoryMapping
         ["BANK_FEES"] = "misc",
         ["GOVERNMENT_AND_NON_PROFIT"] = "misc",
         ["LOAN_PAYMENTS"] = "loan",
-        ["INCOME"] = "income",
-        ["TRANSFER_IN"] = "transfer",
-        ["TRANSFER_OUT"] = "transfer",
     };
 
     public static string Resolve(string? primary, string? detailed)

@@ -158,6 +158,7 @@ public static class BudgetPeriodRollover
                     PaymentMethodId = FixedExpenseSpawning.LivePaymentMethod(fe.PaymentMethodId, activePaymentMethodIds),
                     TransactionTypeId = 1,
                     FixedExpenseId = fe.Id,
+                    Flow = fe.Flow ?? TransactionFlow.Spend,
                 }, ct);
             }
             catch (Exception ex)

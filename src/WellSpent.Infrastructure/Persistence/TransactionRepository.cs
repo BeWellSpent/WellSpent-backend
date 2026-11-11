@@ -217,7 +217,7 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
 
     public async Task<List<Category>> ListCategoriesAsync(Guid userId, CancellationToken ct) =>
         await db.Categories
-            .Where(c => (c.UserId == userId && c.IsActive) || c.UserId == null)
+            .Where(c => c.IsActive && (c.UserId == userId || c.UserId == null))
             .OrderBy(c => c.Name)
             .ToListAsync(ct);
 
@@ -288,17 +288,7 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-            UPDATE transaction t
-            SET category_id = {replacementId},
-                flow = CASE
-                    WHEN c.system_key IN ('payment', 'income', 'transfer') THEN c.system_key
-                    WHEN t.flow IN ('spend', 'refund') THEN CASE WHEN t.amount < 0 THEN 'refund' ELSE 'spend' END
-                    ELSE t.flow
-                END
-            FROM category c
-            WHERE c.id = {replacementId} AND t.category_id = {id}
-            """, ct);
+            $"UPDATE transaction SET category_id = {replacementId} WHERE category_id = {id}", ct);
         await db.Database.ExecuteSqlInterpolatedAsync(
             $"UPDATE fixed_expense SET category_id = {replacementId} WHERE category_id = {id}", ct);
         await db.Database.ExecuteSqlInterpolatedAsync(

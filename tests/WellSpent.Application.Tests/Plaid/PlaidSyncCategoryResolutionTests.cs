@@ -6,26 +6,10 @@ namespace WellSpent.Application.Tests.Plaid;
 public sealed class PlaidSyncCategoryResolutionTests
 {
     [Fact]
-    public void PayrollNameOverridesPfcCategory()
-    {
-        Assert.Equal("income", PlaidSyncCategoryResolution.ResolveKey("ACME CORP PAYROLL", "TRANSFER_IN", "TRANSFER_IN_DEPOSIT"));
-        Assert.Equal("income", PlaidSyncCategoryResolution.ResolveKey("payroll deposit", "", ""));
-        Assert.Equal("income", PlaidSyncCategoryResolution.ResolveKey("Bi-Weekly Payroll", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_PET_SUPPLIES"));
-    }
-
-    [Fact]
     public void NonPayrollFallsBackToPfcMapping()
     {
         Assert.Equal("groceries", PlaidSyncCategoryResolution.ResolveKey("WHOLE FOODS", "FOOD_AND_DRINK", "FOOD_AND_DRINK_GROCERIES"));
         Assert.Equal("", PlaidSyncCategoryResolution.ResolveKey("UNKNOWN MERCHANT", "", ""));
-    }
-
-    [Fact]
-    public void IncomePfcPrimaryResolvesWithoutPayrollInName()
-    {
-        // Must resolve to Income via Plaid's own classification, not just the name check.
-        Assert.Equal("income", PlaidSyncCategoryResolution.ResolveKey("ACME CORP DIRECT DEP", "INCOME", "INCOME_WAGES"));
-        Assert.Equal("income", PlaidSyncCategoryResolution.ResolveKey("IRS TREAS 310 TAX REF", "INCOME", "INCOME_TAX_REFUND"));
     }
 
     [Fact]
@@ -59,16 +43,14 @@ public sealed class PlaidSyncCategoryResolutionTests
     }
 
     [Fact]
-    public void ResolveId_RealCreditCardPaymentPayloadResolvesToPayment()
+    public void ResolveId_RealCreditCardPaymentPayload_HasNoCategory()
     {
-        // Exact field values from a real plaid.http.response: "MOBILE PAYMENT -
-        // THANK YOU", LOAN_PAYMENTS / LOAN_PAYMENTS_CREDIT_CARD_PAYMENT, against
-        // the real production category row (id 23, system_key "payment").
-        var categoryIds = new Dictionary<string, int> { ["payment"] = 23 };
+        // Exact field values from a real plaid.http.response: "MOBILE PAYMENT - THANK YOU",
+        // LOAN_PAYMENTS / LOAN_PAYMENTS_CREDIT_CARD_PAYMENT. Its flow (payment) says what it is.
         var (key, id) = PlaidSyncCategoryResolution.ResolveId(
-            "MOBILE PAYMENT - THANK YOU", "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", categoryIds);
+            "MOBILE PAYMENT - THANK YOU", "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", new Dictionary<string, int> { ["loan"] = 9 });
 
-        Assert.Equal("payment", key);
-        Assert.Equal(23, id);
+        Assert.Equal("", key);
+        Assert.Null(id);
     }
 }

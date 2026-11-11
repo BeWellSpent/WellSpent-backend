@@ -94,6 +94,7 @@ public sealed class UpdateFixedExpenseCommandHandler(
                     PaymentMethodId = fe.PaymentMethodId,
                     TransactionTypeId = 1,
                     FixedExpenseId = fe.Id,
+                    Flow = fe.Flow ?? TransactionFlow.Spend,
                 }, ct);
             }
             catch (Exception)
@@ -108,7 +109,7 @@ public sealed class UpdateFixedExpenseCommandHandler(
             try
             {
                 await fixedExpenses.UpdatePaidTransactionFromFixedExpenseAsync(
-                    fe.Id, request.BudgetProfileId, fe.Name, fe.CategoryId, fe.PaymentMethodId, ct);
+                    fe.Id, request.BudgetProfileId, fe.Name, fe.CategoryId, fe.PaymentMethodId, ct, fe.Flow);
                 await FixedExpenseReviewRefresh.RefreshForMatchedTransactionAsync(reviews, transactions, existing.Id, fe, logger, ct);
             }
             catch (Exception)
@@ -121,7 +122,7 @@ public sealed class UpdateFixedExpenseCommandHandler(
             try
             {
                 await fixedExpenses.UpdateTransactionFromFixedExpenseAsync(
-                    fe.Id, request.BudgetProfileId, fe.Name, fe.PlannedAmount, fe.CategoryId, fe.PaymentMethodId, txDate, ct);
+                    fe.Id, request.BudgetProfileId, fe.Name, fe.PlannedAmount, fe.CategoryId, fe.PaymentMethodId, txDate, ct, fe.Flow);
                 await FixedExpenseReviewRefresh.RefreshForMatchedTransactionAsync(reviews, transactions, existing.Id, fe, logger, ct);
             }
             catch (Exception)
