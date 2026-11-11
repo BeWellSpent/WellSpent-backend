@@ -37,7 +37,7 @@ public static class TransactionEndpoints
         {
             var transaction = await sender.Send(new CreateTransactionCommand(
                 CurrentUser.GetId(ctx), body.Name, body.Amount, body.PlannedAmount, body.Date, body.RenewalDate,
-                body.BudgetPeriodId, body.CategoryId, body.PaymentMethodId, body.TransactionFrequency, body.TransactionType), ct);
+                body.BudgetPeriodId, body.CategoryId, body.PaymentMethodId, body.TransactionFrequency, body.TransactionType, body.Flow), ct);
             return Results.Ok(new { transaction });
         });
 
@@ -45,7 +45,7 @@ public static class TransactionEndpoints
         {
             var transaction = await sender.Send(new UpdateTransactionCommand(
                 CurrentUser.GetId(ctx), id, body.Name, body.Amount, body.PlannedAmount, body.Date,
-                body.CategoryId, body.PaymentMethodId, body.TransactionFrequency, body.TransactionType), ct);
+                body.CategoryId, body.PaymentMethodId, body.TransactionFrequency, body.TransactionType, body.Flow), ct);
             return Results.Ok(new { transaction });
         });
 
@@ -130,11 +130,11 @@ public static class TransactionEndpoints
 
     private sealed record CreateTransactionRequestBody(
         string? Name, Money Amount, Money PlannedAmount, DateOnly? Date, DateOnly? RenewalDate,
-        Guid? BudgetPeriodId, int? CategoryId, Guid? PaymentMethodId, string? TransactionFrequency, string? TransactionType);
+        Guid? BudgetPeriodId, int? CategoryId, Guid? PaymentMethodId, string? TransactionFrequency, string? TransactionType, string? Flow = null);
 
     private sealed record UpdateTransactionRequestBody(
         string? Name, Money Amount, Money PlannedAmount, DateOnly? Date,
-        int? CategoryId, Guid? PaymentMethodId, string? TransactionFrequency, string? TransactionType);
+        int? CategoryId, Guid? PaymentMethodId, string? TransactionFrequency, string? TransactionType, string? Flow = null);
 
     private sealed record MarkPaidRequestBody(Guid BudgetPeriodId, Money PaidAmount, DateOnly PaidDate);
     private sealed record BudgetPeriodRequestBody(Guid BudgetPeriodId);

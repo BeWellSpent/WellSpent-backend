@@ -57,6 +57,12 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
         existing.PaymentMethodId = transaction.PaymentMethodId;
         existing.TransactionFrequencyId = transaction.TransactionFrequencyId;
         existing.TransactionTypeId = transaction.TransactionTypeId;
+        if (transaction.Flow is not null)
+        {
+            existing.Flow = transaction.Flow;
+            // Explicit even when unchanged, so a category change doesn't re-derive it.
+            db.Entry(existing).Property(t => t.Flow).IsModified = true;
+        }
         await SaveChangesCatchingConflictAsync(ct);
         return existing;
     }
@@ -282,7 +288,17 @@ public sealed class TransactionRepository(WellSpentDbContext db) : ITransactionR
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"UPDATE transaction SET category_id = {replacementId} WHERE category_id = {id}", ct);
+            $"""
+            UPDATE transaction t
+            SET category_id = {replacementId},
+                flow = CASE
+                    WHEN c.system_key IN ('payment', 'income', 'transfer') THEN c.system_key
+                    WHEN t.flow IN ('spend', 'refund') THEN CASE WHEN t.amount < 0 THEN 'refund' ELSE 'spend' END
+                    ELSE t.flow
+                END
+            FROM category c
+            WHERE c.id = {replacementId} AND t.category_id = {id}
+            """, ct);
         await db.Database.ExecuteSqlInterpolatedAsync(
             $"UPDATE fixed_expense SET category_id = {replacementId} WHERE category_id = {id}", ct);
         await db.Database.ExecuteSqlInterpolatedAsync(

@@ -38,6 +38,7 @@ public sealed class TransactionEntityConfiguration : IEntityTypeConfiguration<Tr
         b.Property(x => x.InstallmentFixedExpenseId).HasColumnName("installment_fixed_expense_id");
         b.Property(x => x.CarriedFromBudgetPeriodId).HasColumnName("carried_from_budget_period_id");
         b.Property(x => x.PlaidPfcPrimary).HasColumnName("plaid_pfc_primary");
+        b.Property(x => x.Flow).HasColumnName("flow");
         b.Property(x => x.PlaidPfcDetailed).HasColumnName("plaid_pfc_detailed");
         b.Property(x => x.PlaidReferenceNumber).HasColumnName("plaid_reference_number");
         b.Property(x => x.PlaidPpdId).HasColumnName("plaid_ppd_id");

@@ -19,7 +19,15 @@ public static class TransactionRules
         }
     }
 
-    /// <summary>Rejects an update unless it differs from the existing transaction only in CategoryId — used for Plaid-imported rows and any row whose period has archived.</summary>
+    public static void AssertValidFlow(string? flow)
+    {
+        if (flow is not null && !TransactionFlow.All.Contains(flow))
+        {
+            throw new AppValidationException($"flow must be one of {string.Join(", ", TransactionFlow.All)}");
+        }
+    }
+
+    /// <summary>Rejects an update unless it differs from the existing transaction only in CategoryId (and Flow) — used for Plaid-imported rows and any row whose period has archived.</summary>
     public static void AssertOnlyCategoryChanged(Transaction edit, Transaction existing)
     {
         if (edit.Name == existing.Name &&

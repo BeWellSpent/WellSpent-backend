@@ -10,7 +10,7 @@ using WellSpent.Domain.Exceptions;
 namespace WellSpent.Application.Transactions.UpdateTransaction;
 
 /// <summary>
-/// A full edit, with two exceptions where only CategoryId may still change:
+/// A full edit, with two exceptions where only CategoryId and Flow may still change:
 /// once the period has archived, and for any Plaid-imported row at any time.
 /// Deliberately does NOT call EnsureCollaboratorOfPeriodAsync (which would
 /// hard-block an archived period outright) — it does the role check directly
@@ -24,7 +24,7 @@ namespace WellSpent.Application.Transactions.UpdateTransaction;
 /// </summary>
 public sealed record UpdateTransactionCommand(
     Guid UserId, Guid Id, string? Name, Money Amount, Money PlannedAmount, DateOnly? Date,
-    int? CategoryId, Guid? PaymentMethodId, string? TransactionFrequency, string? TransactionType)
+    int? CategoryId, Guid? PaymentMethodId, string? TransactionFrequency, string? TransactionType, string? Flow = null)
     : IRequest<TransactionDto>;
 
 public sealed class UpdateTransactionCommandHandler(
@@ -37,6 +37,7 @@ public sealed class UpdateTransactionCommandHandler(
     {
         var existing = await transactions.GetTransactionAsync(request.Id, ct);
         var transactionTypeId = TransactionTypeMapping.ToId(request.TransactionType);
+        TransactionRules.AssertValidFlow(request.Flow);
 
         var edit = new Transaction
         {
@@ -49,6 +50,7 @@ public sealed class UpdateTransactionCommandHandler(
             PaymentMethodId = request.PaymentMethodId,
             TransactionFrequencyId = TransactionFrequencyMapping.ToId(request.TransactionFrequency),
             TransactionTypeId = transactionTypeId,
+            Flow = request.Flow, // null: re-derived on save if the category or sign changed
         };
 
         if (existing.BudgetPeriodId is { } periodId)

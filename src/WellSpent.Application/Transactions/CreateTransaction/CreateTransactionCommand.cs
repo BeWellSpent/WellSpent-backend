@@ -16,7 +16,8 @@ namespace WellSpent.Application.Transactions.CreateTransaction;
 /// </summary>
 public sealed record CreateTransactionCommand(
     Guid UserId, string? Name, Money Amount, Money PlannedAmount, DateOnly? Date, DateOnly? RenewalDate,
-    Guid? BudgetPeriodId, int? CategoryId, Guid? PaymentMethodId, string? TransactionFrequency, string? TransactionType)
+    Guid? BudgetPeriodId, int? CategoryId, Guid? PaymentMethodId, string? TransactionFrequency, string? TransactionType,
+    string? Flow = null)
     : IRequest<TransactionDto>;
 
 public sealed class CreateTransactionCommandHandler(
@@ -28,6 +29,7 @@ public sealed class CreateTransactionCommandHandler(
     public async Task<TransactionDto> Handle(CreateTransactionCommand request, CancellationToken ct)
     {
         var transactionTypeId = TransactionTypeMapping.ToId(request.TransactionType);
+        TransactionRules.AssertValidFlow(request.Flow);
 
         if (request.BudgetPeriodId is { } periodId)
         {
@@ -47,6 +49,7 @@ public sealed class CreateTransactionCommandHandler(
             PaymentMethodId = request.PaymentMethodId,
             TransactionFrequencyId = TransactionFrequencyMapping.ToId(request.TransactionFrequency),
             TransactionTypeId = transactionTypeId,
+            Flow = request.Flow, // null: derived from the category and amount on save
         }, ct);
 
         if (transactionTypeId == 2 && request.BudgetPeriodId is { } createdPeriodId)

@@ -7,7 +7,7 @@ namespace WellSpent.Application.ExpenseSummary;
 public sealed record ExpenseSummaryProfileInputs(
     List<BudgetPerson> People, List<ExpenseAllocation> Allocations, List<SavingsSource> SavingsSources,
     List<FixedExpense> ActiveFixedExpenses, List<IncomeSource> IncomeSources, List<PaymentMethod> PaymentMethods,
-    HashSet<int> NonSpend, int? SavingsCategoryId, int? IncomeCategoryId);
+    int? SavingsCategoryId);
 
 /// <summary>Loads ExpenseSummaryData: the expense summary for one period, the reports for many.</summary>
 public sealed class ExpenseSummaryDataLoader(
@@ -15,7 +15,6 @@ public sealed class ExpenseSummaryDataLoader(
     IExpenseAllocationRepository allocations, IFixedExpenseRepository fixedExpenses)
 {
     private const string SavingsSystemKey = "savings";
-    private const string IncomeSystemKey = "income";
 
     public async Task<ExpenseSummaryProfileInputs> LoadProfileAsync(Guid profileId, CancellationToken ct)
     {
@@ -27,9 +26,7 @@ public sealed class ExpenseSummaryDataLoader(
             await fixedExpenses.ListAsync(profileId, ct) ?? [],
             (await profiles.ListIncomeSourcesAsync(profileId, ct) ?? []).Where(s => s.EffectiveTo is null).ToList(),
             await transactions.ListPaymentMethodsAsync(profileId, ct) ?? [],
-            SpendFilter.NonSpendCategoryIds(systemCategories),
-            systemCategories.TryGetValue(SavingsSystemKey, out var savingsId) ? savingsId : null,
-            systemCategories.TryGetValue(IncomeSystemKey, out var incomeId) ? incomeId : null);
+            systemCategories.TryGetValue(SavingsSystemKey, out var savingsId) ? savingsId : null);
     }
 
     /// <summary>Fresh lists per call, since focused view mutates them in place.</summary>
@@ -46,10 +43,8 @@ public sealed class ExpenseSummaryDataLoader(
             IncomeSources = inputs.IncomeSources.ToList(),
             IncomeEntries = await profiles.ListIncomeEntriesAsync(period.Id, ct) ?? [],
             PaymentMethods = inputs.PaymentMethods.ToList(),
-            Transactions = rawTransactions.Where(t => !SpendFilter.IsNonSpendTransaction(t, inputs.NonSpend)).ToList(),
-            IncomeTransactions = inputs.IncomeCategoryId is { } incId
-                ? rawTransactions.Where(t => !t.IsExcluded && t.CategoryId == incId).ToList()
-                : [],
+            Transactions = rawTransactions.Where(t => !SpendFilter.IsNonSpendTransaction(t)).ToList(),
+            IncomeTransactions = rawTransactions.Where(t => !t.IsExcluded && t.Flow == TransactionFlow.Income).ToList(),
             SavingsCategoryId = inputs.SavingsCategoryId,
             Now = DateOnly.FromDateTime(DateTime.UtcNow),
         };
