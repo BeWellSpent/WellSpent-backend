@@ -46,7 +46,7 @@ public sealed class UpdateTransactionCommandHandler(
             Amount = request.Amount.ToDecimal(),
             PlannedAmount = request.PlannedAmount.ToDecimal(),
             Date = request.Date,
-            CategoryId = request.CategoryId,
+            CategoryId = TransactionRules.CategoryOrNull(request.CategoryId),
             PaymentMethodId = request.PaymentMethodId,
             TransactionFrequencyId = TransactionFrequencyMapping.ToId(request.TransactionFrequency),
             TransactionTypeId = transactionTypeId,

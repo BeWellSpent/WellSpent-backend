@@ -44,7 +44,7 @@ public sealed class CreateTransactionCommandHandler(
             Date = request.Date,
             RenewalDate = request.RenewalDate,
             BudgetPeriodId = request.BudgetPeriodId,
-            CategoryId = request.CategoryId,
+            CategoryId = TransactionRules.CategoryOrNull(request.CategoryId),
             PaymentMethodId = request.PaymentMethodId,
             TransactionFrequencyId = TransactionFrequencyMapping.ToId(request.TransactionFrequency),
             TransactionTypeId = transactionTypeId,

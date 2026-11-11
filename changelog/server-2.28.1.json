@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.28.1",
+  "items": [
+    { "changeType": "fixed", "summary": { "en": "Saving a transaction or fixed expense with no category no longer fails.", "es": "Guardar una transacción o un gasto fijo sin categoría ya no falla." } }
+  ]
+}

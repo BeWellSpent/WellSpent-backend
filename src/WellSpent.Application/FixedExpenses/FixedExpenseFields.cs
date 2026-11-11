@@ -33,7 +33,7 @@ public static class FixedExpenseNormalization
         {
             Name = f.Name,
             PlannedAmount = f.PlannedAmount.ToDecimal(),
-            CategoryId = f.CategoryId,
+            CategoryId = Transactions.TransactionRules.CategoryOrNull(f.CategoryId),
             PaymentMethodId = f.PaymentMethodId,
             DayOfMonth = day,
             IntervalMonths = f.IntervalMonths < 1 ? 1 : f.IntervalMonths,

@@ -6,6 +6,9 @@ namespace WellSpent.Application.Transactions;
 /// <summary>Pure port of transaction_service.go's assertNotBackdated/assertOnlyCategoryChanged. C#'s decimal compares exactly by value regardless of scale, so no Go-style float64 workaround is needed for amount equality.</summary>
 public static class TransactionRules
 {
+    /// <summary>The contract's 0 means "no category"; stored as null, since no category row has id 0.</summary>
+    public static int? CategoryOrNull(int? categoryId) => categoryId is > 0 ? categoryId : null;
+
     public static void AssertValidFlow(string? flow)
     {
         if (flow is not null && !TransactionFlow.All.Contains(flow))
