@@ -25,7 +25,13 @@ public sealed class FlowTotalsTests
         Assert.Equal(3200m, totals.Income.ToDecimal());
         Assert.Equal(40m, totals.TransfersIn.ToDecimal());
         Assert.Equal(1850m, totals.TransfersOut.ToDecimal());
+        Assert.Equal(3200m + 31.99m + 40m, totals.MoneyIn.ToDecimal());
+        Assert.Equal(84.20m + 1850m, totals.MoneyOut.ToDecimal());
     }
+
+    [Fact]
+    public void Compute_CardPaymentsStayOutOfMoneyOut() =>
+        Assert.Equal(0m, FlowTotals.Compute([Tx(500m, TransactionFlow.Payment)]).MoneyOut.ToDecimal());
 
     [Fact]
     public void Compute_CountsACardPaymentOnce_WhenBothLegsAreLinked() =>

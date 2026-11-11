@@ -4,7 +4,8 @@ using WellSpent.Domain.Entities;
 
 namespace WellSpent.Application.Reports;
 
-public sealed record FlowTotalsDto(Money Income, Money Refunds, Money TransfersIn, Money Spent, Money TransfersOut, Money PaidToCards);
+public sealed record FlowTotalsDto(
+    Money MoneyIn, Money MoneyOut, Money Income, Money Refunds, Money TransfersIn, Money Spent, Money TransfersOut, Money PaidToCards);
 
 /// <summary>A period's money by flow, as positive magnitudes (the Reports "money in · out · moved" card).</summary>
 public static class FlowTotals
@@ -31,7 +32,11 @@ public static class FlowTotals
                 case TransactionFlow.Payment: paymentsOut += amount; break;
             }
         }
-        static Money M(decimal v) => Money.FromDecimal(Math.Max(0, v));
-        return new FlowTotalsDto(M(income), M(refunds), M(transfersIn), M(spent), M(transfersOut), M(Math.Max(paymentsOut, paymentsIn)));
+        static decimal P(decimal v) => Math.Max(0, v);
+        static Money M(decimal v) => Money.FromDecimal(v);
+        // Card payments stay out of moneyOut: the purchases they settle already counted.
+        return new FlowTotalsDto(
+            M(P(income) + P(refunds) + P(transfersIn)), M(P(spent) + P(transfersOut)),
+            M(P(income)), M(P(refunds)), M(P(transfersIn)), M(P(spent)), M(P(transfersOut)), M(P(Math.Max(paymentsOut, paymentsIn))));
     }
 }
