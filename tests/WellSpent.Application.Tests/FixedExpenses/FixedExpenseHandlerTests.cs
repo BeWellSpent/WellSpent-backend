@@ -613,17 +613,6 @@ public sealed class FixedExpenseHandlerTests
     }
 
     [Fact]
-    public async Task CreateFromTransaction_RejectsArchivedPeriod()
-    {
-        var (userId, _, periodId, txId, _, _) = SetUpFixedFromTxFixture(archived: true);
-
-        await Assert.ThrowsAsync<AppValidationException>(() => CreateFixedFromTxHandler().Handle(
-            new CreateFixedExpenseFromTransactionCommand(userId, txId, periodId, "", null, "month", 1, 1, 1), CancellationToken.None));
-
-        await _fixedExpenses.DidNotReceive().CreateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task CreateFromTransaction_RejectsAlreadyMatchedTransaction()
     {
         var existing = new TransactionReview { Id = Guid.NewGuid(), Status = "confirmed" };

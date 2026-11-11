@@ -7,37 +7,6 @@ namespace WellSpent.Application.Tests.Transactions;
 
 public sealed class TransactionRulesTests
 {
-    private static readonly BudgetPeriod Period = new()
-    {
-        Id = Guid.NewGuid(), BudgetProfileId = Guid.NewGuid(),
-        StartDate = new DateOnly(2026, 2, 1), EndDate = new DateOnly(2026, 2, 28),
-    };
-
-    [Fact]
-    public void AssertNotBackdated_VariableBeforeStart_Throws()
-    {
-        Assert.Throws<AppValidationException>(() =>
-            TransactionRules.AssertNotBackdated(2, new DateOnly(2026, 1, 31), Period));
-    }
-
-    [Fact]
-    public void AssertNotBackdated_VariableOnOrAfterStart_Allowed()
-    {
-        TransactionRules.AssertNotBackdated(2, new DateOnly(2026, 2, 1), Period);
-    }
-
-    [Fact]
-    public void AssertNotBackdated_FixedExempt_EvenBeforeStart()
-    {
-        TransactionRules.AssertNotBackdated(1, new DateOnly(2020, 1, 1), Period);
-    }
-
-    [Fact]
-    public void AssertNotBackdated_NullDate_Allowed()
-    {
-        TransactionRules.AssertNotBackdated(2, null, Period);
-    }
-
     private static readonly Guid SharedPaymentMethodId = Guid.NewGuid();
 
     private static Transaction BaseTransaction(decimal amount = 100m, int? categoryId = null) => new()

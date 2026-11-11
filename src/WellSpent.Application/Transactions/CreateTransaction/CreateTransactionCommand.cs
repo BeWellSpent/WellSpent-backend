@@ -33,8 +33,7 @@ public sealed class CreateTransactionCommandHandler(
 
         if (request.BudgetPeriodId is { } periodId)
         {
-            var period = await access.EnsureCollaboratorOfPeriodAsync(periodId, request.UserId, ct);
-            TransactionRules.AssertNotBackdated(transactionTypeId, request.Date, period);
+            await access.EnsureCollaboratorOfPeriodAsync(periodId, request.UserId, ct);
         }
 
         var created = await transactions.CreateTransactionAsync(new Transaction

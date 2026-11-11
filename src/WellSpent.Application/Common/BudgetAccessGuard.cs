@@ -163,10 +163,7 @@ public sealed class BudgetAccessGuard(IBudgetProfileRepository profiles)
         {
             throw new ForbiddenException("access denied");
         }
-        if (period.IsArchived)
-        {
-            throw new ForbiddenException("this budget period is archived and read-only");
-        }
+        // Closed (archived) periods stay editable (#120): moving, carryover and flows all need them.
         return period;
     }
 }

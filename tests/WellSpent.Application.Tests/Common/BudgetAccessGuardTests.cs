@@ -107,4 +107,37 @@ public sealed class BudgetAccessGuardTests
         await Assert.ThrowsAsync<ForbiddenException>(
             () => CreateGuard().EnsureAdminAsync(profileId, strangerId, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task EnsureCollaboratorOfPeriod_ClosedPeriod_IsAllowed() // #120
+    {
+        var profileId = Guid.NewGuid();
+        var ownerId = Guid.NewGuid();
+        var periodId = Guid.NewGuid();
+        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = true });
+        _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = profileId, UserId = ownerId, Name = "Budget" });
+
+        var period = await CreateGuard().EnsureCollaboratorOfPeriodAsync(periodId, ownerId, CancellationToken.None);
+
+        Assert.True(period.IsArchived);
+    }
+
+    [Fact]
+    public async Task EnsureCollaboratorOfPeriod_Viewer_StillForbidden()
+    {
+        var profileId = Guid.NewGuid();
+        var viewerId = Guid.NewGuid();
+        var periodId = Guid.NewGuid();
+        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = true });
+        _profiles.GetByIdAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetProfile { Id = profileId, UserId = Guid.NewGuid(), Name = "Budget" });
+        _profiles.GetPersonByUserIdAsync(profileId, viewerId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPerson { Id = 2, BudgetProfileId = profileId, UserId = viewerId, Role = "viewer" });
+
+        await Assert.ThrowsAsync<WellSpent.Domain.Exceptions.ForbiddenException>(() =>
+            CreateGuard().EnsureCollaboratorOfPeriodAsync(periodId, viewerId, CancellationToken.None));
+    }
 }
