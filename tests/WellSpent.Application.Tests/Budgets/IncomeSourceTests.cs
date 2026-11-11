@@ -306,23 +306,6 @@ public sealed class IncomeSourceTests
     }
 
     [Fact]
-    public async Task UpdateEntry_ArchivedPeriod_ThrowsForbidden_EvenForNonMember()
-    {
-        // Mirrors Go's assertPeriodCollaborator: the archived check runs
-        // before the role check.
-        var periodId = Guid.NewGuid();
-        var profileId = Guid.NewGuid();
-        var strangerId = Guid.NewGuid();
-        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
-            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = true });
-
-        await Assert.ThrowsAsync<ForbiddenException>(() => new UpdateIncomeEntryCommandHandler(Access, _profiles)
-            .Handle(new UpdateIncomeEntryCommand(strangerId, 1, periodId, new Money(100, 0)), CancellationToken.None));
-
-        await _profiles.DidNotReceive().GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task UpdateEntry_Collaborator_Succeeds()
     {
         var (adminId, profileId) = SetUpOwner();

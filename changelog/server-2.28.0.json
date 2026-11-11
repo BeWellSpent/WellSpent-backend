@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.28.0",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "Past periods are no longer read-only: you can add, edit, move, exclude and review transactions in any period. Transactions imported from your bank still only let you change their category and type.", "es": "Los períodos anteriores ya no son de solo lectura: puedes agregar, editar, mover, excluir y revisar transacciones en cualquier período. Las transacciones importadas de tu banco solo permiten cambiar su categoría y tipo." } }
+  ]
+}

@@ -86,28 +86,6 @@ public sealed class TransactionHandlerTests
     // ── Create ───────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Create_ArchivedPeriod_ThrowsForbidden()
-    {
-        var (adminId, profileId, periodId) = SetUpOpenPeriod();
-        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
-            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = true });
-
-        await Assert.ThrowsAsync<ForbiddenException>(() => CreateCreateHandler()
-            .Handle(new CreateTransactionCommand(adminId, "x", new Money(10, 0), new Money(10, 0), new DateOnly(2026, 2, 5), null,
-                periodId, null, null, null, "variable"), CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task Create_VariableBackdated_Throws()
-    {
-        var (adminId, _, periodId) = SetUpOpenPeriod();
-
-        await Assert.ThrowsAsync<AppValidationException>(() => CreateCreateHandler()
-            .Handle(new CreateTransactionCommand(adminId, "x", new Money(10, 0), new Money(10, 0), new DateOnly(2026, 1, 1), null,
-                periodId, null, null, null, "variable"), CancellationToken.None));
-    }
-
-    [Fact]
     public async Task Create_FixedBackdated_Allowed()
     {
         var (adminId, _, periodId) = SetUpOpenPeriod();
@@ -330,17 +308,20 @@ public sealed class TransactionHandlerTests
     }
 
     [Fact]
-    public async Task Update_ArchivedPeriod_AmountChange_Throws()
+    public async Task Update_ClosedPeriod_FullEditIsAllowed() // #120: closed periods stay editable
     {
         var (adminId, profileId, periodId) = SetUpOpenPeriod();
         _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
             .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = true });
         var existing = new Transaction { Id = Guid.NewGuid(), Amount = 100m, PlannedAmount = 100m, BudgetPeriodId = periodId };
         _transactions.GetTransactionAsync(existing.Id, Arg.Any<CancellationToken>()).Returns(existing);
+        _transactions.UpdateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<Transaction>());
 
-        await Assert.ThrowsAsync<AppValidationException>(() => CreateUpdateHandler().Handle(
-            new UpdateTransactionCommand(adminId, existing.Id, null, new Money(500, 0), new Money(100, 0), null, null, null, null, null),
-            CancellationToken.None));
+        var result = await CreateUpdateHandler().Handle(
+            new UpdateTransactionCommand(adminId, existing.Id, null, new Money(500, 0), new Money(500, 0), null, null, null, null, null),
+            CancellationToken.None);
+
+        Assert.Equal(500m, result.Amount.ToDecimal());
     }
 
     [Fact]
@@ -376,19 +357,6 @@ public sealed class TransactionHandlerTests
     }
 
     [Fact]
-    public async Task Delete_ArchivedPeriod_ThrowsForbidden()
-    {
-        var (adminId, profileId, periodId) = SetUpOpenPeriod();
-        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
-            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = true });
-        var tx = new Transaction { Id = Guid.NewGuid(), BudgetPeriodId = periodId };
-        _transactions.GetTransactionAsync(tx.Id, Arg.Any<CancellationToken>()).Returns(tx);
-
-        await Assert.ThrowsAsync<ForbiddenException>(() => new DeleteTransactionCommandHandler(Access, _transactions)
-            .Handle(new DeleteTransactionCommand(adminId, tx.Id), CancellationToken.None));
-    }
-
-    [Fact]
     public async Task Delete_Normal_Succeeds()
     {
         var (adminId, _, periodId) = SetUpOpenPeriod();
@@ -401,17 +369,6 @@ public sealed class TransactionHandlerTests
     }
 
     // ── MarkAsPaid / UnmarkAsPaid / SetExcluded ──────────────────────────────
-
-    [Fact]
-    public async Task MarkAsPaid_ArchivedPeriod_ThrowsForbidden()
-    {
-        var (adminId, profileId, periodId) = SetUpOpenPeriod();
-        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
-            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = true });
-
-        await Assert.ThrowsAsync<ForbiddenException>(() => new MarkTransactionAsPaidCommandHandler(Access, _transactions, _fixedExpenses, _profiles, NullLogger<MarkTransactionAsPaidCommandHandler>.Instance)
-            .Handle(new MarkTransactionAsPaidCommand(adminId, Guid.NewGuid(), periodId, new Money(50, 0), new DateOnly(2026, 2, 10)), CancellationToken.None));
-    }
 
     [Fact]
     public async Task MarkAsPaid_Succeeds()
@@ -491,17 +448,6 @@ public sealed class TransactionHandlerTests
             .Handle(new MarkTransactionAsPaidCommand(adminId, txId, periodId, new Money(65, 0), new DateOnly(2026, 2, 12)), CancellationToken.None);
 
         Assert.True(result.IsPaid);
-    }
-
-    [Fact]
-    public async Task UnmarkAsPaid_ArchivedPeriod_ThrowsForbidden()
-    {
-        var (adminId, profileId, periodId) = SetUpOpenPeriod();
-        _profiles.GetPeriodByIdAsync(periodId, Arg.Any<CancellationToken>())
-            .Returns(new BudgetPeriod { Id = periodId, BudgetProfileId = profileId, IsArchived = true });
-
-        await Assert.ThrowsAsync<ForbiddenException>(() => CreateUnmarkHandler()
-            .Handle(new UnmarkTransactionAsPaidCommand(adminId, Guid.NewGuid(), periodId), CancellationToken.None));
     }
 
     [Fact]

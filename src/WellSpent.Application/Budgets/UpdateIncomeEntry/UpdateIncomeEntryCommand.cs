@@ -17,10 +17,6 @@ public sealed class UpdateIncomeEntryCommandHandler(BudgetAccessGuard access, IB
         // the role check, so a non-collaborator on an archived period sees
         // the archived error, not a forbidden one.
         var period = await profiles.GetPeriodByIdAsync(request.BudgetPeriodId, ct);
-        if (period.IsArchived)
-        {
-            throw new WellSpent.Domain.Exceptions.ForbiddenException("this budget period is archived and read-only");
-        }
         await access.EnsureCollaboratorOrAboveAsync(period.BudgetProfileId, request.UserId, ct);
 
         var entry = await profiles.UpdateIncomeEntryAsync(request.Id, request.BudgetPeriodId, request.Amount.ToDecimal(), ct);

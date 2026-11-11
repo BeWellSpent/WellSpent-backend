@@ -36,11 +36,6 @@ public sealed class CreateFixedExpenseFromTransactionCommandHandler(
     {
         var period = await profiles.GetPeriodByIdAsync(request.BudgetPeriodId, ct);
         await access.EnsureCollaboratorOrAboveAsync(period.BudgetProfileId, request.UserId, ct);
-        if (period.IsArchived)
-        {
-            throw new AppValidationException("this budget period is archived and read-only");
-        }
-
         var tx = await transactions.GetTransactionAsync(request.TransactionId, ct);
         if (tx.BudgetPeriodId != request.BudgetPeriodId)
         {

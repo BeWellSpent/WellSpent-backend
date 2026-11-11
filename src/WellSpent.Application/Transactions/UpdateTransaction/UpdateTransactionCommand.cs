@@ -10,7 +10,7 @@ using WellSpent.Domain.Exceptions;
 namespace WellSpent.Application.Transactions.UpdateTransaction;
 
 /// <summary>
-/// A full edit, with two exceptions where only CategoryId and Flow may still change:
+/// A full edit, except for a Plaid-imported row, where only CategoryId and Flow may change.
 /// once the period has archived, and for any Plaid-imported row at any time.
 /// Deliberately does NOT call EnsureCollaboratorOfPeriodAsync (which would
 /// hard-block an archived period outright) — it does the role check directly
@@ -60,13 +60,10 @@ public sealed class UpdateTransactionCommandHandler(
             {
                 throw new ForbiddenException("access denied");
             }
-            if (period.IsArchived || existing.PlaidTransactionId is not null)
+            // A bank-imported row keeps what the bank said; only its category and flow are the user's.
+            if (existing.PlaidTransactionId is not null)
             {
                 TransactionRules.AssertOnlyCategoryChanged(edit, existing);
-            }
-            else
-            {
-                TransactionRules.AssertNotBackdated(transactionTypeId, request.Date, period);
             }
         }
 

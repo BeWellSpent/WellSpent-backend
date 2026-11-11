@@ -332,15 +332,6 @@ public sealed class PlaidSyncEngine(
                 continue;
             }
 
-            // Archived periods block mark-paid/exclude everywhere else; the sync must too.
-            if (period.IsArchived)
-            {
-                byAccount[accountName] = byAccount.GetValueOrDefault(accountName) + 1;
-                logger.LogInformation("plaid.sync_imported_into_archived_period plaid_item_id={PlaidItemId} name={Name} period_id={PeriodId}",
-                    item.Id, tx.Name, period.Id);
-                continue;
-            }
-
             // Scoped to this transaction's own period, not every live one (issue #41).
             var unpaid = await fixedExpenses.GetUnpaidTransactionInPeriodAsync(bestFe.Id, period.Id, inserted.Date, ct);
             var hasUnpaidTarget = unpaid is not null;
