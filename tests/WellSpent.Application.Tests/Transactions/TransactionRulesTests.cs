@@ -41,4 +41,12 @@ public sealed class TransactionRulesTests
         var edit = BaseTransaction(amount: 10.5m);
         TransactionRules.AssertOnlyCategoryChanged(edit, existing);
     }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(-1, null)]
+    [InlineData(null, null)]
+    [InlineData(7, 7)]
+    public void CategoryOrNull_TreatsZeroAsNoCategory(int? input, int? expected) =>
+        Assert.Equal(expected, TransactionRules.CategoryOrNull(input));
 }

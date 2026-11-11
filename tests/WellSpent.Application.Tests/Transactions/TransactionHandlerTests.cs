@@ -325,6 +325,22 @@ public sealed class TransactionHandlerTests
     }
 
     [Fact]
+    public async Task Update_CategoryZero_SavesNoCategory() // the contract's 0 = unset; storing it broke the FK
+    {
+        var (adminId, _, periodId) = SetUpOpenPeriod();
+        var existing = new Transaction { Id = Guid.NewGuid(), Amount = -3200m, PlannedAmount = -3200m, BudgetPeriodId = periodId, Flow = TransactionFlow.Refund };
+        _transactions.GetTransactionAsync(existing.Id, Arg.Any<CancellationToken>()).Returns(existing);
+        _transactions.UpdateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<Transaction>());
+
+        await CreateUpdateHandler().Handle(
+            new UpdateTransactionCommand(adminId, existing.Id, null, new Money(-3200, 0), new Money(-3200, 0), null, 0, null, null, null, TransactionFlow.Income),
+            CancellationToken.None);
+
+        await _transactions.Received(1).UpdateTransactionAsync(
+            Arg.Is<Transaction>(t => t.CategoryId == null && t.Flow == TransactionFlow.Income), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Update_PlaidImported_OnOpenPeriod_StillCategoryOnly()
     {
         var (adminId, profileId, periodId) = SetUpOpenPeriod();

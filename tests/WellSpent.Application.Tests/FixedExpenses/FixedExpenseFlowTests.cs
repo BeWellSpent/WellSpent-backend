@@ -28,4 +28,9 @@ public sealed class FixedExpenseFlowTests
     [InlineData("credit")]
     public void BuildEntity_RejectsFlowsABillCantHave(string flow) =>
         Assert.Throws<AppValidationException>(() => FixedExpenseNormalization.BuildEntity(Fields(flow)));
+
+    [Fact]
+    public void BuildEntity_CategoryZero_IsNoCategory() =>
+        Assert.Null(FixedExpenseNormalization.BuildEntity(new FixedExpenseFields(
+            "Gym", Money.FromDecimal(40m), 0, null, 1, 1, null, "month", 1, 1, null, 0)).CategoryId);
 }
