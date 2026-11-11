@@ -67,6 +67,7 @@ public sealed class PayFixedExpenseInFullCommandHandler(
                 PaymentMethodId = fe.PaymentMethodId,
                 TransactionTypeId = 1,
                 FixedExpenseId = fe.Id,
+                Flow = fe.Flow ?? TransactionFlow.Spend,
             }, ct);
 
             await FixedExpensePayoff.CheckAndApplyAsync(fixedExpenses, transactions, tx, fe, request.PaidDate, logger, ct);

@@ -16,29 +16,24 @@ public sealed class PlaidCategoryMappingTests
     ];
 
     [Fact]
-    public void EveryPlaidPrimaryResolves()
+    public void EveryPlaidPrimaryResolvesToACategoryOrAFlow()
     {
         foreach (var primary in PlaidPrimaries)
         {
             // An unrecognized detailed value under a known primary must still land somewhere.
-            var result = PlaidCategoryMapping.Resolve(primary, primary + "_SOMETHING_NEW");
-            Assert.False(string.IsNullOrEmpty(result), $"{primary} has no mapping — transactions under it would import uncategorized");
+            var detailed = primary + "_SOMETHING_NEW";
+            var category = PlaidCategoryMapping.Resolve(primary, detailed);
+            var flow = PlaidFlowMapping.Resolve("", primary, detailed);
+            Assert.True(category.Length > 0 || flow is not null, $"{primary} has neither a category nor a flow");
         }
     }
 
     [Fact]
-    public void IncomePrimaryMapsToIncome()
+    public void IncomeAndTransfersHaveNoCategory() // their meaning is the flow (#119)
     {
-        Assert.Equal("income", PlaidCategoryMapping.Resolve("INCOME", "INCOME_WAGES"));
-        Assert.Equal("income", PlaidCategoryMapping.Resolve("INCOME", "INCOME_DIVIDENDS"));
-        Assert.Equal("income", PlaidCategoryMapping.Resolve("INCOME", "INCOME_OTHER_INCOME"));
-    }
-
-    [Fact]
-    public void TransfersMappedToTransfer()
-    {
-        Assert.Equal("transfer", PlaidCategoryMapping.Resolve("TRANSFER_IN", "TRANSFER_IN_ACCOUNT_TRANSFER"));
-        Assert.Equal("transfer", PlaidCategoryMapping.Resolve("TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER"));
+        Assert.Equal("", PlaidCategoryMapping.Resolve("INCOME", "INCOME_WAGES"));
+        Assert.Equal("", PlaidCategoryMapping.Resolve("TRANSFER_IN", "TRANSFER_IN_ACCOUNT_TRANSFER"));
+        Assert.Equal("", PlaidCategoryMapping.Resolve("TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER"));
     }
 
     [Fact]
@@ -49,10 +44,8 @@ public sealed class PlaidCategoryMappingTests
     }
 
     [Fact]
-    public void CreditCardPaymentsMappedToPayment()
-    {
-        Assert.Equal("payment", PlaidCategoryMapping.Resolve("LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"));
-    }
+    public void CreditCardPaymentsHaveNoCategory_NotLoan() =>
+        Assert.Equal("", PlaidCategoryMapping.Resolve("LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"));
 
     [Theory]
     [InlineData("LOAN_PAYMENTS_CAR_PAYMENT")]

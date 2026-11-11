@@ -43,6 +43,7 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         existing.Name = fixedExpense.Name;
         existing.PlannedAmount = fixedExpense.PlannedAmount;
         existing.CategoryId = fixedExpense.CategoryId;
+        if (fixedExpense.Flow is not null) existing.Flow = fixedExpense.Flow;
         existing.PaymentMethodId = fixedExpense.PaymentMethodId;
         existing.DayOfMonth = fixedExpense.DayOfMonth;
         existing.IntervalMonths = fixedExpense.IntervalMonths;
@@ -110,7 +111,7 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
 
     public async Task UpdateTransactionFromFixedExpenseAsync(
         Guid fixedExpenseId, Guid budgetProfileId, string name, decimal plannedAmount,
-        int? categoryId, Guid? paymentMethodId, DateOnly date, CancellationToken ct)
+        int? categoryId, Guid? paymentMethodId, DateOnly date, CancellationToken ct, string? flow = null)
     {
         var tx = await db.Transactions
             .Where(t => t.FixedExpenseId == fixedExpenseId && !t.IsPaid &&
@@ -123,11 +124,12 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         tx.CategoryId = categoryId;
         tx.PaymentMethodId = paymentMethodId;
         tx.Date = date;
+        SetFlow(tx, flow);
         await SaveChangesCatchingConflictAsync(ct);
     }
 
     public async Task UpdatePaidTransactionFromFixedExpenseAsync(
-        Guid fixedExpenseId, Guid budgetProfileId, string name, int? categoryId, Guid? paymentMethodId, CancellationToken ct)
+        Guid fixedExpenseId, Guid budgetProfileId, string name, int? categoryId, Guid? paymentMethodId, CancellationToken ct, string? flow = null)
     {
         var tx = await db.Transactions
             .Where(t => t.FixedExpenseId == fixedExpenseId && t.IsPaid &&
@@ -137,7 +139,16 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         tx.Name = name;
         tx.CategoryId = categoryId;
         tx.PaymentMethodId = paymentMethodId;
+        SetFlow(tx, flow);
         await SaveChangesCatchingConflictAsync(ct);
+    }
+
+    /// <summary>The bill follows its template's flow; explicit, so the save-time derivation keeps it.</summary>
+    private void SetFlow(Transaction tx, string? flow)
+    {
+        if (flow is null) return;
+        tx.Flow = flow;
+        db.Entry(tx).Property(t => t.Flow).IsModified = true;
     }
 
     public async Task<Transaction?> GetUnpaidTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, DateOnly? targetDate, CancellationToken ct)

@@ -367,11 +367,11 @@ public static class BudgetEndpoints
     private sealed record FixedExpenseRequestBody(
         string Name, Money PlannedAmount, int? CategoryId, Guid? PaymentMethodId,
         int DayOfMonth, int IntervalMonths, DateOnly? AnchorDate, string? FrequencyUnit,
-        int IntervalWeeks, int DayOfWeek, DateOnly? EndDate, int TotalPayments)
+        int IntervalWeeks, int DayOfWeek, DateOnly? EndDate, int TotalPayments, string? Flow = null)
     {
         public FixedExpenseFields ToFields() => new(
             Name, PlannedAmount, CategoryId, PaymentMethodId, DayOfMonth, IntervalMonths,
-            AnchorDate, FrequencyUnit, IntervalWeeks, DayOfWeek, EndDate, TotalPayments);
+            AnchorDate, FrequencyUnit, IntervalWeeks, DayOfWeek, EndDate, TotalPayments, Flow);
     }
 
     private sealed record PayFixedExpenseInFullRequestBody(Money Amount, DateOnly PaidDate);

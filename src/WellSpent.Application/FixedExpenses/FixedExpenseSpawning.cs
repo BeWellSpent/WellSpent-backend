@@ -37,6 +37,7 @@ public static class FixedExpenseSpawning
                 PaymentMethodId = LivePaymentMethod(fe.PaymentMethodId, activePaymentMethodIds),
                 TransactionTypeId = FixedTransactionTypeId,
                 FixedExpenseId = fe.Id,
+                Flow = fe.Flow ?? TransactionFlow.Spend,
             }, ct);
         }
     }

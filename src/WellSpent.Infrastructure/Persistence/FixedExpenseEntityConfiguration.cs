@@ -21,6 +21,7 @@ public sealed class FixedExpenseEntityConfiguration : IEntityTypeConfiguration<F
         b.Property(x => x.Name).HasColumnName("name").IsRequired();
         b.Property(x => x.PlannedAmount).HasColumnName("planned_amount").HasColumnType("numeric(15,4)");
         b.Property(x => x.CategoryId).HasColumnName("category_id");
+        b.Property(x => x.Flow).HasColumnName("flow").HasDefaultValue(TransactionFlow.Spend);
         b.Property(x => x.PaymentMethodId).HasColumnName("payment_method_id");
         b.Property(x => x.DayOfMonth).HasColumnName("day_of_month");
         b.Property(x => x.IsActive).HasColumnName("is_active");

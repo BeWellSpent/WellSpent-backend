@@ -74,13 +74,13 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
-        await TransactionFlowDerivation.ApplyAsync(this, cancellationToken);
+        TransactionFlowDerivation.Apply(this);
         return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
-        TransactionFlowDerivation.ApplyAsync(this, CancellationToken.None).GetAwaiter().GetResult();
+        TransactionFlowDerivation.Apply(this);
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 }

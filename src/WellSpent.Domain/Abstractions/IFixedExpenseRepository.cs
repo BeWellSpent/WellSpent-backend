@@ -43,11 +43,11 @@ public interface IFixedExpenseRepository
     /// <summary>Propagates a template edit onto the current period's unpaid transaction.</summary>
     Task UpdateTransactionFromFixedExpenseAsync(
         Guid fixedExpenseId, Guid budgetProfileId, string name, decimal plannedAmount,
-        int? categoryId, Guid? paymentMethodId, DateOnly date, CancellationToken ct);
+        int? categoryId, Guid? paymentMethodId, DateOnly date, CancellationToken ct, string? flow = null);
 
     /// <summary>Propagates a template edit onto an already-paid transaction — name/category/payment method only, never the amount or paid state.</summary>
     Task UpdatePaidTransactionFromFixedExpenseAsync(
-        Guid fixedExpenseId, Guid budgetProfileId, string name, int? categoryId, Guid? paymentMethodId, CancellationToken ct);
+        Guid fixedExpenseId, Guid budgetProfileId, string name, int? categoryId, Guid? paymentMethodId, CancellationToken ct, string? flow = null);
 
     /// <summary>This fixed expense's unpaid transaction in a period, closest to targetDate — period-scoped and unpaid-only, unlike GetTransactionAsync.</summary>
     Task<Transaction?> GetUnpaidTransactionInPeriodAsync(Guid fixedExpenseId, Guid budgetPeriodId, DateOnly? targetDate, CancellationToken ct);

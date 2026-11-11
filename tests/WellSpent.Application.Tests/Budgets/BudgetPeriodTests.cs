@@ -210,6 +210,35 @@ public sealed class BudgetPeriodRolloverTests
     }
 
     [Fact]
+    public async Task EndedPeriod_SpawnedBillsCarryTheirTemplatesFlow()
+    {
+        var profile = new BudgetProfile { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Name = "x", Cycle = "monthly" };
+        _profiles.GetLatestPeriodAsync(profile.Id, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = Guid.NewGuid(), BudgetProfileId = profile.Id, StartDate = new DateOnly(2020, 1, 1), EndDate = new DateOnly(2020, 1, 31) });
+        _profiles.CreatePeriodAsync(Arg.Any<BudgetPeriod>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<BudgetPeriod>());
+        _profiles.ListIncomeSourcesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([]);
+        var rentByZelle = new WellSpent.Domain.Entities.FixedExpense
+        {
+            Id = Guid.NewGuid(), BudgetProfileId = profile.Id, Name = "Rent", PlannedAmount = 1850m,
+            DayOfMonth = 1, IntervalMonths = 1, CreatedAt = new DateTime(2020, 1, 1), Flow = TransactionFlow.Transfer,
+        };
+        var gym = new WellSpent.Domain.Entities.FixedExpense
+        {
+            Id = Guid.NewGuid(), BudgetProfileId = profile.Id, Name = "Gym", PlannedAmount = 40m,
+            DayOfMonth = 1, IntervalMonths = 1, CreatedAt = new DateTime(2020, 1, 1),
+        };
+        _fixedExpenses.ListAsync(profile.Id, Arg.Any<CancellationToken>()).Returns([rentByZelle, gym]);
+        _fixedExpenses.HasTransactionInMonthAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        await CreateNextPeriod(profile);
+
+        await _transactions.Received(1).CreateTransactionAsync(
+            Arg.Is<WellSpent.Domain.Entities.Transaction>(t => t.FixedExpenseId == rentByZelle.Id && t.Flow == TransactionFlow.Transfer), Arg.Any<CancellationToken>());
+        await _transactions.Received(1).CreateTransactionAsync(
+            Arg.Is<WellSpent.Domain.Entities.Transaction>(t => t.FixedExpenseId == gym.Id && t.Flow == TransactionFlow.Spend), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task EndedPeriod_SpawnsDueFixedExpense_SkipsNotYetDue()
     {
         var profile = new BudgetProfile { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Name = "x", Cycle = "monthly" };

@@ -1,0 +1,8 @@
+{
+  "component": "server",
+  "version": "2.27.0",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "Income, Payment and Transfer are no longer categories: what kind of transaction something is now lives in its own field. Transfers you had filed under Transfer show as uncategorized, ready to be filed under what they were for.", "es": "Ingreso, Pago y Transferencia ya no son categorías: el tipo de transacción ahora tiene su propio campo. Las transferencias que tenías en Transferencia aparecen sin categoría, listas para asignarles lo que fueron." } },
+    { "changeType": "added", "summary": { "en": "Fixed expenses carry the same kind as transactions (spending, a transfer or a card payment), and every bill they create follows it.", "es": "Los gastos fijos tienen el mismo tipo que las transacciones (gasto, transferencia o pago de tarjeta), y cada cargo que generan lo sigue." } }
+  ]
+}
