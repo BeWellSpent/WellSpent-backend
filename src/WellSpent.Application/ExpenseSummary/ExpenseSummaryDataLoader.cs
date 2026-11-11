@@ -43,6 +43,7 @@ public sealed class ExpenseSummaryDataLoader(
             IncomeSources = inputs.IncomeSources.ToList(),
             IncomeEntries = await profiles.ListIncomeEntriesAsync(period.Id, ct) ?? [],
             PaymentMethods = inputs.PaymentMethods.ToList(),
+            AllTransactions = rawTransactions,
             Transactions = rawTransactions.Where(t => !SpendFilter.IsNonSpendTransaction(t)).ToList(),
             IncomeTransactions = rawTransactions.Where(t => !t.IsExcluded && t.Flow == TransactionFlow.Income).ToList(),
             SavingsCategoryId = inputs.SavingsCategoryId,
