@@ -48,9 +48,11 @@ WORKDIR /app
 
 # Npgsql probes for GSSAPI (Kerberos) support on every connection attempt;
 # the base image doesn't ship it, which otherwise logs a benign but noisy
-# "Cannot load library libgssapi_krb5.so.2" warning on every connect.
-RUN apt-get update && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
-    && rm -rf /var/lib/apt/lists/*
+# "Cannot load library libgssapi_krb5.so.2" warning on every connect. Nothing
+# uses Kerberos, so a failed download (Ubuntu mirror unreachable) must not block a deploy.
+RUN (apt-get update && apt-get install -y --no-install-recommends libgssapi-krb5-2) \
+    || echo "WARNING: libgssapi-krb5-2 not installed; Npgsql will log a benign GSSAPI warning on connect" \
+    ; rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/api ./api
 COPY --from=builder /app/migrator ./migrator
