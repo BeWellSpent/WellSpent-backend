@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.26.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "Reports can show where your money went each period: income, refunds, transfers in and out, spending and card payments.", "es": "Los informes pueden mostrar a dónde fue tu dinero cada período: ingresos, reembolsos, transferencias recibidas y enviadas, gastos y pagos de tarjeta." } }
+  ]
+}

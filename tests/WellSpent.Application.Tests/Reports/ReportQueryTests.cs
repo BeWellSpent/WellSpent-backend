@@ -221,4 +221,29 @@ public sealed class ReportQueryTests
         Assert.Equal([true, true, false, false, false, false], report.Periods.Select(p => p.Locked));
         Assert.All(report.Periods.Where(p => p.Locked), p => Assert.Null(p.ActualSpending));
     }
+
+    [Fact]
+    public async Task Trends_PeriodsCarryFlowTotals_ForThePersonFiltered()
+    {
+        Bills(Started(0),
+            Spent(GroceriesId, 50m, _myCard),
+            new Transaction { Id = Guid.NewGuid(), CategoryId = GroceriesId, Amount = -12m, TransactionTypeId = 2, PaymentMethodId = _myCard, Flow = TransactionFlow.Transfer },
+            Spent(GroceriesId, 70m, _samCard));
+
+        var everyone = await Trends.Handle(new GetCategoryTrendsQuery(_userId, _profileId, 1, null), CancellationToken.None);
+        var sam = await Trends.Handle(new GetCategoryTrendsQuery(_userId, _profileId, 1, Sam), CancellationToken.None);
+
+        var flows = Assert.Single(everyone.Periods).Flows!;
+        Assert.Equal(120m, flows.Spent.ToDecimal()); // Spent() rows carry no flow: unsaved, read as spend
+        Assert.Equal(12m, flows.TransfersIn.ToDecimal());
+        Assert.Equal(70m, Assert.Single(sam.Periods).Flows!.Spent.ToDecimal());
+    }
+
+    [Fact]
+    public async Task Trends_LockedPeriods_HaveNoFlowTotals()
+    {
+        SetPlan("free");
+        var report = await Trends.Handle(new GetCategoryTrendsQuery(_userId, _profileId, 6, null), CancellationToken.None);
+        Assert.All(report.Periods.Where(p => p.Locked), p => Assert.Null(p.Flows));
+    }
 }

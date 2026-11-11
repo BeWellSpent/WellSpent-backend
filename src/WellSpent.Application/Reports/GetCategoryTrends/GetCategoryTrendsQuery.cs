@@ -2,6 +2,7 @@ using MediatR;
 using WellSpent.Application.Common;
 using WellSpent.Application.ExpenseSummary;
 using WellSpent.Domain.Abstractions;
+using WellSpent.Domain.Entities;
 
 namespace WellSpent.Application.Reports.GetCategoryTrends;
 
@@ -20,7 +21,7 @@ public sealed class GetCategoryTrendsQueryHandler(
     private const int MoverBaselinePeriods = 3;
     private const int MaxMovers = 5;
 
-    private sealed record PeriodSpend(Dictionary<int, decimal> ByCategory, decimal Total, decimal PlannedIncome);
+    private sealed record PeriodSpend(Dictionary<int, decimal> ByCategory, decimal Total, decimal PlannedIncome, FlowTotalsDto? Flows = null);
 
     public async Task<CategoryTrendsReportDto> Handle(GetCategoryTrendsQuery request, CancellationToken ct)
     {
@@ -42,8 +43,9 @@ public sealed class GetCategoryTrendsQueryHandler(
                 spend.Add(null);
                 continue;
             }
-            var summary = new ExpenseSummaryCalculator(await loader.LoadPeriodAsync(periods[i], inputs, ct)).Response();
-            spend.Add(Spend(summary, request.BudgetPersonId));
+            var data = await loader.LoadPeriodAsync(periods[i], inputs, ct);
+            var summary = new ExpenseSummaryCalculator(data).Response();
+            spend.Add(Spend(summary, request.BudgetPersonId) with { Flows = FlowTotals.Compute(Mine(data.AllTransactions, inputs, request.BudgetPersonId)) });
         }
 
         var shown = periods.Count - Math.Min(requested, periods.Count);
@@ -51,11 +53,19 @@ public sealed class GetCategoryTrendsQueryHandler(
                 ? new TrendPeriodDto(p.Id, p.StartDate, p.EndDate, true, null, null, [])
                 : new TrendPeriodDto(p.Id, p.StartDate, p.EndDate, false, Money.FromDecimal(s.Total), ReportRules.Percent(s.Total, s.PlannedIncome),
                     s.ByCategory.Where(c => c.Value != 0).OrderByDescending(c => c.Value)
-                        .Select(c => new CategoryAmountDto(c.Key, Money.FromDecimal(c.Value), ReportRules.Percent(c.Value, s.PlannedIncome))).ToList()))
+                        .Select(c => new CategoryAmountDto(c.Key, Money.FromDecimal(c.Value), ReportRules.Percent(c.Value, s.PlannedIncome))).ToList(), s.Flows))
             .Skip(shown)
             .ToList();
 
         return new CategoryTrendsReportDto(periodDtos, Movers(spend));
+    }
+
+    /// <summary>One person's transactions by payment-method attribution, as the totals use; everyone's otherwise.</summary>
+    private static IEnumerable<Transaction> Mine(List<Transaction> all, ExpenseSummaryProfileInputs inputs, long? personId)
+    {
+        if (personId is not { } person) return all;
+        var methods = inputs.PaymentMethods.Where(pm => pm.BudgetPersonId == person).Select(pm => pm.Id).ToHashSet();
+        return all.Where(t => t.PaymentMethodId is { } id && methods.Contains(id));
     }
 
     /// <summary>Everyone: the Overview rows plus uncategorized as category 0. One person: their own breakdowns.</summary>
