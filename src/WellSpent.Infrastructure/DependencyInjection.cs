@@ -34,11 +34,14 @@ public static class DependencyInjection
         services.AddScoped<IFixedExpenseRepository, FixedExpenseRepository>();
         services.AddScoped<IExpenseAllocationRepository, ExpenseAllocationRepository>();
         services.AddScoped<IBudgetPeriodPlanRepository, BudgetPeriodPlanRepository>();
+        services.AddScoped<IAppAttestRepository, AppAttestRepository>();
         services.AddScoped<ITransactionReviewRepository, TransactionReviewRepository>();
         services.AddScoped<IPlaidItemRepository, PlaidItemRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 
         services.AddSingleton<IJwtService, JwtService>();
+        services.AddMemoryCache();
+        services.AddSingleton<Application.AppAttest.IAuthRateLimiter, RateLimiting.MemoryAuthRateLimiter>();
         services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
         services.AddSingleton<ICryptoService, AesCryptoService>();
 

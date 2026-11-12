@@ -46,5 +46,8 @@ public sealed class User
     /// <summary>"standard" | "test" — "test" exempts the account from the client-side email-verification gate.</summary>
     public string AccountType { get; set; } = "standard";
 
+    /// <summary>False when the account was created from a device that couldn't attest (#121).</summary>
+    public bool Attested { get; set; } = true;
+
     public List<OAuthAccount> OAuthAccounts { get; set; } = [];
 }

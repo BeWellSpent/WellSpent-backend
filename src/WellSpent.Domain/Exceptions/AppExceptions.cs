@@ -30,3 +30,9 @@ public sealed class UnauthorizedException(string message) : Exception(message);
 /// Infrastructure.
 /// </summary>
 public sealed class ConflictException(string message, Exception? inner = null) : Exception(message, inner);
+
+/// <summary>Too many requests from one client; mapped to 429 with Retry-After.</summary>
+public sealed class TooManyRequestsException(string message, TimeSpan retryAfter) : Exception(message)
+{
+    public TimeSpan RetryAfter { get; } = retryAfter;
+}

@@ -32,6 +32,8 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
     public DbSet<FixedExpense> FixedExpenses => Set<FixedExpense>();
     public DbSet<ExpenseAllocation> ExpenseAllocations => Set<ExpenseAllocation>();
     public DbSet<BudgetPeriodPlan> BudgetPeriodPlans => Set<BudgetPeriodPlan>();
+    public DbSet<AppAttestKey> AppAttestKeys => Set<AppAttestKey>();
+    public DbSet<AppAttestChallenge> AppAttestChallenges => Set<AppAttestChallenge>();
     public DbSet<TransactionReview> TransactionReviews => Set<TransactionReview>();
     public DbSet<FixedExpenseAlias> FixedExpenseAliases => Set<FixedExpenseAlias>();
     public DbSet<AlertSubscription> AlertSubscriptions => Set<AlertSubscription>();
@@ -62,6 +64,8 @@ public class WellSpentDbContext(DbContextOptions<WellSpentDbContext> options) : 
         modelBuilder.ApplyConfiguration(new FixedExpenseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ExpenseAllocationEntityConfiguration());
         modelBuilder.ApplyConfiguration(new BudgetPeriodPlanEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new AppAttestKeyEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new AppAttestChallengeEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TransactionReviewEntityConfiguration());
         modelBuilder.ApplyConfiguration(new FixedExpenseAliasEntityConfiguration());
         modelBuilder.ApplyConfiguration(new AlertSubscriptionEntityConfiguration());

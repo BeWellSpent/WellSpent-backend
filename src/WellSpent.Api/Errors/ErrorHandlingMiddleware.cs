@@ -23,6 +23,10 @@ public sealed class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorH
         catch (Exception ex)
         {
             var (status, code) = MapException(ex);
+            if (ex is TooManyRequestsException limited)
+            {
+                context.Response.Headers.RetryAfter = ((int)Math.Ceiling(limited.RetryAfter.TotalSeconds)).ToString();
+            }
 
             // Logged with the resolved code so a 500 is traceable back to the
             // originating exception type without grepping a raw stack trace.
@@ -42,6 +46,7 @@ public sealed class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorH
         DuplicateException => (StatusCodes.Status409Conflict, "already_exists"),
         ConflictException => (StatusCodes.Status409Conflict, "conflict"),
         AppValidationException => (StatusCodes.Status400BadRequest, "invalid_argument"),
+        TooManyRequestsException => (StatusCodes.Status429TooManyRequests, "resource_exhausted"),
         _ => (StatusCodes.Status500InternalServerError, "internal"),
     };
 }

@@ -1,4 +1,5 @@
 using MediatR;
+using WellSpent.Application.AppAttest;
 using WellSpent.Application.Auth.AppleSignIn;
 using WellSpent.Application.Auth.GoogleAuthUrl;
 using WellSpent.Application.Auth.GoogleExchange;
@@ -17,17 +18,19 @@ public static class AuthEndpoints
     {
         var group = app.MapGroup("/rest/v1/auth").WithTags("auth");
 
-        group.MapPost("/register", async (RegisterRequestBody body, ISender sender, CancellationToken ct) =>
+        group.MapPost("/register", async (RegisterRequestBody body, HttpContext http, ISender sender, CancellationToken ct) =>
         {
             var result = await sender.Send(new RegisterCommand(
                 body.Email, body.Password, body.FirstName, body.LastName,
-                body.CountryCode, body.StateCode, body.Language, body.Currency, body.CaptchaToken, body.DeviceId), ct);
+                body.CountryCode, body.StateCode, body.Language, body.Currency, body.CaptchaToken, body.DeviceId,
+                ClientIp(http), body.AppAttest, body.AppAttestUnavailable), ct);
             return Results.Ok(new TokenResponse(result.AccessToken, "bearer", result.ExpiresIn, result.RefreshToken));
         });
 
-        group.MapPost("/login", async (LoginRequestBody body, ISender sender, CancellationToken ct) =>
+        group.MapPost("/login", async (LoginRequestBody body, HttpContext http, ISender sender, CancellationToken ct) =>
         {
-            var result = await sender.Send(new LoginCommand(body.Email, body.Password, body.RememberMe, body.DeviceId), ct);
+            var result = await sender.Send(new LoginCommand(
+                body.Email, body.Password, body.RememberMe, body.DeviceId, ClientIp(http), body.AppAttest, body.AppAttestUnavailable), ct);
             return Results.Ok(new LoginResponse(result.AccessToken, "bearer", result.ExpiresIn, result.Language, result.Currency, result.RefreshToken));
         });
 
@@ -76,11 +79,16 @@ public static class AuthEndpoints
         });
     }
 
+    // After UseForwardedHeaders, so behind Cloud Run this is the caller, not Google's front end.
+    private static string ClientIp(HttpContext http) => http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
     private sealed record RegisterRequestBody(
         string Email, string Password, string FirstName, string LastName,
-        string CountryCode, string StateCode, string Language, string Currency, string CaptchaToken, string DeviceId);
+        string CountryCode, string StateCode, string Language, string Currency, string CaptchaToken, string DeviceId,
+        AppAttestProof? AppAttest, string? AppAttestUnavailable);
 
-    private sealed record LoginRequestBody(string Email, string Password, bool RememberMe, string DeviceId);
+    private sealed record LoginRequestBody(
+        string Email, string Password, bool RememberMe, string DeviceId, AppAttestProof? AppAttest, string? AppAttestUnavailable);
 
     private sealed record LogoutRequestBody(string RefreshToken);
 

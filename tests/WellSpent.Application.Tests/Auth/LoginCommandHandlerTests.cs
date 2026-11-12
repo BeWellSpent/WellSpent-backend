@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using WellSpent.Application.Abstractions;
+using WellSpent.Application.AppAttest;
 using WellSpent.Application.Auth;
 using WellSpent.Application.Auth.Login;
 using WellSpent.Domain.Abstractions;
@@ -16,9 +18,15 @@ public sealed class LoginCommandHandlerTests
     private readonly IPasswordHasher _passwordHasher = Substitute.For<IPasswordHasher>();
     private readonly IJwtService _jwt = Substitute.For<IJwtService>();
     private readonly IRefreshTokenRepository _refreshTokens = Substitute.For<IRefreshTokenRepository>();
+    private readonly IAppAttestRepository _attestRepo = Substitute.For<IAppAttestRepository>();
+    private readonly IAuthRateLimiter _limiter = Substitute.For<IAuthRateLimiter>();
+    private bool _attestEnforced;
+
+    private AppAttestGate Gate() => new(_attestRepo,
+        Options.Create(new AppAttestOptions { EnforcementEnabled = _attestEnforced, AppId = "app" }), NullLogger<AppAttestGate>.Instance);
 
     private LoginCommandHandler CreateHandler() =>
-        new(_users, _passwordHasher, _jwt, _refreshTokens, NullLogger<LoginCommandHandler>.Instance);
+        new(_users, _passwordHasher, _jwt, _refreshTokens, Gate(), _limiter, NullLogger<LoginCommandHandler>.Instance);
 
     private static User ActiveUser(string? hashedPassword = "hashed") => new()
     {
@@ -123,5 +131,31 @@ public sealed class LoginCommandHandlerTests
         var ex = await Assert.ThrowsAsync<AppValidationException>(
             () => CreateHandler().Handle(new LoginCommand(user.Email, "x", false, "device-1"), CancellationToken.None));
         Assert.Equal("account uses OAuth login only", ex.Message);
+    }
+
+    [Fact]
+    public async Task AppAttestEnforced_NoProof_RejectsBeforeCheckingPassword()
+    {
+        _attestEnforced = true;
+
+        var ex = await Assert.ThrowsAsync<AppValidationException>(
+            () => CreateHandler().Handle(new LoginCommand("user@example.com", "x", false, "device-1"), CancellationToken.None));
+
+        Assert.Contains("device", ex.Message);
+        await _users.DidNotReceive().GetByEmailAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AppAttestEnforced_Unavailable_AllowedWithTightLimit()
+    {
+        _attestEnforced = true;
+        var user = ActiveUser();
+        _users.GetByEmailAsync(user.Email, Arg.Any<CancellationToken>()).Returns(user);
+        _passwordHasher.Verify("correct", "hashed").Returns(true);
+        _jwt.GenerateToken(user.Id, Arg.Any<TimeSpan>()).Returns("token");
+
+        await CreateHandler().Handle(new LoginCommand(user.Email, "correct", false, "device-1", "9.9.9.9", null, "service_error"), CancellationToken.None);
+
+        _limiter.Received().Hit("login:unattested", "9.9.9.9", 10, TimeSpan.FromHours(1));
     }
 }

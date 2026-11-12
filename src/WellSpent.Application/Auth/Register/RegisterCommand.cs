@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WellSpent.Application.Abstractions;
+using WellSpent.Application.AppAttest;
 using WellSpent.Application.Common;
 using WellSpent.Application.Configuration;
 using WellSpent.Domain.Abstractions;
@@ -20,7 +21,10 @@ public sealed record RegisterCommand(
     string Language,
     string Currency,
     string CaptchaToken,
-    string DeviceId) : IRequest<RegisterResult>;
+    string DeviceId,
+    string ClientIp = "",
+    AppAttestProof? AppAttest = null,
+    string? AppAttestUnavailable = null) : IRequest<RegisterResult>;
 
 public sealed record RegisterResult(string AccessToken, long ExpiresIn, string RefreshToken);
 
@@ -28,6 +32,8 @@ public sealed class RegisterCommandHandler(
     IUserRepository users,
     IPasswordHasher passwordHasher,
     ICaptchaVerifier captcha,
+    AppAttestGate appAttest,
+    IAuthRateLimiter rateLimiter,
     IJwtService jwt,
     IRefreshTokenRepository refreshTokens,
     VerificationMailer mailer,
@@ -39,12 +45,22 @@ public sealed class RegisterCommandHandler(
         var email = EmailValidator.NormalizeAndValidate(request.Email);
         PasswordValidator.Validate(request.Password);
 
-        // Cheap local checks first, then the external network call, then the
-        // DB round-trip below. "Couldn't verify" and "verification failed"
-        // are deliberately treated the same — Register has no use for the
-        // distinction, and failing open on a captcha outage would defeat the
-        // point of having one.
-        if (options.Value.CaptchaEnforcementEnabled)
+        var outcome = await appAttest.CheckAsync("register", email, request.AppAttest, request.AppAttestUnavailable, ct);
+        AuthRateLimits.Apply(rateLimiter, "register", request.ClientIp, outcome == AppAttestOutcome.Attested || !appAttest.EnforcementEnabled);
+        if (outcome == AppAttestOutcome.Invalid && appAttest.EnforcementEnabled)
+        {
+            throw new AppValidationException("couldn't verify this device");
+        }
+
+        // A device App Attest vouches for (or one that can't attest) skips the captcha; anything else needs it.
+        var deviceVouched = outcome is AppAttestOutcome.Attested or AppAttestOutcome.Unavailable;
+        if (!deviceVouched && !options.Value.CaptchaEnforcementEnabled && appAttest.EnforcementEnabled)
+        {
+            throw new AppValidationException("couldn't verify this device");
+        }
+
+        // "Couldn't verify" and "verification failed" are treated the same: failing open on a captcha outage would defeat it.
+        if (!deviceVouched && options.Value.CaptchaEnforcementEnabled)
         {
             bool verified;
             try
@@ -86,6 +102,7 @@ public sealed class RegisterCommandHandler(
             StateCode = string.IsNullOrEmpty(request.StateCode) ? null : request.StateCode,
             Language = lang,
             Currency = currency,
+            Attested = outcome == AppAttestOutcome.Attested,
         }, ct);
 
         // Best-effort — the account is already created; a failed send just
@@ -103,7 +120,7 @@ public sealed class RegisterCommandHandler(
         var rawRefreshToken = RefreshTokenGenerator.GenerateRaw();
         await refreshTokens.IssueAsync(user.Id, request.DeviceId, RefreshTokenGenerator.Hash(rawRefreshToken),
             (int)AuthConstants.DefaultTokenLifetime.TotalSeconds, DateTime.UtcNow.Add(AuthConstants.DefaultTokenLifetime), ct);
-        logger.LogInformation("auth.register.success user_id={UserId} device_id={DeviceId}", user.Id, request.DeviceId);
+        logger.LogInformation("auth.register.success user_id={UserId} device_id={DeviceId} app_attest={Outcome}", user.Id, request.DeviceId, outcome);
 
         return new RegisterResult(accessToken, (long)AuthConstants.AccessTokenLifetime.TotalSeconds, rawRefreshToken);
     }

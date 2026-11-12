@@ -1,4 +1,6 @@
 using System.Text;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
@@ -6,6 +8,7 @@ using Serilog.Events;
 using WellSpent.Api.Endpoints;
 using WellSpent.Api.Errors;
 using WellSpent.Application;
+using WellSpent.Application.AppAttest;
 using WellSpent.Application.Configuration;
 using WellSpent.Infrastructure;
 using WellSpent.Infrastructure.Configuration;
@@ -36,6 +39,48 @@ try
         o.ResendFromEmail = config.ResendFromEmail;
         o.CaptchaEnforcementEnabled = config.CaptchaEnforcementEnabled;
         o.EncryptionKey = config.EncryptionKey;
+    });
+    builder.Services.Configure<AppAttestOptions>(o =>
+    {
+        o.EnforcementEnabled = config.AppAttestEnforcementEnabled;
+        o.AppId = config.AppAttestAppId;
+        o.AllowDevelopment = config.AppAttestAllowDevelopment;
+    });
+
+    // Cloud Run's front end appends the caller's address to X-Forwarded-For; trust only that last hop.
+    builder.Services.Configure<ForwardedHeadersOptions>(o =>
+    {
+        o.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+        o.ForwardLimit = 1;
+        o.KnownIPNetworks.Clear();
+        o.KnownProxies.Clear();
+    });
+
+    // Restores the Go backend's per-IP token bucket. Health probes and Plaid webhooks are exempt.
+    builder.Services.AddRateLimiter(o =>
+    {
+        o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
+        {
+            var path = http.Request.Path;
+            if (path.StartsWithSegments("/health") || path.StartsWithSegments("/webhooks"))
+            {
+                return RateLimitPartition.GetNoLimiter("exempt");
+            }
+            return RateLimitPartition.GetTokenBucketLimiter(http.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new TokenBucketRateLimiterOptions
+            {
+                TokenLimit = config.RateLimitBurst,
+                TokensPerPeriod = config.RateLimitRps,
+                ReplenishmentPeriod = TimeSpan.FromSeconds(1),
+                QueueLimit = 0,
+            });
+        });
+        o.OnRejected = async (ctx, ct) =>
+        {
+            Log.Warning("http.rate_limited ip={Ip} path={Path}", ctx.HttpContext.Connection.RemoteIpAddress, ctx.HttpContext.Request.Path);
+            ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            ctx.HttpContext.Response.Headers.RetryAfter = "1";
+            await ctx.HttpContext.Response.WriteAsJsonAsync(new ErrorBody("resource_exhausted", "too many requests"), ct);
+        };
     });
 
     builder.Services
@@ -71,9 +116,11 @@ try
 
     var app = builder.Build();
 
+    app.UseForwardedHeaders();
     app.UseMiddleware<ErrorHandlingMiddleware>();
     app.UseSerilogRequestLogging();
     app.UseCors(corsPolicy);
+    app.UseRateLimiter();
     app.UseAuthentication();
     app.UseAuthorization();
 
@@ -90,6 +137,7 @@ try
     });
 
     app.MapAuthEndpoints();
+    app.MapAppAttestEndpoints();
     app.MapUserEndpoints();
     app.MapCountryEndpoints();
     app.MapStatusEndpoints();

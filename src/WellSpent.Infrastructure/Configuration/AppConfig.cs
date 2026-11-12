@@ -40,6 +40,14 @@ public sealed class AppConfig
     public string TurnstileSecretKey { get; init; } = "";
     public bool CaptchaEnforcementEnabled { get; init; }
 
+    public bool AppAttestEnforcementEnabled { get; init; }
+    public string AppAttestAppId { get; init; } = "";
+    public bool AppAttestAllowDevelopment { get; init; }
+
+    /// <summary>Per-IP token bucket on every route; same env vars and defaults as the Go backend.</summary>
+    public int RateLimitRps { get; init; } = 10;
+    public int RateLimitBurst { get; init; } = 30;
+
     /// <summary>Comma-separated, same env var and default as the Go backend's CORSAllowedOrigins.</summary>
     public string[] CorsAllowedOrigins { get; init; } = [];
 
@@ -96,6 +104,11 @@ public sealed class AppConfig
 
             TurnstileSecretKey = OptionalEnv("TURNSTILE_SECRET_KEY", ""),
             CaptchaEnforcementEnabled = OptionalEnv("CAPTCHA_ENFORCEMENT_ENABLED", "false") == "true",
+            AppAttestEnforcementEnabled = OptionalEnv("APP_ATTEST_ENFORCEMENT_ENABLED", "false") == "true",
+            AppAttestAppId = OptionalEnv("APP_ATTEST_APP_ID", "76FQ7V92H5.com.bewellspent.WellSpent"),
+            AppAttestAllowDevelopment = OptionalEnv("APP_ATTEST_ALLOW_DEVELOPMENT", env == "prod" ? "false" : "true") == "true",
+            RateLimitRps = int.Parse(OptionalEnv("RATE_LIMIT_RPS", "10")),
+            RateLimitBurst = int.Parse(OptionalEnv("RATE_LIMIT_BURST", "30")),
 
             CorsAllowedOrigins = OptionalEnv("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),

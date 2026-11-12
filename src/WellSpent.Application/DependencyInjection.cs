@@ -21,6 +21,8 @@ public static class DependencyInjection
         });
 
         services.AddScoped<Common.VerificationMailer>();
+        services.AddSingleton(_ => new AppAttest.AppAttestVerifier(AppAttest.AppAttestVerifier.LoadAppleRoot()));
+        services.AddScoped<AppAttest.AppAttestGate>();
         services.AddScoped<Common.SuperuserGuard>();
         services.AddScoped<Common.BudgetAccessGuard>();
         services.AddScoped<Budgets.TaxReserveRecalculator>();
