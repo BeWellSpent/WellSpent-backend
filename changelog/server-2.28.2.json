@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.28.2",
+  "items": [
+    { "changeType": "fixed", "summary": { "en": "Pending matches in past periods now show up for review.", "es": "Las coincidencias pendientes en períodos anteriores ahora aparecen para revisar." } }
+  ]
+}

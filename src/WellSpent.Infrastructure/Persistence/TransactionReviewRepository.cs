@@ -28,9 +28,9 @@ public sealed class TransactionReviewRepository(WellSpentDbContext db) : ITransa
             join t in db.Transactions on tr.TransactionId equals t.Id
             join mt in db.Transactions on tr.MatchedTransactionId equals mt.Id
             join bp in db.BudgetPeriods on tr.BudgetPeriodId equals bp.Id
+            // Every period's reviews: closed periods are editable, so their pending matches are actionable (#120).
             where bp.BudgetProfileId == budgetProfileId
                 && tr.Status != "dismissed"
-                && (tr.Status == "confirmed" || !bp.IsArchived)
             orderby tr.MatchScore descending
             select new { tr, t, mt }
         ).ToListAsync(ct);
