@@ -7,7 +7,9 @@ public sealed record TransactionReviewListRow(
     Guid Id, Guid BudgetPeriodId, Guid TransactionId, Guid MatchedTransactionId,
     decimal MatchScore, string Status, DateTime CreatedAt,
     string? TransactionName, decimal TransactionAmount, string? MatchedTransactionName,
-    int? TransactionPersonId, int? MatchedTransactionPersonId);
+    int? TransactionPersonId, int? MatchedTransactionPersonId,
+    DateOnly? TransactionDate = null, string? TransactionPaymentMethodName = null, bool TransactionImported = false,
+    decimal MatchedTransactionPlannedAmount = 0);
 
 public interface ITransactionReviewRepository
 {

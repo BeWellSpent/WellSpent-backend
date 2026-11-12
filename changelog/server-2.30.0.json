@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.30.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "Matches to review now say when the transaction happened, which card it was on, whether it came from your bank, and what the bill was planned at.", "es": "Las coincidencias para revisar ahora indican cuándo ocurrió la transacción, con qué tarjeta, si vino de tu banco y cuánto se había planificado para la factura." } }
+  ]
+}
