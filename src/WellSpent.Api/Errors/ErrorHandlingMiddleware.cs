@@ -20,6 +20,12 @@ public sealed class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorH
         {
             await next(context);
         }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // The client hung up (view dismissed, task cancelled); nothing failed and nobody reads a response.
+            logger.LogInformation("http.request_cancelled_by_client method={Method} path={Path}", context.Request.Method, context.Request.Path);
+            context.Response.StatusCode = ClientClosedRequest;
+        }
         catch (Exception ex)
         {
             var (status, code) = MapException(ex);
@@ -37,6 +43,9 @@ public sealed class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorH
             await context.Response.WriteAsync(JsonSerializer.Serialize(new ErrorBody(code, ex.Message)));
         }
     }
+
+    // nginx's convention for a request the client abandoned; never reaches the client.
+    private const int ClientClosedRequest = 499;
 
     private static (int Status, string Code) MapException(Exception ex) => ex switch
     {
