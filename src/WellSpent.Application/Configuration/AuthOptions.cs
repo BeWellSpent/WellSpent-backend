@@ -11,5 +11,8 @@ public sealed class AuthOptions
     public string FrontendUrl { get; set; } = "";
     public string ResendFromEmail { get; set; } = "";
     public bool CaptchaEnforcementEnabled { get; set; }
+
+    /// <summary>Off (dev only): addresses are marked verified instead of emailed a link.</summary>
+    public bool EmailVerificationEnabled { get; set; } = true;
     public string EncryptionKey { get; set; } = "";
 }

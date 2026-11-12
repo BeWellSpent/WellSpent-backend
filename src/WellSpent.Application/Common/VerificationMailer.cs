@@ -26,6 +26,13 @@ public sealed class VerificationMailer(
 
     public async Task SendAsync(User user, CancellationToken ct)
     {
+        if (!options.Value.EmailVerificationEnabled)
+        {
+            await users.MarkVerifiedAsync(user.Id, ct);
+            logger.LogInformation("auth.verification_email.skipped_auto_verified user_id={UserId}", user.Id);
+            return;
+        }
+
         var token = Guid.NewGuid();
         var now = DateTime.UtcNow;
         await users.SetEmailVerificationTokenAsync(user.Id, token, now.Add(Ttl), now, ct);
