@@ -67,6 +67,24 @@ public sealed class TransactionReviewHandlerTests
         Assert.Equal(80, result[0].MatchScore);
     }
 
+    [Fact]
+    public async Task List_CarriesWhereTheTransactionCameFrom()
+    {
+        var (adminId, profileId) = SetUpProfile();
+        _reviews.ListAsync(profileId, Arg.Any<CancellationToken>()).Returns([
+            new TransactionReviewListRow(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 92m, "pending", DateTime.UtcNow,
+                "NETFLIX.COM", 17.99m, "Netflix", 1, 1, new DateOnly(2026, 11, 9), "Chase Sapphire", true, 15.49m),
+        ]);
+
+        var review = (await new ListTransactionReviewsQueryHandler(Access, _reviews)
+            .Handle(new ListTransactionReviewsQuery(adminId, profileId), CancellationToken.None)).Single();
+
+        Assert.Equal(new DateOnly(2026, 11, 9), review.TransactionDate);
+        Assert.Equal("Chase Sapphire", review.TransactionPaymentMethodName);
+        Assert.True(review.TransactionImported);
+        Assert.Equal(15, review.MatchedTransactionPlannedAmount.Units);
+    }
+
     // ── MarkTransactionForReview ──────────────────────────────────────────
 
     [Fact]

@@ -38,18 +38,21 @@ public sealed class TransactionReviewRepository(WellSpentDbContext db) : ITransa
         var methodIds = joined
             .SelectMany(x => new[] { x.t.PaymentMethodId, x.mt.PaymentMethodId })
             .Where(id => id is not null).Select(id => id!.Value).Distinct().ToList();
-        var personByMethod = await db.PaymentMethods
+        var methods = await db.PaymentMethods
             .Where(pm => methodIds.Contains(pm.Id))
-            .ToDictionaryAsync(pm => pm.Id, pm => pm.BudgetPersonId, ct);
+            .ToDictionaryAsync(pm => pm.Id, pm => new { pm.BudgetPersonId, Name = pm.Alias ?? pm.Name }, ct);
 
         int? PersonFor(Guid? paymentMethodId) =>
-            paymentMethodId is { } id && personByMethod.TryGetValue(id, out var personId) ? personId : null;
+            paymentMethodId is { } id && methods.TryGetValue(id, out var method) ? method.BudgetPersonId : null;
+        string? MethodName(Guid? paymentMethodId) =>
+            paymentMethodId is { } id && methods.TryGetValue(id, out var method) ? method.Name : null;
 
         return joined.Select(x => new TransactionReviewListRow(
             x.tr.Id, x.tr.BudgetPeriodId, x.tr.TransactionId, x.tr.MatchedTransactionId,
             x.tr.MatchScore, x.tr.Status, x.tr.CreatedAt,
             x.t.Name, x.t.Amount, x.mt.Name,
-            PersonFor(x.t.PaymentMethodId), PersonFor(x.mt.PaymentMethodId))).ToList();
+            PersonFor(x.t.PaymentMethodId), PersonFor(x.mt.PaymentMethodId),
+            x.t.Date, MethodName(x.t.PaymentMethodId), x.t.PlaidTransactionId is not null, x.mt.PlannedAmount)).ToList();
     }
 
     public async Task<TransactionReview> GetByIdAsync(Guid id, CancellationToken ct) =>
