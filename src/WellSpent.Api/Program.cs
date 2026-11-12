@@ -38,6 +38,7 @@ try
         o.FrontendUrl = config.FrontendUrl;
         o.ResendFromEmail = config.ResendFromEmail;
         o.CaptchaEnforcementEnabled = config.CaptchaEnforcementEnabled;
+        o.EmailVerificationEnabled = config.EmailVerificationEnabled;
         o.EncryptionKey = config.EncryptionKey;
     });
     builder.Services.Configure<AppAttestOptions>(o =>

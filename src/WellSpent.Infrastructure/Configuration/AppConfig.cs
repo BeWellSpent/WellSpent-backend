@@ -39,6 +39,7 @@ public sealed class AppConfig
 
     public string TurnstileSecretKey { get; init; } = "";
     public bool CaptchaEnforcementEnabled { get; init; }
+    public bool EmailVerificationEnabled { get; init; } = true;
 
     public bool AppAttestEnforcementEnabled { get; init; }
     public string AppAttestAppId { get; init; } = "";
@@ -104,6 +105,7 @@ public sealed class AppConfig
 
             TurnstileSecretKey = OptionalEnv("TURNSTILE_SECRET_KEY", ""),
             CaptchaEnforcementEnabled = OptionalEnv("CAPTCHA_ENFORCEMENT_ENABLED", "false") == "true",
+            EmailVerificationEnabled = OptionalEnv("EMAIL_VERIFICATION_ENABLED", env == "prod" ? "true" : "false") == "true",
             AppAttestEnforcementEnabled = OptionalEnv("APP_ATTEST_ENFORCEMENT_ENABLED", "false") == "true",
             AppAttestAppId = OptionalEnv("APP_ATTEST_APP_ID", "76FQ7V92H5.com.bewellspent.WellSpent"),
             AppAttestAllowDevelopment = OptionalEnv("APP_ATTEST_ALLOW_DEVELOPMENT", env == "prod" ? "false" : "true") == "true",

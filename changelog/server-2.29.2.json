@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.29.2",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "Development servers can skip email verification; production is unchanged.", "es": "Los servidores de desarrollo pueden omitir la verificación de correo; producción no cambia." } }
+  ]
+}
