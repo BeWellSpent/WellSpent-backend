@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.29.1",
+  "items": [
+    { "changeType": "fixed", "summary": { "en": "Requests the app cancels are no longer recorded as server errors.", "es": "Las solicitudes que la app cancela ya no se registran como errores del servidor." } }
+  ]
+}
