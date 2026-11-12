@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using WellSpent.Application.Abstractions;
+using WellSpent.Application.AppAttest;
 using WellSpent.Application.Auth.Register;
 using WellSpent.Application.Common;
 using WellSpent.Application.Configuration;
@@ -20,12 +21,18 @@ public sealed class RegisterCommandHandlerTests
     private readonly IJwtService _jwt = Substitute.For<IJwtService>();
     private readonly IRefreshTokenRepository _refreshTokens = Substitute.For<IRefreshTokenRepository>();
     private readonly IEmailSender _emailSender = Substitute.For<IEmailSender>();
+    private readonly IAppAttestRepository _attestRepo = Substitute.For<IAppAttestRepository>();
+    private readonly IAuthRateLimiter _limiter = Substitute.For<IAuthRateLimiter>();
+    private bool _attestEnforced;
+
+    private AppAttestGate Gate() => new(_attestRepo,
+        Options.Create(new AppAttestOptions { EnforcementEnabled = _attestEnforced, AppId = "app" }), NullLogger<AppAttestGate>.Instance);
 
     private RegisterCommandHandler CreateHandler(bool captchaEnforced = false)
     {
         var options = Options.Create(new AuthOptions { CaptchaEnforcementEnabled = captchaEnforced, FrontendUrl = "http://localhost:3000" });
         var mailer = new VerificationMailer(_users, _emailSender, options, NullLogger<VerificationMailer>.Instance);
-        return new RegisterCommandHandler(_users, _passwordHasher, _captcha, _jwt, _refreshTokens, mailer, options, NullLogger<RegisterCommandHandler>.Instance);
+        return new RegisterCommandHandler(_users, _passwordHasher, _captcha, Gate(), _limiter, _jwt, _refreshTokens, mailer, options, NullLogger<RegisterCommandHandler>.Instance);
     }
 
     private static RegisterCommand ValidCommand() => new(
@@ -114,5 +121,71 @@ public sealed class RegisterCommandHandlerTests
         var result = await CreateHandler().Handle(ValidCommand(), CancellationToken.None);
 
         Assert.NotNull(result.AccessToken);
+    }
+
+    private void NewUserCanBeCreated()
+    {
+        _users.GetByEmailAsync("new@example.com", Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<User>(new NotFoundException("user", "new@example.com")));
+        _users.CreateAsync(Arg.Any<User>(), Arg.Any<CancellationToken>()).Returns(c => c.Arg<User>());
+    }
+
+    [Fact]
+    public async Task AppAttestEnforced_NoProofNoCaptcha_Rejects()
+    {
+        _attestEnforced = true;
+        NewUserCanBeCreated();
+
+        var ex = await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler().Handle(ValidCommand(), CancellationToken.None));
+
+        Assert.Contains("device", ex.Message);
+        await _users.DidNotReceive().CreateAsync(Arg.Any<User>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AppAttestEnforced_Unavailable_RegistersUnattestedWithTightLimit_SkipsCaptcha()
+    {
+        _attestEnforced = true;
+        NewUserCanBeCreated();
+
+        await CreateHandler(captchaEnforced: true).Handle(ValidCommand() with { ClientIp = "1.2.3.4", AppAttestUnavailable = "unsupported" }, CancellationToken.None);
+
+        await _users.Received().CreateAsync(Arg.Is<User>(u => !u.Attested), Arg.Any<CancellationToken>());
+        await _captcha.DidNotReceive().VerifyAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        _limiter.Received().Hit("register:unattested", "1.2.3.4", 3, TimeSpan.FromDays(1));
+    }
+
+    [Fact]
+    public async Task AppAttestEnforced_InvalidProof_RejectsEvenWithCaptcha()
+    {
+        _attestEnforced = true;
+        _captcha.VerifyAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        _attestRepo.ConsumeChallengeAsync("ch", Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(false);
+        NewUserCanBeCreated();
+
+        await Assert.ThrowsAsync<AppValidationException>(() => CreateHandler(captchaEnforced: true)
+            .Handle(ValidCommand() with { AppAttest = new AppAttestProof("k", "AA==", "ch") }, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AppAttestOff_Unattested_UsesNormalLimit()
+    {
+        NewUserCanBeCreated();
+
+        await CreateHandler().Handle(ValidCommand() with { ClientIp = "1.2.3.4" }, CancellationToken.None);
+
+        _limiter.Received().Hit("register:attested", "1.2.3.4", 10, TimeSpan.FromHours(1));
+        await _users.Received().CreateAsync(Arg.Is<User>(u => !u.Attested), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RateLimited_DoesNotCreateUser()
+    {
+        NewUserCanBeCreated();
+        _limiter.When(l => l.Hit(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<TimeSpan>()))
+            .Do(_ => throw new TooManyRequestsException("slow down", TimeSpan.FromMinutes(1)));
+
+        await Assert.ThrowsAsync<TooManyRequestsException>(() => CreateHandler().Handle(ValidCommand(), CancellationToken.None));
+        await _users.DidNotReceive().CreateAsync(Arg.Any<User>(), Arg.Any<CancellationToken>());
     }
 }

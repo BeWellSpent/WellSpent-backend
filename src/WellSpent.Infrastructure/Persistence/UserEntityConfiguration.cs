@@ -41,6 +41,7 @@ public sealed class UserEntityConfiguration : IEntityTypeConfiguration<User>
         b.Property(u => u.ActiveUntil).HasColumnName("active_until");
         b.Property(u => u.Plan).HasColumnName("plan");
         b.Property(u => u.AccountType).HasColumnName("account_type");
+        b.Property(u => u.Attested).HasColumnName("attested");
 
         b.HasMany(u => u.OAuthAccounts)
             .WithOne(o => o.User)

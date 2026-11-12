@@ -1,23 +1,33 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using WellSpent.Application.Abstractions;
+using WellSpent.Application.AppAttest;
 using WellSpent.Application.Common;
 using WellSpent.Domain.Abstractions;
 using WellSpent.Domain.Exceptions;
 
 namespace WellSpent.Application.Auth.Login;
 
-public sealed record LoginCommand(string Email, string Password, bool RememberMe, string DeviceId) : IRequest<LoginResult>;
+public sealed record LoginCommand(
+    string Email, string Password, bool RememberMe, string DeviceId,
+    string ClientIp = "", AppAttestProof? AppAttest = null, string? AppAttestUnavailable = null) : IRequest<LoginResult>;
 
 public sealed record LoginResult(string AccessToken, long ExpiresIn, string Language, string Currency, string RefreshToken);
 
 public sealed class LoginCommandHandler(
     IUserRepository users, IPasswordHasher passwordHasher, IJwtService jwt,
-    IRefreshTokenRepository refreshTokens, ILogger<LoginCommandHandler> logger)
+    IRefreshTokenRepository refreshTokens, AppAttestGate appAttest, IAuthRateLimiter rateLimiter, ILogger<LoginCommandHandler> logger)
     : IRequestHandler<LoginCommand, LoginResult>
 {
     public async Task<LoginResult> Handle(LoginCommand request, CancellationToken ct)
     {
+        var outcome = await appAttest.CheckAsync("login", request.Email, request.AppAttest, request.AppAttestUnavailable, ct);
+        AuthRateLimits.Apply(rateLimiter, "login", request.ClientIp, outcome == AppAttestOutcome.Attested || !appAttest.EnforcementEnabled);
+        if (appAttest.EnforcementEnabled && outcome is AppAttestOutcome.Invalid or AppAttestOutcome.Missing)
+        {
+            throw new AppValidationException("couldn't verify this device");
+        }
+
         Domain.Entities.User user;
         try
         {

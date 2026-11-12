@@ -1,0 +1,8 @@
+{
+  "component": "server",
+  "version": "2.29.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "Sign-up and sign-in from the iOS app are verified as coming from a genuine device, keeping automated accounts out.", "es": "El registro y el inicio de sesión desde la app de iOS se verifican como provenientes de un dispositivo genuino, para mantener fuera las cuentas automatizadas." } },
+    { "changeType": "added", "summary": { "en": "Repeated sign-in and sign-up attempts from the same connection are limited.", "es": "Se limitan los intentos repetidos de registro e inicio de sesión desde la misma conexión." } }
+  ]
+}
