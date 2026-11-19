@@ -228,7 +228,7 @@ public sealed class BudgetPeriodRolloverTests
             DayOfMonth = 1, IntervalMonths = 1, CreatedAt = new DateTime(2020, 1, 1),
         };
         _fixedExpenses.ListAsync(profile.Id, Arg.Any<CancellationToken>()).Returns([rentByZelle, gym]);
-        _fixedExpenses.HasTransactionInMonthAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>()).Returns(false);
+        _fixedExpenses.HasTransactionOnDateAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>()).Returns(false);
 
         await CreateNextPeriod(profile);
 
@@ -261,7 +261,7 @@ public sealed class BudgetPeriodRolloverTests
             DayOfMonth = 1, IntervalMonths = 3, CreatedAt = new DateTime(2020, 1, 15),
         };
         _fixedExpenses.ListAsync(profile.Id, Arg.Any<CancellationToken>()).Returns([due, quarterly]);
-        _fixedExpenses.HasTransactionInMonthAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>()).Returns(false);
+        _fixedExpenses.HasTransactionOnDateAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>()).Returns(false);
 
         await CreateNextPeriod(profile);
 

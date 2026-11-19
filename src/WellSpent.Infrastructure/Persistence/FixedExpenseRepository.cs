@@ -87,10 +87,6 @@ public sealed class FixedExpenseRepository(WellSpentDbContext db) : IFixedExpens
         await db.Transactions.Where(t => t.FixedExpenseId == fixedExpenseId && t.IsPaid)
             .SumAsync(t => (decimal?)t.Amount, ct) ?? 0m;
 
-    public async Task<bool> HasTransactionInMonthAsync(Guid fixedExpenseId, DateOnly monthStart, DateOnly monthEnd, CancellationToken ct) =>
-        await db.Transactions.AnyAsync(t =>
-            t.FixedExpenseId == fixedExpenseId && t.Date >= monthStart && t.Date < monthEnd, ct);
-
     public async Task<bool> HasTransactionOnDateAsync(Guid fixedExpenseId, DateOnly targetDate, CancellationToken ct) =>
         await db.Transactions.AnyAsync(t => t.FixedExpenseId == fixedExpenseId && t.Date == targetDate, ct);
 
