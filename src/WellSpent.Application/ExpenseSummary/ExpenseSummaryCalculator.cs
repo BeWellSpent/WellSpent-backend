@@ -406,12 +406,13 @@ public sealed class ExpenseSummaryCalculator
             var saved = _data.SavingsCategoryId is { } savingsCatId ? _actualByPersonCat.GetValueOrDefault((savingsCatId, p.Id)) : 0m;
             var incomePlanned = _data.IncomeSources.Where(s => s.BudgetPersonId == p.Id).Sum(s => s.DefaultAmount);
             var savedPlanned = _savingsByPerson.GetValueOrDefault(p.Id);
+            var spent = _spentByPerson.GetValueOrDefault(p.Id);
             return new PersonPeriodSummaryDto(
                 p.Id,
-                Money.FromDecimal(_spentByPerson.GetValueOrDefault(p.Id)), Money.FromDecimal(planned),
+                Money.FromDecimal(spent), Money.FromDecimal(planned),
                 Money.FromDecimal(saved), Money.FromDecimal(savedPlanned),
                 Money.FromDecimal(_actualIncomeByPerson.GetValueOrDefault(p.Id)), Money.FromDecimal(incomePlanned),
-                Money.FromDecimal(planned - savedPlanned), Money.FromDecimal(incomePlanned - planned));
+                Money.FromDecimal(planned - savedPlanned), Money.FromDecimal(incomePlanned - planned), Money.FromDecimal(spent - saved));
         }).ToList();
     }
 
