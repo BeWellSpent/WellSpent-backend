@@ -58,7 +58,7 @@ public sealed class UpdateFixedExpenseCommandHandler(
 
         var startDate = period.StartDate;
 
-        if (!FixedExpenseScheduling.IsDueInMonth(fe, startDate))
+        if (FixedExpenseScheduling.DueDateInPeriod(fe, startDate, period.EndDate) is not { } txDate)
         {
             try
             {
@@ -70,8 +70,6 @@ public sealed class UpdateFixedExpenseCommandHandler(
             }
             return FixedExpenseMapping.ToDto(fe, today, amountPaid);
         }
-
-        var txDate = FixedExpenseScheduling.DateInMonth(fe, startDate);
 
         // Asks whether the bill exists at all, not whether it is unpaid — the
         // narrower question made an already-paid bill look absent and spawned

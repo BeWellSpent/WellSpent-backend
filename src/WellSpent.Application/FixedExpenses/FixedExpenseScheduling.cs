@@ -45,6 +45,18 @@ public static class FixedExpenseScheduling
     /// <summary>fe's transaction date within monthStart's month, DayOfMonth clamped to that month's last day.</summary>
     public static DateOnly DateInMonth(FixedExpense fe, DateOnly monthStart) => DateInMonth(fe.DayOfMonth, monthStart);
 
+    /// <summary>A month-unit fe's due date inside [start, end] (end inclusive), or null; periods can span two calendar months.</summary>
+    public static DateOnly? DueDateInPeriod(FixedExpense fe, DateOnly start, DateOnly end)
+    {
+        for (var month = new DateOnly(start.Year, start.Month, 1); month <= end; month = month.AddMonths(1))
+        {
+            if (!IsDueInMonth(fe, month)) continue;
+            var date = DateInMonth(fe, month);
+            if (date >= start && date <= end) return date;
+        }
+        return null;
+    }
+
     /// <summary>The Monday of d's week.</summary>
     public static DateOnly WeekStart(DateOnly d)
     {

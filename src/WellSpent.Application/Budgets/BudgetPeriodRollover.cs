@@ -110,14 +110,10 @@ public static class BudgetPeriodRollover
             logger.LogError(ex, "period_rollover.tax_reserve_recalc_failed profile_id={ProfileId}", profile.Id);
         }
 
-        // Spawn fixed-expense transactions for the new period — only for
-        // expenses actually due this period's month, and at most once per
-        // calendar month even if a weekly/bi-weekly cycle lands more than one
-        // period inside that month. WEEK-unit expenses use a separate
-        // per-date path since a single period can contain several due weeks.
+        // Spawn fixed-expense transactions for the new period — only for expenses
+        // whose due date falls inside it (periods can span two months). WEEK-unit
+        // expenses use a separate per-date path since a period can hold several.
         var activePaymentMethodIds = await ActivePaymentMethodIdsAsync(transactions, profile.Id, logger, ct);
-        var monthStart = new DateOnly(start.Year, start.Month, 1);
-        var monthEnd = monthStart.AddMonths(1);
         List<Domain.Entities.FixedExpense> activeFixedExpenses;
         try
         {
@@ -144,15 +140,15 @@ public static class BudgetPeriodRollover
                         transactions, fixedExpenses, fe, period.Id, start, end, activePaymentMethodIds, ct);
                     continue;
                 }
-                if (!FixedExpenseScheduling.IsDueInMonth(fe, monthStart)) continue;
-                if (await fixedExpenses.HasTransactionInMonthAsync(fe.Id, monthStart, monthEnd, ct)) continue;
+                if (FixedExpenseScheduling.DueDateInPeriod(fe, start, end) is not { } dueDate) continue;
+                if (await fixedExpenses.HasTransactionOnDateAsync(fe.Id, dueDate, ct)) continue;
 
                 await transactions.CreateTransactionAsync(new Transaction
                 {
                     Name = fe.Name,
                     Amount = fe.PlannedAmount,
                     PlannedAmount = fe.PlannedAmount,
-                    Date = FixedExpenseScheduling.DateInMonth(fe, monthStart),
+                    Date = dueDate,
                     BudgetPeriodId = period.Id,
                     CategoryId = fe.CategoryId,
                     PaymentMethodId = FixedExpenseSpawning.LivePaymentMethod(fe.PaymentMethodId, activePaymentMethodIds),

@@ -20,6 +20,25 @@ public sealed class FixedExpenseSchedulingTests
             AnchorDate = anchorDate, FrequencyUnit = 2, TotalPayments = totalPayments,
         };
 
+    // ── DueDateInPeriod ───────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(19, 1, "2026-11-19", "2026-11-19")] // anchored in the period's second month (the F3 bug)
+    [InlineData(30, 1, "2026-10-30", "2026-10-30")] // in the period's first month
+    [InlineData(5, 1, "2026-10-05", "2026-11-05")]  // day already passed in the start month: next month's date
+    [InlineData(28, 1, "2026-10-28", "2026-10-28")] // on the start day
+    [InlineData(27, 1, "2026-11-27", "2026-11-27")] // on the inclusive end day
+    [InlineData(19, 3, "2026-08-19", "2026-11-19")] // quarterly from Aug: Nov 19 is due
+    [InlineData(19, 3, "2026-09-19", null)]         // quarterly from Sep: next is Dec, outside
+    [InlineData(1, 1, "2026-12-01", null)]          // anchored after the period
+    [InlineData(31, 1, "2026-10-31", "2026-10-31")] // Oct 31, not clamped Nov 30 outside the range
+    public void DueDateInPeriod_SpansTwoMonths(int day, int interval, string anchor, string? want)
+    {
+        var fe = Monthly(new DateTime(2026, 1, 1), interval, day, DateOnly.Parse(anchor));
+        var got = FixedExpenseScheduling.DueDateInPeriod(fe, new DateOnly(2026, 10, 28), new DateOnly(2026, 11, 27));
+        Assert.Equal(want is null ? null : DateOnly.Parse(want), got);
+    }
+
     // ── IsDueInMonth ──────────────────────────────────────────────────────
 
     [Theory]

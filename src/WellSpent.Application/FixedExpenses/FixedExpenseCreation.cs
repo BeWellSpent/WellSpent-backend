@@ -40,9 +40,9 @@ public static class FixedExpenseCreation
             return (fe, null);
         }
 
-        if (fe.AnchorDate is not null && !FixedExpenseScheduling.IsDueInMonth(fe, startDate))
+        if (FixedExpenseScheduling.DueDateInPeriod(fe, startDate, period.EndDate) is not { } dueDate)
         {
-            return (fe, null); // future-dated; no transaction until due
+            return (fe, null); // not due this period; rollover spawns it when it is
         }
 
         try
@@ -52,7 +52,7 @@ public static class FixedExpenseCreation
                 Name = fe.Name,
                 Amount = fe.PlannedAmount,
                 PlannedAmount = fe.PlannedAmount,
-                Date = FixedExpenseScheduling.DateInMonth(fe, startDate),
+                Date = dueDate,
                 BudgetPeriodId = period.Id,
                 CategoryId = fe.CategoryId,
                 PaymentMethodId = fe.PaymentMethodId,

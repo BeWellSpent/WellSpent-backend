@@ -26,7 +26,6 @@ public interface IFixedExpenseRepository
     /// <summary>Sum of Amount across every paid transaction linked to this template, across all periods — the amount-based basis for FixedExpensePayoff.RemainingBalance. Zero when there are none.</summary>
     Task<decimal> SumPaidAmountAsync(Guid fixedExpenseId, CancellationToken ct);
 
-    Task<bool> HasTransactionInMonthAsync(Guid fixedExpenseId, DateOnly monthStart, DateOnly monthEnd, CancellationToken ct);
     Task<bool> HasTransactionOnDateAsync(Guid fixedExpenseId, DateOnly targetDate, CancellationToken ct);
 
     /// <summary>

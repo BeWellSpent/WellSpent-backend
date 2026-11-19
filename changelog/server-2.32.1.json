@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.32.1",
+  "items": [
+    { "changeType": "fixed", "summary": { "en": "A fixed expense due in the second month of a period that spans two months now appears in that period instead of being treated as not due.", "es": "Un gasto fijo que vence en el segundo mes de un período que abarca dos meses ahora aparece en ese período en lugar de tratarse como no vencido." } }
+  ]
+}

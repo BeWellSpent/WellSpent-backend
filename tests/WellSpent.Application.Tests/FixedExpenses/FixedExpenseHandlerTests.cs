@@ -132,6 +132,25 @@ public sealed class FixedExpenseHandlerTests
     }
 
     [Fact]
+    public async Task Create_DueInPeriodsSecondMonth_SpawnsOnThatDate()
+    {
+        var (adminId, profileId) = SetUpProfile();
+        _profiles.GetLatestPeriodAsync(profileId, Arg.Any<CancellationToken>())
+            .Returns(new BudgetPeriod { Id = Guid.NewGuid(), BudgetProfileId = profileId, StartDate = new DateOnly(2026, 10, 28), EndDate = new DateOnly(2026, 11, 27) });
+        _fixedExpenses.CreateAsync(Arg.Any<FixedExpense>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { var fe = ci.Arg<FixedExpense>(); fe.Id = Guid.NewGuid(); return fe; });
+        _transactions.CreateTransactionAsync(Arg.Any<Transaction>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Transaction>());
+
+        var result = await new CreateFixedExpenseCommandHandler(Access, _fixedExpenses, _profiles, _transactions)
+            .Handle(new CreateFixedExpenseCommand(adminId, profileId, Fields(anchorDate: new DateOnly(2026, 11, 19))), CancellationToken.None);
+
+        await _transactions.Received(1).CreateTransactionAsync(
+            Arg.Is<Transaction>(t => t.Date == new DateOnly(2026, 11, 19)), Arg.Any<CancellationToken>());
+        Assert.NotNull(result.Transaction);
+    }
+
+    [Fact]
     public async Task Create_FutureAnchorDate_SkipsImmediateSpawn()
     {
         var (adminId, profileId) = SetUpProfile();
