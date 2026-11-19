@@ -391,6 +391,24 @@ public sealed class ExpenseSummaryCalculatorTests
     }
 
     [Fact]
+    public void People_ExpensesActual_IsSpendingWithoutSavings()
+    {
+        const int groceries = 1, savingsCat = 99, me = 1;
+        var card = Guid.NewGuid();
+        var data = Data(
+            people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = me, Role = "admin" }],
+            paymentMethods: [new PaymentMethod { Id = card, Name = "Checking", BudgetPersonId = me }],
+            transactions: [Tx(groceries, 500.00m, paymentMethodId: card), Tx(savingsCat, 150.00m, paymentMethodId: card)],
+            savingsCategoryId: savingsCat);
+
+        var mine = Assert.Single(new ExpenseSummaryCalculator(data).Response().People);
+
+        Assert.Equal(650.00m, mine.SpentActual.ToDecimal());
+        Assert.Equal(150.00m, mine.SavedActual.ToDecimal());
+        Assert.Equal(500.00m, mine.ExpensesActual.ToDecimal());
+    }
+
+    [Fact]
     public void UnattributedPlanned_UsesManualOverFixedPerCategory_AndIncludesPersonlessSavings()
     {
         const int rent = 1, utilities = 2, savingsCat = 99, me = 1;
