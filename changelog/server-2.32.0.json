@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.32.0",
+  "items": [
+    { "changeType": "added", "summary": { "en": "Each person's planned expenses are reported as already paid and still to pay, separate from their other spending.", "es": "Los gastos planificados de cada persona se informan como ya pagados y por pagar, separados del resto de su gasto." } }
+  ]
+}
