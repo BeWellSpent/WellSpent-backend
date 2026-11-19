@@ -409,6 +409,36 @@ public sealed class ExpenseSummaryCalculatorTests
     }
 
     [Fact]
+    public void People_FixedPaidAndToPay_SplitFromOtherSpending()
+    {
+        const int rent = 1, groceries = 2, savingsCat = 99, me = 1;
+        var card = Guid.NewGuid();
+        var data = Data(
+            people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = me, Role = "admin" }],
+            paymentMethods: [new PaymentMethod { Id = card, Name = "Checking", BudgetPersonId = me }],
+            transactions:
+            [
+                // Paid at a different amount than planned: paid counts the actual.
+                Tx(rent, 1850.00m, plannedAmount: 1800.00m, transactionTypeId: 1, isPaid: true, paymentMethodId: card),
+                Tx(rent, 1200.00m, transactionTypeId: 1, paymentMethodId: card),
+                Tx(groceries, 200.00m, paymentMethodId: card),
+                // Savings and unattributed fixed rows are left out of both.
+                Tx(savingsCat, 300.00m, transactionTypeId: 1, paymentMethodId: card),
+                Tx(savingsCat, 100.00m, transactionTypeId: 1, isPaid: true, paymentMethodId: card),
+                Tx(rent, 500.00m, transactionTypeId: 1),
+            ],
+            savingsCategoryId: savingsCat);
+
+        var mine = Assert.Single(new ExpenseSummaryCalculator(data).Response().People);
+
+        Assert.Equal(1850.00m, mine.FixedPaid.ToDecimal());
+        Assert.Equal(1200.00m, mine.FixedToPay.ToDecimal());
+        Assert.Equal(3050.00m, mine.FixedTotal.ToDecimal());
+        Assert.Equal(200.00m, mine.OtherSpent.ToDecimal());
+        Assert.Equal(mine.ExpensesActual.ToDecimal(), mine.OtherSpent.ToDecimal() + mine.FixedPaid.ToDecimal());
+    }
+
+    [Fact]
     public void UnattributedPlanned_UsesManualOverFixedPerCategory_AndIncludesPersonlessSavings()
     {
         const int rent = 1, utilities = 2, savingsCat = 99, me = 1;

@@ -9,7 +9,8 @@ public sealed record PersonActualIncomeDto(long BudgetPersonId, Money ActualInco
 /// <summary>One person's period for the Home screen. Spent figures include savings; Saved* is the savings part of each.</summary>
 public sealed record PersonPeriodSummaryDto(
     long BudgetPersonId, Money SpentActual, Money SpentPlanned, Money SavedActual, Money SavedPlanned,
-    Money IncomeActual, Money IncomePlanned, Money PlannedExpenses, Money PlannedRemaining, Money ExpensesActual);
+    Money IncomeActual, Money IncomePlanned, Money PlannedExpenses, Money PlannedRemaining, Money ExpensesActual,
+    Money FixedPaid, Money FixedToPay, Money FixedTotal, Money OtherSpent);
 
 /// <summary>
 /// ActualTotal/IsOver/NotDuePlannedTotal/NextDueDate are only ever populated
