@@ -20,7 +20,7 @@ public sealed record PersonPeriodSummaryDto(
 public sealed record CategoryExpenseSummaryDto(
     int CategoryId, Money PlannedTotal, Money? ActualTotal, bool IsOver,
     List<PersonExpenseSummaryDto> PersonBreakdowns, Money? NotDuePlannedTotal, DateOnly? NextDueDate,
-    Money? AllocatedTotal = null, Money? FixedDueTotal = null);
+    Money? AllocatedTotal = null, Money? FixedDueTotal = null, Money? FixedOutsideManualTotal = null);
 
 public sealed record GetExpenseSummaryDto(
     Money IncomeFromSources, Money IncomeFromEntries,

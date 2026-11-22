@@ -468,6 +468,48 @@ public sealed class ExpenseSummaryCalculatorTests
     }
 
     [Fact]
+    public void PlanCategory_ManualWinsPerOwner_CategorySumsOwners()
+    {
+        const int family = 1, groceries = 2, mauricio = 1, monica = 2;
+        var hisCard = Guid.NewGuid();
+        var herCard = Guid.NewGuid();
+        var data = Data(
+            people:
+            [
+                new BudgetPerson { BudgetProfileId = ProfileId, Id = mauricio, Role = "admin" },
+                new BudgetPerson { BudgetProfileId = ProfileId, Id = monica, Role = "admin" },
+            ],
+            paymentMethods:
+            [
+                new PaymentMethod { Id = hisCard, Name = "His", BudgetPersonId = mauricio },
+                new PaymentMethod { Id = herCard, Name = "Hers", BudgetPersonId = monica },
+            ],
+            allocations:
+            [
+                new ExpenseAllocation { CategoryId = family, BudgetPersonId = monica, PlannedAmount = 570m },
+                new ExpenseAllocation { CategoryId = family, PlannedAmount = 300m }, // shared
+                new ExpenseAllocation { CategoryId = groceries, BudgetPersonId = monica, PlannedAmount = 400m },
+            ],
+            transactions:
+            [
+                // His fixed bill is his plan; her manual amount doesn't cover it.
+                Tx(family, 550m, transactionTypeId: 1, paymentMethodId: hisCard),
+                // Her own fixed bill sits inside her own manual amount.
+                Tx(groceries, 100m, transactionTypeId: 1, paymentMethodId: herCard),
+            ]);
+
+        var plan = new ExpenseSummaryCalculator(data).Response().PlanCategories;
+
+        var familyRow = plan.Single(c => c.CategoryId == family);
+        Assert.Equal(1420m, familyRow.PlannedTotal.ToDecimal());            // 550 + 570 + 300
+        Assert.Equal(550m, familyRow.FixedOutsideManualTotal!.Value.ToDecimal());
+        Assert.Equal(870m, familyRow.AllocatedTotal!.Value.ToDecimal());
+        var groceriesRow = plan.Single(c => c.CategoryId == groceries);
+        Assert.Equal(400m, groceriesRow.PlannedTotal.ToDecimal());
+        Assert.Null(groceriesRow.FixedOutsideManualTotal);
+    }
+
+    [Fact]
     public void UnattributedPlanned_UsesManualOverFixedPerCategory_AndIncludesPersonlessSavings()
     {
         const int rent = 1, utilities = 2, savingsCat = 99, me = 1;

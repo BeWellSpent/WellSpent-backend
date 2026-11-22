@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.35.0",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "A category's plan adds up each person's plan: one person's manual amount no longer hides another person's fixed bills, and a shared amount adds to them too.", "es": "El plan de una categoría suma el plan de cada persona: el monto manual de una persona ya no oculta los gastos fijos de otra, y un monto compartido también se suma." } }
+  ]
+}

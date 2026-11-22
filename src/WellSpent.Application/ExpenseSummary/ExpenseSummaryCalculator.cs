@@ -230,17 +230,32 @@ public sealed class ExpenseSummaryCalculator
     private bool IsSavingsCategory(int catId) => _data.SavingsCategoryId == catId;
 
     /// <summary>
-    /// Mirrors web's getCatPlanned/getCategoryPlanned (identical on both the
-    /// Plan and Overview tabs): savings first, then allocations, then Fixed
-    /// transactions due this period. A not-yet-due Fixed template is
-    /// deliberately NOT a further fallback — it reports separately via
-    /// NotDuePlannedTotal.
+    /// Savings sums its sources. Otherwise each owner (a person, or no one)
+    /// gets their manual amount if they have one, else their fixed transactions
+    /// due this period, and the category is the sum — one person's manual
+    /// amount never hides another's fixed bills. A not-yet-due template is not
+    /// a fallback; it reports separately via NotDuePlannedTotal.
     /// </summary>
     private decimal PlannedTotal(int catId)
     {
         if (IsSavingsCategory(catId)) return _savingsTotal;
-        if (_allocByCat.TryGetValue(catId, out var alloc) && alloc != 0) return alloc;
-        return _fixedDueByCat.GetValueOrDefault(catId);
+        return UnattributedPlannedTotal(catId) + OwnersOf(catId).Sum(personId => PlannedTotalForPerson(catId, personId));
+    }
+
+    /// <summary>The people with an allocation or a due fixed transaction in this category.</summary>
+    private IEnumerable<int> OwnersOf(int catId) =>
+        _allocByPersonCat.Keys.Concat(_fixedDueByPersonCat.Keys).Where(k => k.CatId == catId).Select(k => k.PersonId).Distinct();
+
+    /// <summary>Fixed transactions whose owner has no manual amount here, so they add to it rather than sit inside it.</summary>
+    private decimal FixedOutsideManual(int catId)
+    {
+        var total = _allocUnattributedByCat.GetValueOrDefault(catId) == 0 ? _fixedDueUnattributedByCat.GetValueOrDefault(catId) : 0m;
+        foreach (var personId in OwnersOf(catId))
+        {
+            if (_allocByPersonCat.GetValueOrDefault((catId, personId)) == 0)
+                total += _fixedDueByPersonCat.GetValueOrDefault((catId, personId));
+        }
+        return total;
     }
 
     /// <summary>PlannedTotalForPerson's rule for the planned amounts that belong to nobody.</summary>
@@ -355,10 +370,12 @@ public sealed class ExpenseSummaryCalculator
             // The two inputs behind `planned`, so a client can say where it came from. Savings is neither.
             var allocated = IsSavingsCategory(catId) ? 0m : _allocByCat.GetValueOrDefault(catId);
             var fixedDue = IsSavingsCategory(catId) ? 0m : _fixedDueByCat.GetValueOrDefault(catId);
+            var fixedOutside = IsSavingsCategory(catId) ? 0m : FixedOutsideManual(catId);
             categories.Add(new CategoryExpenseSummaryDto(
                 catId, Money.FromDecimal(planned), null, false, BuildPersonBreakdowns(catId), notDue, nextDue,
                 allocated != 0 ? Money.FromDecimal(allocated) : null,
-                fixedDue != 0 ? Money.FromDecimal(fixedDue) : null));
+                fixedDue != 0 ? Money.FromDecimal(fixedDue) : null,
+                fixedOutside != 0 ? Money.FromDecimal(fixedOutside) : null));
             // Savings is an allocation, not an expense (issue #94) — kept out of totalCommitted, folded into the *IncludingSavings twin.
             if (!IsSavingsCategory(catId)) totalCommitted += planned;
             totalCommittedIncludingSavings += planned;
