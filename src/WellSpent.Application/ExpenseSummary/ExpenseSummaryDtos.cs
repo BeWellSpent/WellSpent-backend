@@ -10,7 +10,7 @@ public sealed record PersonActualIncomeDto(long BudgetPersonId, Money ActualInco
 public sealed record PersonPeriodSummaryDto(
     long BudgetPersonId, Money SpentActual, Money SpentPlanned, Money SavedActual, Money SavedPlanned,
     Money IncomeActual, Money IncomePlanned, Money PlannedExpenses, Money PlannedRemaining, Money ExpensesActual,
-    Money FixedPaid, Money FixedToPay, Money FixedTotal, Money OtherSpent);
+    Money PlannedSpent, Money OtherSpent);
 
 /// <summary>
 /// ActualTotal/IsOver/NotDuePlannedTotal/NextDueDate are only ever populated
