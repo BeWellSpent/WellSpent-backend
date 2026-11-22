@@ -409,36 +409,64 @@ public sealed class ExpenseSummaryCalculatorTests
     }
 
     [Fact]
-    public void People_PlannedSpent_CoversEveryPlannedCategory_OtherSpentTheRest()
+    public void People_PlanUsedCappedFixedFirst_OverPlanUnplannedAndLeftAfterBills()
     {
-        const int auto = 1, home = 2, rent = 3, groceries = 4, savingsCat = 99, me = 1;
+        const int pet = 1, loan = 2, utilities = 3, eatingOut = 4, house = 5, savingsCat = 99, me = 1;
         var card = Guid.NewGuid();
         var data = Data(
             people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = me, Role = "admin" }],
             paymentMethods: [new PaymentMethod { Id = card, Name = "Checking", BudgetPersonId = me }],
-            // Auto: manual 200 beats the 150 fixed bill. Home: manual 300, nothing spent. Rent: fixed only, unpaid.
-            allocations:
-            [
-                new ExpenseAllocation { CategoryId = auto, BudgetPersonId = me, PlannedAmount = 200.00m },
-                new ExpenseAllocation { CategoryId = home, BudgetPersonId = me, PlannedAmount = 300.00m },
-            ],
+            allocations: [new ExpenseAllocation { CategoryId = eatingOut, BudgetPersonId = me, PlannedAmount = 300m }],
+            savingsSources: [new SavingsSource { BudgetProfileId = ProfileId, Name = "Fund", Amount = 2850m, BudgetPersonId = me }],
+            incomeSources: [new IncomeSource { BudgetProfileId = ProfileId, Name = "Salary", DefaultAmount = 4000m, BudgetPersonId = me }],
             transactions:
             [
-                Tx(auto, 150.00m, transactionTypeId: 1, isPaid: true, paymentMethodId: card),
-                Tx(auto, 30.00m, paymentMethodId: card),
-                Tx(rent, 1000.00m, transactionTypeId: 1, paymentMethodId: card),
-                Tx(groceries, 40.00m, paymentMethodId: card),
-                Tx(null, 10.00m, paymentMethodId: card),
-                Tx(savingsCat, 100.00m, paymentMethodId: card),
+                // Pet: the unpaid bill keeps its 204 reserved, so the vet bills are all over plan.
+                Tx(pet, 204m, transactionTypeId: 1, paymentMethodId: card),
+                Tx(pet, 803m, paymentMethodId: card),
+                // Loan: plan 986, the paid 870 counts first, the unpaid 116 is reserved, the extra 436 is over.
+                Tx(loan, 870m, transactionTypeId: 1, isPaid: true, paymentMethodId: card),
+                Tx(loan, 116m, transactionTypeId: 1, paymentMethodId: card),
+                Tx(loan, 436m, paymentMethodId: card),
+                // Utilities: planned 245, paid 71 — counts the real 71, leaving 174 of plan unused.
+                Tx(utilities, 71m, plannedAmount: 245m, transactionTypeId: 1, isPaid: true, paymentMethodId: card),
+                Tx(eatingOut, 556m, paymentMethodId: card),
+                Tx(house, 461m, paymentMethodId: card),
+                Tx(null, 10m, paymentMethodId: card),
+                Tx(savingsCat, 250m, paymentMethodId: card),
             ],
             savingsCategoryId: savingsCat);
 
         var mine = Assert.Single(new ExpenseSummaryCalculator(data).Response().People);
 
-        Assert.Equal(1500.00m, mine.PlannedExpenses.ToDecimal()); // 200 + 300 + 1000
-        Assert.Equal(180.00m, mine.PlannedSpent.ToDecimal());     // auto 150 + 30
-        Assert.Equal(50.00m, mine.OtherSpent.ToDecimal());        // groceries 40 + uncategorized 10
-        Assert.Equal(mine.ExpensesActual.ToDecimal(), mine.OtherSpent.ToDecimal() + mine.PlannedSpent.ToDecimal());
+        Assert.Equal(1735m, mine.PlannedExpenses.ToDecimal());   // 204 + 986 + 245 + 300
+        Assert.Equal(1241m, mine.PlannedSpent.ToDecimal());      // 0 + 870 + 71 + 300
+        Assert.Equal(1495m, mine.OverPlan.ToDecimal());          // 803 + 436 + 256
+        Assert.Equal(471m, mine.Unplanned.ToDecimal());          // house 461 + uncategorized 10
+        Assert.Equal(mine.ExpensesActual.ToDecimal(), mine.PlannedSpent.ToDecimal() + mine.OverPlan.ToDecimal() + mine.Unplanned.ToDecimal());
+        Assert.Equal(mine.OverPlan.ToDecimal() + mine.Unplanned.ToDecimal(), mine.OtherSpent.ToDecimal());
+        Assert.Equal(320m, mine.FixedToPay.ToDecimal());         // 204 + 116
+        Assert.Equal(2600m, mine.SavingsToPay.ToDecimal());      // 2850 - 250
+        Assert.Equal(-2377m, mine.LeftAfterBills.ToDecimal());   // 4000 - 3457 - 320 - 2600
+    }
+
+    [Fact]
+    public void People_SavingsToPay_NeverNegative_AndLeftAfterBillsPositive()
+    {
+        const int savingsCat = 99, me = 1;
+        var card = Guid.NewGuid();
+        var data = Data(
+            people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = me, Role = "admin" }],
+            paymentMethods: [new PaymentMethod { Id = card, Name = "Checking", BudgetPersonId = me }],
+            savingsSources: [new SavingsSource { BudgetProfileId = ProfileId, Name = "Fund", Amount = 100m, BudgetPersonId = me }],
+            incomeSources: [new IncomeSource { BudgetProfileId = ProfileId, Name = "Salary", DefaultAmount = 1000m, BudgetPersonId = me }],
+            transactions: [Tx(savingsCat, 150m, paymentMethodId: card)],
+            savingsCategoryId: savingsCat);
+
+        var mine = Assert.Single(new ExpenseSummaryCalculator(data).Response().People);
+
+        Assert.Equal(0m, mine.SavingsToPay.ToDecimal());
+        Assert.Equal(850m, mine.LeftAfterBills.ToDecimal());
     }
 
     [Fact]

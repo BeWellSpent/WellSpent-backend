@@ -26,6 +26,11 @@ public sealed class ExpenseSummaryCalculator
     private readonly Dictionary<int, decimal> _spentByPerson = new();
     private decimal _unattributedSpent;
 
+    // Per-person Fixed transactions, savings excluded: paid actual and unpaid planned per category, and unpaid in total.
+    private readonly Dictionary<(int CatId, int PersonId), decimal> _fixedPaidByPersonCat = new();
+    private readonly Dictionary<(int CatId, int PersonId), decimal> _fixedUnpaidByPersonCat = new();
+    private readonly Dictionary<int, decimal> _fixedToPayByPerson = new();
+
     // Tier 1: allocations.
     private readonly Dictionary<int, decimal> _allocByCat = new();
     private readonly Dictionary<(int CatId, int PersonId), decimal> _allocByPersonCat = new();
@@ -116,6 +121,8 @@ public sealed class ExpenseSummaryCalculator
             {
                 var key = (catId, personId);
                 _actualByPersonCat[key] = _actualByPersonCat.GetValueOrDefault(key) + amt;
+                if (!isSavings && SpendFilter.IsFixed(tx))
+                    _fixedPaidByPersonCat[key] = _fixedPaidByPersonCat.GetValueOrDefault(key) + amt;
             }
         }
     }
@@ -149,6 +156,13 @@ public sealed class ExpenseSummaryCalculator
             // carries a category.
             if (tx.FixedExpenseId is { } feId) _dueFixedExpenseIds.Add(feId);
             _fixedDueTotal += tx.PlannedAmount;
+            if (!tx.IsPaid && !(tx.CategoryId is { } fc && IsSavingsCategory(fc))
+                && tx.PaymentMethodId is { } duePmId && _pmPersonMap.TryGetValue(duePmId, out var duePerson))
+            {
+                _fixedToPayByPerson[duePerson] = _fixedToPayByPerson.GetValueOrDefault(duePerson) + tx.PlannedAmount;
+                if (tx.CategoryId is { } dueCat)
+                    _fixedUnpaidByPersonCat[(dueCat, duePerson)] = _fixedUnpaidByPersonCat.GetValueOrDefault((dueCat, duePerson)) + tx.PlannedAmount;
+            }
             if (tx.CategoryId is not { } catId) continue;
 
             _fixedDueByCat[catId] = _fixedDueByCat.GetValueOrDefault(catId) + tx.PlannedAmount;
@@ -407,18 +421,41 @@ public sealed class ExpenseSummaryCalculator
             var incomePlanned = _data.IncomeSources.Where(s => s.BudgetPersonId == p.Id).Sum(s => s.DefaultAmount);
             var savedPlanned = _savingsByPerson.GetValueOrDefault(p.Id);
             var spent = _spentByPerson.GetValueOrDefault(p.Id);
-            // Spend in categories this person has a plan for, the same plan plannedExpenses sums; the rest is "other".
-            var plannedSpent = categoryIds
-                .Where(catId => !IsSavingsCategory(catId) && PlannedTotalForPerson(catId, p.Id) > 0)
-                .Sum(catId => _actualByPersonCat.GetValueOrDefault((catId, p.Id)));
+            var (plannedSpent, overPlan) = PlanUsed(categoryIds, p.Id);
+            var expenses = spent - saved;
+            var unplanned = expenses - plannedSpent - overPlan;
+            var fixedToPay = _fixedToPayByPerson.GetValueOrDefault(p.Id);
+            var savingsToPay = Math.Max(0m, savedPlanned - saved);
             return new PersonPeriodSummaryDto(
                 p.Id,
                 Money.FromDecimal(spent), Money.FromDecimal(planned),
                 Money.FromDecimal(saved), Money.FromDecimal(savedPlanned),
                 Money.FromDecimal(_actualIncomeByPerson.GetValueOrDefault(p.Id)), Money.FromDecimal(incomePlanned),
                 Money.FromDecimal(planned - savedPlanned), Money.FromDecimal(incomePlanned - planned), Money.FromDecimal(spent - saved),
-                Money.FromDecimal(plannedSpent), Money.FromDecimal(spent - saved - plannedSpent));
+                Money.FromDecimal(plannedSpent), Money.FromDecimal(expenses - plannedSpent),
+                Money.FromDecimal(overPlan), Money.FromDecimal(unplanned), Money.FromDecimal(fixedToPay), Money.FromDecimal(savingsToPay),
+                Money.FromDecimal(incomePlanned - spent - fixedToPay - savingsToPay));
         }).ToList();
+    }
+
+    /// <summary>Per planned category: paid fixed counts first at its real amount, unpaid fixed reserves its plan, other spending fills the rest; the excess is over plan.</summary>
+    private (decimal Used, decimal Over) PlanUsed(List<int> categoryIds, int personId)
+    {
+        decimal used = 0, over = 0;
+        foreach (var catId in categoryIds)
+        {
+            if (IsSavingsCategory(catId)) continue;
+            var plan = PlannedTotalForPerson(catId, personId);
+            if (plan <= 0) continue;
+            var actual = _actualByPersonCat.GetValueOrDefault((catId, personId));
+            var fixedPaid = _fixedPaidByPersonCat.GetValueOrDefault((catId, personId));
+            var fixedUsed = Math.Min(fixedPaid, plan);
+            var room = Math.Max(0m, plan - fixedUsed - _fixedUnpaidByPersonCat.GetValueOrDefault((catId, personId)));
+            var catUsed = fixedUsed + Math.Min(actual - fixedPaid, room);
+            used += catUsed;
+            over += actual - catUsed;
+        }
+        return (used, over);
     }
 
     public GetExpenseSummaryDto Response()
