@@ -446,27 +446,25 @@ public sealed class ExpenseSummaryCalculatorTests
         Assert.Equal(mine.ExpensesActual.ToDecimal(), mine.PlannedSpent.ToDecimal() + mine.OverPlan.ToDecimal() + mine.Unplanned.ToDecimal());
         Assert.Equal(mine.OverPlan.ToDecimal() + mine.Unplanned.ToDecimal(), mine.OtherSpent.ToDecimal());
         Assert.Equal(320m, mine.FixedToPay.ToDecimal());         // 204 + 116
-        Assert.Equal(2600m, mine.SavingsToPay.ToDecimal());      // 2850 - 250
-        Assert.Equal(223m, mine.LeftAfterBills.ToDecimal());     // 4000 - 3457 - 320; savings still to transfer not counted
+        Assert.Equal(223m, mine.LeftAfterBills.ToDecimal());     // 4000 - 3457 - 320; the 2600 of savings not yet made isn't counted
     }
 
     [Fact]
-    public void People_SavingsToPay_NeverNegative_AndLeftAfterBillsPositive()
+    public void People_LeftAfterBills_IgnoresSavingsNotYetMade()
     {
         const int savingsCat = 99, me = 1;
         var card = Guid.NewGuid();
         var data = Data(
             people: [new BudgetPerson { BudgetProfileId = ProfileId, Id = me, Role = "admin" }],
             paymentMethods: [new PaymentMethod { Id = card, Name = "Checking", BudgetPersonId = me }],
-            savingsSources: [new SavingsSource { BudgetProfileId = ProfileId, Name = "Fund", Amount = 100m, BudgetPersonId = me }],
+            savingsSources: [new SavingsSource { BudgetProfileId = ProfileId, Name = "Fund", Amount = 500m, BudgetPersonId = me }],
             incomeSources: [new IncomeSource { BudgetProfileId = ProfileId, Name = "Salary", DefaultAmount = 1000m, BudgetPersonId = me }],
             transactions: [Tx(savingsCat, 150m, paymentMethodId: card)],
             savingsCategoryId: savingsCat);
 
         var mine = Assert.Single(new ExpenseSummaryCalculator(data).Response().People);
 
-        Assert.Equal(0m, mine.SavingsToPay.ToDecimal());
-        Assert.Equal(850m, mine.LeftAfterBills.ToDecimal());
+        Assert.Equal(850m, mine.LeftAfterBills.ToDecimal()); // 1000 - 150 saved; the 350 still planned is not subtracted
     }
 
     [Fact]
