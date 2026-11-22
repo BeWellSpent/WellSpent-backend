@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.34.2",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "Each person's summary no longer reports savings still to transfer; the saved-of-planned figure already covers it.", "es": "El resumen de cada persona ya no informa los ahorros por transferir; la cifra de ahorrado de lo planificado ya lo cubre." } }
+  ]
+}

@@ -425,7 +425,6 @@ public sealed class ExpenseSummaryCalculator
             var expenses = spent - saved;
             var unplanned = expenses - plannedSpent - overPlan;
             var fixedToPay = _fixedToPayByPerson.GetValueOrDefault(p.Id);
-            var savingsToPay = Math.Max(0m, savedPlanned - saved);
             return new PersonPeriodSummaryDto(
                 p.Id,
                 Money.FromDecimal(spent), Money.FromDecimal(planned),
@@ -433,8 +432,8 @@ public sealed class ExpenseSummaryCalculator
                 Money.FromDecimal(_actualIncomeByPerson.GetValueOrDefault(p.Id)), Money.FromDecimal(incomePlanned),
                 Money.FromDecimal(planned - savedPlanned), Money.FromDecimal(incomePlanned - planned), Money.FromDecimal(spent - saved),
                 Money.FromDecimal(plannedSpent), Money.FromDecimal(expenses - plannedSpent),
-                Money.FromDecimal(overPlan), Money.FromDecimal(unplanned), Money.FromDecimal(fixedToPay), Money.FromDecimal(savingsToPay),
-                // Savings still to transfer is optional, so it never makes a person short.
+                Money.FromDecimal(overPlan), Money.FromDecimal(unplanned), Money.FromDecimal(fixedToPay),
+                // Planned savings is optional, so it never makes a person short.
                 Money.FromDecimal(incomePlanned - spent - fixedToPay));
         }).ToList();
     }
