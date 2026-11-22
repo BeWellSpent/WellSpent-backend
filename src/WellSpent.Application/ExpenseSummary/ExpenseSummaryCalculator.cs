@@ -26,10 +26,6 @@ public sealed class ExpenseSummaryCalculator
     private readonly Dictionary<int, decimal> _spentByPerson = new();
     private decimal _unattributedSpent;
 
-    // Per-person Fixed transactions, savings excluded: actual paid, and planned still unpaid.
-    private readonly Dictionary<int, decimal> _fixedPaidByPerson = new();
-    private readonly Dictionary<int, decimal> _fixedToPayByPerson = new();
-
     // Tier 1: allocations.
     private readonly Dictionary<int, decimal> _allocByCat = new();
     private readonly Dictionary<(int CatId, int PersonId), decimal> _allocByPersonCat = new();
@@ -106,11 +102,7 @@ public sealed class ExpenseSummaryCalculator
             }
 
             if (tx.PaymentMethodId is { } spenderPmId && _pmPersonMap.TryGetValue(spenderPmId, out var spender))
-            {
                 _spentByPerson[spender] = _spentByPerson.GetValueOrDefault(spender) + amt;
-                if (!isSavings && SpendFilter.IsFixed(tx))
-                    _fixedPaidByPerson[spender] = _fixedPaidByPerson.GetValueOrDefault(spender) + amt;
-            }
             else
                 _unattributedSpent += amt;
 
@@ -157,9 +149,6 @@ public sealed class ExpenseSummaryCalculator
             // carries a category.
             if (tx.FixedExpenseId is { } feId) _dueFixedExpenseIds.Add(feId);
             _fixedDueTotal += tx.PlannedAmount;
-            if (!tx.IsPaid && !(tx.CategoryId is { } fc && IsSavingsCategory(fc))
-                && tx.PaymentMethodId is { } duePmId && _pmPersonMap.TryGetValue(duePmId, out var duePerson))
-                _fixedToPayByPerson[duePerson] = _fixedToPayByPerson.GetValueOrDefault(duePerson) + tx.PlannedAmount;
             if (tx.CategoryId is not { } catId) continue;
 
             _fixedDueByCat[catId] = _fixedDueByCat.GetValueOrDefault(catId) + tx.PlannedAmount;
@@ -418,16 +407,17 @@ public sealed class ExpenseSummaryCalculator
             var incomePlanned = _data.IncomeSources.Where(s => s.BudgetPersonId == p.Id).Sum(s => s.DefaultAmount);
             var savedPlanned = _savingsByPerson.GetValueOrDefault(p.Id);
             var spent = _spentByPerson.GetValueOrDefault(p.Id);
-            var fixedPaid = _fixedPaidByPerson.GetValueOrDefault(p.Id);
-            var fixedToPay = _fixedToPayByPerson.GetValueOrDefault(p.Id);
+            // Spend in categories this person has a plan for, the same plan plannedExpenses sums; the rest is "other".
+            var plannedSpent = categoryIds
+                .Where(catId => !IsSavingsCategory(catId) && PlannedTotalForPerson(catId, p.Id) > 0)
+                .Sum(catId => _actualByPersonCat.GetValueOrDefault((catId, p.Id)));
             return new PersonPeriodSummaryDto(
                 p.Id,
                 Money.FromDecimal(spent), Money.FromDecimal(planned),
                 Money.FromDecimal(saved), Money.FromDecimal(savedPlanned),
                 Money.FromDecimal(_actualIncomeByPerson.GetValueOrDefault(p.Id)), Money.FromDecimal(incomePlanned),
                 Money.FromDecimal(planned - savedPlanned), Money.FromDecimal(incomePlanned - planned), Money.FromDecimal(spent - saved),
-                Money.FromDecimal(fixedPaid), Money.FromDecimal(fixedToPay), Money.FromDecimal(fixedPaid + fixedToPay),
-                Money.FromDecimal(spent - saved - fixedPaid));
+                Money.FromDecimal(plannedSpent), Money.FromDecimal(spent - saved - plannedSpent));
         }).ToList();
     }
 
