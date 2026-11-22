@@ -1,0 +1,7 @@
+{
+  "component": "server",
+  "version": "2.34.1",
+  "items": [
+    { "changeType": "fixed", "summary": { "en": "What each person has left after bills no longer subtracts savings still to transfer — savings is optional, so it never makes the month look short.", "es": "Lo que le queda a cada persona después de pagos ya no resta los ahorros por transferir — el ahorro es opcional, así que nunca hace que el mes parezca corto." } }
+  ]
+}

@@ -434,7 +434,8 @@ public sealed class ExpenseSummaryCalculator
                 Money.FromDecimal(planned - savedPlanned), Money.FromDecimal(incomePlanned - planned), Money.FromDecimal(spent - saved),
                 Money.FromDecimal(plannedSpent), Money.FromDecimal(expenses - plannedSpent),
                 Money.FromDecimal(overPlan), Money.FromDecimal(unplanned), Money.FromDecimal(fixedToPay), Money.FromDecimal(savingsToPay),
-                Money.FromDecimal(incomePlanned - spent - fixedToPay - savingsToPay));
+                // Savings still to transfer is optional, so it never makes a person short.
+                Money.FromDecimal(incomePlanned - spent - fixedToPay));
         }).ToList();
     }
 

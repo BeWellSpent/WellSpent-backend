@@ -447,7 +447,7 @@ public sealed class ExpenseSummaryCalculatorTests
         Assert.Equal(mine.OverPlan.ToDecimal() + mine.Unplanned.ToDecimal(), mine.OtherSpent.ToDecimal());
         Assert.Equal(320m, mine.FixedToPay.ToDecimal());         // 204 + 116
         Assert.Equal(2600m, mine.SavingsToPay.ToDecimal());      // 2850 - 250
-        Assert.Equal(-2377m, mine.LeftAfterBills.ToDecimal());   // 4000 - 3457 - 320 - 2600
+        Assert.Equal(223m, mine.LeftAfterBills.ToDecimal());     // 4000 - 3457 - 320; savings still to transfer not counted
     }
 
     [Fact]
