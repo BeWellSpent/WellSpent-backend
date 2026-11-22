@@ -1,0 +1,8 @@
+{
+  "component": "server",
+  "version": "2.34.0",
+  "items": [
+    { "changeType": "changed", "summary": { "en": "Each person's plan used counts each category only up to its plan, fixed bills first at what they really cost; spending beyond it is reported as over plan, separate from unplanned spending.", "es": "El plan usado de cada persona cuenta cada categoría solo hasta su plan, primero los gastos fijos por lo que realmente costaron; lo que lo supera se informa como sobre lo planificado, aparte del gasto sin planificar." } },
+    { "changeType": "added", "summary": { "en": "Each person's summary reports bills and savings still to pay, and what is left after them — or how much they need transferred to finish the month.", "es": "El resumen de cada persona informa los gastos y ahorros por pagar, y lo que queda después de ellos — o cuánto necesita que le transfieran para terminar el mes." } }
+  ]
+}
